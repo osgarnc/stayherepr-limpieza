@@ -55,8 +55,11 @@ Deno.serve(async (req) => {
     const propName = (id: string) => (props ?? []).find((p: any) => p.id === id)?.name ?? id;
     const proById = (id: string) => (pros ?? []).find((p: any) => p.id === id);
 
-    const { data: subs } = await sb.from("submissions").select("*").eq("status", "approved").is("archived_at", null);
-    if (!subs || subs.length === 0) return jsonResp({ ok: true, sent: 0, msg: "No hay nada aprobado pendiente de enviar." });
+    const { data: subs, error: subsErr } = await sb.from("submissions").select("*").eq("status", "approved").is("archived_at", null);
+    if (!subs || subs.length === 0) return jsonResp({
+      ok: true, sent: 0, msg: "No hay nada aprobado pendiente de enviar.",
+      debug: { serviceKeyLen: (SERVICE_KEY || "").length, url: SUPABASE_URL, subsErr: subsErr?.message ?? null, subsCount: subs?.length ?? null },
+    });
 
     const { data: items } = await sb.from("submission_items").select("*").in("submission_id", subs.map((s: any) => s.id));
     const itemsBySub: Record<string, any[]> = {};
@@ -76,7 +79,7 @@ Deno.serve(async (req) => {
       const list = groups[key].sort((a: any, b: any) => (a.date < b.date ? -1 : 1));
       const pro = proById(pid);
       const html = await buildEmail(pro, wk, list, itemsBySub, company, propName);
-      const subject = `Factura ${pro?.name ?? ""} · ${wk} al ${weekEnd(wk)}`;
+      const subject = `Factura ${pro?.name ?? ""} - Semana ${wk} al ${weekEnd(wk)}`;
       const r = await sendEmail(recipients, subject, html);
       if (r.ok) {
         sent++;
@@ -106,10 +109,10 @@ async function buildEmail(pro: any, wk: string, list: any[], itemsBySub: Record<
     if (s.type === "service") {
       svc += Number(s.total);
       const names = (itemsBySub[s.id] ?? []).map((i: any) => propName(i.property_id)).join(", ");
-      return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Servicio de limpieza — ${esc(names)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
+      return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Servicio de limpieza - ${esc(names)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
     }
     exp += Number(s.total);
-    return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Reembolso — ${esc(s.expense_desc)} (${esc(propName(s.property_id))})</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
+    return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Reembolso - ${esc(s.expense_desc)} (${esc(propName(s.property_id))})</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
   }).join("");
   const total = svc + exp;
 
@@ -128,7 +131,8 @@ async function buildEmail(pro: any, wk: string, list: any[], itemsBySub: Record<
     }
   }
 
-  return `<div style="font-family:Georgia,serif;color:#12261F;max-width:660px;margin:auto;padding:16px">
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#fff">
+    <div style="font-family:Georgia,serif;color:#12261F;max-width:660px;margin:auto;padding:16px">
     <h1 style="color:#0E7C7B;margin:0 0 4px">FACTURA</h1>
     <div style="font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin-bottom:16px">Período: ${wk} al ${weekEnd(wk)}</div>
     <table style="width:100%;font-family:Arial,sans-serif;font-size:13px;margin-bottom:16px"><tr>
@@ -139,12 +143,12 @@ async function buildEmail(pro: any, wk: string, list: any[], itemsBySub: Record<
       <thead><tr style="background:#12261F;color:#fff"><th style="text-align:left;padding:8px">Fecha</th><th style="text-align:left;padding:8px">Descripción</th><th style="text-align:right;padding:8px">Monto</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <p style="text-align:right;font-family:Arial,sans-serif;font-size:14px">Servicios: ${money(svc)} &nbsp;·&nbsp; Gastos: ${money(exp)}<br>
+    <p style="text-align:right;font-family:Arial,sans-serif;font-size:14px">Servicios: ${money(svc)} &nbsp;&nbsp; Gastos: ${money(exp)}<br>
       <b style="font-size:20px">TOTAL A PAGAR: ${money(total)}</b></p>
     <h2 style="color:#0E7C7B;font-size:18px;border-top:2px solid #E2D9C6;padding-top:16px">Reporte de fotos</h2>
     <div>${cards.join("") || '<p style="color:#3A5249">Sin fotos.</p>'}</div>
-    <p style="color:#3A5249;font-family:Arial,sans-serif;font-size:11px;margin-top:20px">Stay Here PR · Servicios de limpieza. Cada foto documenta dónde, cuándo, quién y por qué (antes, después, daño o recibo).</p>
-  </div>`;
+    <p style="color:#3A5249;font-family:Arial,sans-serif;font-size:11px;margin-top:20px">Stay Here PR - Servicios de limpieza. Cada foto documenta donde, cuando, quien y por que (antes, despues, dano o recibo).</p>
+    </div></body></html>`;
 }
 
 function photoCard(why: string, prop: string, date: string, url: string | null) {
@@ -152,5 +156,5 @@ function photoCard(why: string, prop: string, date: string, url: string | null) 
     ? `<img src="${url}" style="width:100%;height:150px;object-fit:cover;border-radius:8px">`
     : `<div style="height:150px;background:#eee;border-radius:8px;text-align:center;line-height:150px;color:#999">Sin foto</div>`;
   return `<div style="display:inline-block;width:180px;margin:6px;vertical-align:top;font-family:Arial,sans-serif;font-size:12px">
-    ${img}<div style="font-weight:bold;margin-top:4px">${why}</div><div style="color:#3A5249">${esc(prop)} · ${esc(date)}</div></div>`;
+    ${img}<div style="font-weight:bold;margin-top:4px">${why}</div><div style="color:#3A5249">${esc(prop)} - ${esc(date)}</div></div>`;
 }
