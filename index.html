@@ -233,6 +233,15 @@
     </div>
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Tarifa por día negociada, independiente para cada persona.</p>
     <div style="overflow:auto"><table id="ratesTable"></table></div>
+    <div style="border-top:1px solid var(--line);margin-top:20px;padding-top:16px">
+      <h3 style="font-size:16px;margin:0 0 4px">➕ Cargos adicionales (global)</h3>
+      <p class="muted" style="font-size:13px;margin-top:0">Montos que aplican a todo el personal. El personal solo marca si aplicaron al registrar el servicio.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+        <div class="field" style="margin:0"><label>Early Check-in ($)</label><input id="feeEarly" type="number" inputmode="decimal" onchange="setFee('fee_early_checkin',this.value)"></div>
+        <div class="field" style="margin:0"><label>Late Check-out ($)</label><input id="feeLate" type="number" inputmode="decimal" onchange="setFee('fee_late_checkout',this.value)"></div>
+        <div class="field" style="margin:0"><label>Extra huésped ($)</label><input id="feeGuest" type="number" inputmode="decimal" onchange="setFee('fee_extra_guest',this.value)"></div>
+      </div>
+    </div>
   </div>
   <div id="tabSettings" class="hide">
     <div class="card" style="padding:18px;margin-bottom:16px">
@@ -327,7 +336,7 @@ window.sb = sb;
 /* ---------- ESTADO (se llena desde Supabase en loadAll) ---------- */
 let properties=[];     // {id,name}
 let staff=[];          // {id,name,address,phone,taxid,email}
-let company={name:'',address:'',ein:'',email:'',phone:'',week_start_day:1};  // bill-to (company_settings)
+let company={name:'',address:'',ein:'',email:'',phone:'',week_start_day:1,fee_early_checkin:0,fee_late_checkout:0,fee_extra_guest:0};  // bill-to (company_settings)
 let distribution=[];   // {id,name,email,active}
 let users=[];          // profiles: {id,user(email),name,role,staffId,active}
 let rates={};          // rates[staffId][propId] = amount
@@ -365,7 +374,7 @@ async function loadAll(){
   (ratesR.data||[]).forEach(r=>{(rates[r.professional_id]=rates[r.professional_id]||{})[r.property_id]=Number(r.amount);});
   staff.forEach(s=>{rates[s.id]=rates[s.id]||{};});
   distribution=(distR.data||[]).map(d=>({id:d.id,name:d.label||d.email,email:d.email,active:d.active}));
-  if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||'',week_start_day:(compR.data.week_start_day??1)};
+  if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||'',week_start_day:(compR.data.week_start_day??1),fee_early_checkin:Number(compR.data.fee_early_checkin||0),fee_late_checkout:Number(compR.data.fee_late_checkout||0),fee_extra_guest:Number(compR.data.fee_extra_guest||0)};
   users=(profR.data||[]).map(p=>({id:p.id,user:p.email||'',name:p.display_name,role:p.role,staffId:p.staff_id,active:p.active}));
   const itemsBySub={};
   (itemsR.data||[]).forEach(it=>{(itemsBySub[it.submission_id]=itemsBySub[it.submission_id]||[]).push(it);});
@@ -373,7 +382,8 @@ async function loadAll(){
     if(s.type==='service'){
       const items=(itemsBySub[s.id]||[]).map(i=>({id:i.id,prop:i.property_id,
         before:!!i.photo_before,after:!!i.photo_after,pathBefore:i.photo_before,pathAfter:i.photo_after,
-        damage:i.damage_note||'',damagePhoto:!!i.damage_photo,pathDamage:i.damage_photo,rate:Number(i.rate_applied)}));
+        damage:i.damage_note||'',damagePhoto:!!i.damage_photo,pathDamage:i.damage_photo,rate:Number(i.rate_applied),
+        earlyCheckin:Number(i.early_checkin||0),lateCheckout:Number(i.late_checkout||0),extraGuest:Number(i.extra_guest||0)}));
       return {id:s.id,type:'service',staff:s.professional_id,date:s.date,items,total:Number(s.total),status:s.status,paid:s.paid,archivedAt:s.archived_at};
     }
     return {id:s.id,type:'expense',staff:s.professional_id,date:s.date,prop:s.property_id,desc:s.expense_desc||'',
@@ -472,7 +482,8 @@ function tabTo(t){
   document.getElementById('tab'+C).classList.toggle('hide',x!==t);
   document.getElementById('t'+C).classList.toggle('on',x===t);});}
 let selection={};
-function ensureSel(pid){if(!selection[pid])selection[pid]={beforeFile:null,afterFile:null,damage:'',damageFile:null};return selection[pid];}
+function ensureSel(pid){if(!selection[pid])selection[pid]={beforeFile:null,afterFile:null,damage:'',damageFile:null,earlyCheckin:false,lateCheckout:false,extraGuest:false};return selection[pid];}
+function toggleExtra(pid,which){const s=ensureSel(pid);s[which]=!s[which];renderPropList();}
 function isSelected(pid){return !!selection[pid];}
 function toggleProp(pid){if(selection[pid])delete selection[pid];else ensureSel(pid);renderPropList();}
 function photoBox(pid,which,has,labelOn,labelOff){
@@ -496,6 +507,12 @@ function renderPropList(){
           photoBox(p.id,'before',!!s.beforeFile,'✓ Antes','📷 Antes')+
           photoBox(p.id,'after',!!s.afterFile,'✓ Después','📷 Después')+
         '</div>'+
+        '<div style="display:flex;flex-direction:column;gap:6px;margin:10px 0">'+
+          '<div class="muted" style="font-size:12px;font-weight:600">Cargos adicionales (marca si aplicaron):</div>'+
+          extraChk(p.id,'earlyCheckin','Early Check-in',company.fee_early_checkin,s.earlyCheckin)+
+          extraChk(p.id,'lateCheckout','Late Check-out',company.fee_late_checkout,s.lateCheckout)+
+          extraChk(p.id,'extraGuest','Extra huésped',company.fee_extra_guest,s.extraGuest)+
+        '</div>'+
         '<details class="dmg" '+((s.damage||s.damageFile)?'open':'')+'>'+
           '<summary>⚠️ Reportar daño en la propiedad (opcional)</summary>'+
           '<textarea placeholder="Describe el daño encontrado…" oninput="setDamage(\''+p.id+'\',this.value)">'+s.damage+'</textarea>'+
@@ -511,7 +528,13 @@ function pickPhoto(pid,which,file){if(!file)return;const s=ensureSel(pid);
   if(which==='before')s.beforeFile=file;else if(which==='after')s.afterFile=file;else s.damageFile=file;
   renderPropList();}
 function setDamage(pid,v){ensureSel(pid).damage=v;}
-function recalc(){let t=0;const r=rates[currentStaff]||{};for(const pid in selection)t+=(r[pid]||0);
+function extraChk(pid,which,label,fee,on){
+  return '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;padding:8px 10px;border:1.5px solid '+(on?'var(--sea)':'var(--line)')+';border-radius:10px;background:'+(on?'#F1F9F8':'#fff')+'">'+
+    '<input type="checkbox" '+(on?'checked':'')+' onchange="toggleExtra(\''+pid+'\',\''+which+'\')" style="width:18px;height:18px;accent-color:var(--sea)">'+
+    '<span style="flex:1">'+label+'</span><b>+'+money(fee||0)+'</b></label>';
+}
+function extrasFor(pid){const s=selection[pid]||{};return (s.earlyCheckin?(company.fee_early_checkin||0):0)+(s.lateCheckout?(company.fee_late_checkout||0):0)+(s.extraGuest?(company.fee_extra_guest||0):0);}
+function recalc(){let t=0;const r=rates[currentStaff]||{};for(const pid in selection)t+=(r[pid]||0)+extrasFor(pid);
   document.getElementById('svcTotal').textContent=money(t);return t;}
 let _sending=false;
 async function submitService(){
@@ -532,7 +555,10 @@ async function submitService(){
       const pa=await upload(base+'_despues.jpg',s.afterFile);
       const pd=s.damageFile?await upload(base+'_dano.jpg',s.damageFile):null;
       const {error:ie}=await sb.from('submission_items').insert({submission_id:sub.id,property_id:pid,
-        photo_before:pb,photo_after:pa,damage_note:s.damage.trim()||null,damage_photo:pd});
+        photo_before:pb,photo_after:pa,damage_note:s.damage.trim()||null,damage_photo:pd,
+        early_checkin:s.earlyCheckin?(company.fee_early_checkin||0.01):0,
+        late_checkout:s.lateCheckout?(company.fee_late_checkout||0.01):0,
+        extra_guest:s.extraGuest?(company.fee_extra_guest||0.01):0});
       if(ie)console.error(ie);
     }
     const hadDmg=ids.some(pid=>selection[pid].damage.trim());
@@ -848,7 +874,20 @@ function renderDamage(){
     (rows.join('')||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">Sin daños reportados 🎉</td></tr>');
 }
 function renderRatesWho(){document.getElementById('rateWho').innerHTML=staff.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');}
+function renderExtraFees(){
+  const e=document.getElementById('feeEarly'),l=document.getElementById('feeLate'),g=document.getElementById('feeGuest');
+  if(e)e.value=company.fee_early_checkin||0;
+  if(l)l.value=company.fee_late_checkout||0;
+  if(g)g.value=company.fee_extra_guest||0;
+}
+async function setFee(field,val){
+  company[field]=parseFloat(val)||0;
+  const {error}=await sb.from('company_settings').update({[field]:company[field]}).eq('id',1);
+  if(error){console.error(error);toast('No se pudo guardar');return;}
+  toast('Cargo actualizado');
+}
 function renderRates(){
+  renderExtraFees();
   const who=document.getElementById('rateWho').value||(staff[0]&&staff[0].id);
   if(!who){document.getElementById('ratesTable').innerHTML='<tr><td class="muted" style="padding:16px">Aún no hay personal registrado.</td></tr>';return;}
   const r=rates[who]||{};
@@ -989,7 +1028,8 @@ async function previewOne(id){
   let rowsHtml='',cards=[];
   if(s.type==='service'){
     for(const i of s.items){
-      rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Servicio de limpieza - '+esc(propName(i.prop))+'</td><td class="r">'+money(i.rate)+'</td></tr>';
+      const ex=extrasLabel(i);
+      rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Servicio de limpieza - '+esc(propName(i.prop))+(ex.length?'<br><span style="color:#3A5249;font-size:11px">'+esc(ex.join(' · '))+'</span>':'')+'</td><td class="r">'+money(itemTotal(i))+'</td></tr>';
       const [b,a,d]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter),signedUrl(i.pathDamage)]);
       cards.push(pcard('Antes',propName(i.prop),s.date,b));
       cards.push(pcard('Después',propName(i.prop),s.date,a));
@@ -1109,11 +1149,14 @@ function openModal(title,inner){const ov=document.createElement('div');ov.classN
     '<button class="btn sm ghost" onclick="this.closest(\'.overlay\').remove()">Cerrar</button></div><div class="modal-body">'+inner+'</div></div>';
   document.body.appendChild(ov);}
 function imgOr(url,fake){return url?'<img src="'+url+'" style="width:100%;height:150px;object-fit:cover;border-radius:12px">':'<div class="fakeimg '+fake+'">Sin foto</div>';}
+function extrasLabel(i){const p=[];if((i.earlyCheckin||0)>0)p.push('Early Check-in '+money(i.earlyCheckin));if((i.lateCheckout||0)>0)p.push('Late Check-out '+money(i.lateCheckout));if((i.extraGuest||0)>0)p.push('Extra huésped '+money(i.extraGuest));return p;}
+function itemTotal(i){return (i.rate||0)+(i.earlyCheckin||0)+(i.lateCheckout||0)+(i.extraGuest||0);}
 async function viewService(id){const s=subs.find(x=>x.id===id);
   const blocks=await Promise.all(s.items.map(async i=>{
     const [b,a,d]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter),signedUrl(i.pathDamage)]);
+    const ex=extrasLabel(i);
     return '<div style="margin-bottom:16px">'+
-      '<div style="font-weight:700;margin-bottom:6px">'+propName(i.prop)+' — '+money(i.rate)+'</div>'+
+      '<div style="font-weight:700;margin-bottom:6px">'+propName(i.prop)+' — '+money(itemTotal(i))+(ex.length?'<div class="muted" style="font-weight:400;font-size:12px">Base '+money(i.rate)+' · '+ex.join(' · ')+'</div>':'')+'</div>'+
       '<div style="display:flex;gap:10px">'+
         '<div style="flex:1">'+imgOr(b,'before')+'<div class="muted" style="font-size:11px;text-align:center">Antes</div></div>'+
         '<div style="flex:1">'+imgOr(a,'after')+'<div class="muted" style="font-size:11px;text-align:center">Después</div></div>'+

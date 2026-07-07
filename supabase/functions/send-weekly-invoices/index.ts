@@ -110,7 +110,14 @@ async function buildEmail(pro: any, wk: string, list: any[], itemsBySub: Record<
     if (s.type === "service") {
       svc += Number(s.total);
       const names = (itemsBySub[s.id] ?? []).map((i: any) => propName(i.property_id)).join(", ");
-      return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Servicio de limpieza - ${esc(names)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
+      const ex: string[] = [];
+      (itemsBySub[s.id] ?? []).forEach((i: any) => {
+        if (Number(i.early_checkin) > 0) ex.push("Early Check-in");
+        if (Number(i.late_checkout) > 0) ex.push("Late Check-out");
+        if (Number(i.extra_guest) > 0) ex.push("Extra huésped");
+      });
+      const exLine = ex.length ? `<br><span style="color:#3A5249;font-size:11px">Cargos: ${esc(ex.join(", "))}</span>` : "";
+      return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Servicio de limpieza - ${esc(names)}${exLine}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
     }
     exp += Number(s.total);
     return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Reembolso - ${esc(s.expense_desc)} (${esc(propName(s.property_id))})</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
