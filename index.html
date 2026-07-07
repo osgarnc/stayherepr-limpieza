@@ -446,18 +446,16 @@ function applySession(){
   document.getElementById('chipName').textContent=session.name;
   const rEl=document.getElementById('chipRole');
   rEl.textContent=ROLE_LABEL[session.role];rEl.className='role '+session.role;
-  // El personal ve solo su formulario; dueño/admin solo el Back Office. Nadie usa el switch de modo.
+  // Cleaner: bloqueado a su formulario. Dueño/admin: pueden alternar; su vista Personal usa SU propio perfil.
   const isCleaner=session.role==='cleaner';
-  document.getElementById('modeSwitch').style.display='none';
+  document.getElementById('mOffice').style.display=isCleaner?'none':'';
+  document.getElementById('mCleaner').style.display=isCleaner?'none':'';
+  document.getElementById('modeSwitch').style.display=isCleaner?'none':'flex';
   document.getElementById('tUsers').style.display=can('users')?'':'none';
-  if(isCleaner){
-    currentStaff=session.staffId;
-    document.getElementById('cleanerName').textContent=session.name;
-    setMode('cleaner',true);
-    renderPropList();
-  } else {
-    setMode('office',true);
-  }
+  currentStaff=session.staffId;
+  document.getElementById('cleanerName').textContent=session.name;
+  if(isCleaner){ setMode('cleaner',true); renderPropList(); }
+  else { setMode('office',true); }
 }
 
 function setMode(m,force){
@@ -467,7 +465,10 @@ function setMode(m,force){
   document.getElementById('mCleaner').classList.toggle('on',m==='cleaner');
   document.getElementById('mOffice').classList.toggle('on',m==='office');
   if(m==='office')renderOffice();
-  if(m==='cleaner')renderPropList();
+  if(m==='cleaner'){
+    if(session&&session.role!=='cleaner'){const me=users.find(u=>u.id===session.id);currentStaff=me?me.staffId:session.staffId;}
+    renderPropList();
+  }
 }
 function segTo(s){
   document.getElementById('paneService').classList.toggle('hide',s!=='service');
@@ -491,7 +492,13 @@ function photoBox(pid,which,has,labelOn,labelOff){
     '<input type="file" accept="image/*" capture="environment" style="display:none" onchange="pickPhoto(\''+pid+'\',\''+which+'\',this.files[0])"></label>';
 }
 function renderPropList(){
-  const el=document.getElementById('propList');if(!el)return;el.innerHTML='';
+  const el=document.getElementById('propList');if(!el)return;
+  if(!currentStaff){
+    el.innerHTML='<div class="note">Tu cuenta no está vinculada a un perfil de personal. Vincúlala en <b>Back Office → Usuarios</b> (columna Perfil) para poder registrar servicios a tu nombre.</div>';
+    document.getElementById('svcTotal').textContent=money(0);
+    return;
+  }
+  el.innerHTML='';
   properties.forEach(p=>{
     const rate=(rates[currentStaff]||{})[p.id]||0;
     const on=isSelected(p.id);const s=selection[p.id];
