@@ -1,0 +1,1084 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stay Here PR — Servicios de Limpieza</title>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --ink:#12261F; --ink-soft:#3A5249; --sand:#F3EEE3; --card:#FFFFFF; --line:#E2D9C6;
+    --sea:#0E7C7B; --sea-deep:#0A5E5D; --coral:#E2683C; --gold:#C99A3B;
+    --ok:#1F8A57; --warn:#B9822A; --danger:#C0492E;
+    --shadow:0 6px 24px rgba(18,38,31,.10); --radius:16px; font-synthesis:none;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--sand);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;line-height:1.45}
+  h1,h2,h3{font-family:Georgia,"Times New Roman",serif;font-weight:600;letter-spacing:-.01em}
+  button{font-family:inherit;cursor:pointer;border:none}
+  input,select,textarea{font-family:inherit;font-size:16px}
+  .topbar{position:sticky;top:0;z-index:40;background:var(--ink);color:#fff;display:flex;align-items:center;gap:14px;padding:10px 16px}
+  .brand{display:flex;align-items:center;gap:10px;font-family:Georgia,serif;font-size:18px}
+  .brand .dot{width:12px;height:12px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 4px rgba(226,104,60,.25)}
+  .modeswitch{margin-left:auto;display:flex;background:rgba(255,255,255,.1);border-radius:999px;padding:4px}
+  .modeswitch button{background:transparent;color:#cfe0da;padding:7px 16px;border-radius:999px;font-size:13px;font-weight:600}
+  .modeswitch button.on{background:#fff;color:var(--ink)}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px 16px 80px}
+  .hide{display:none!important}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .muted{color:var(--ink-soft)}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px}
+  .pill.pending{background:#FBF1DA;color:var(--warn)}
+  .pill.approved{background:#E1F3E9;color:var(--ok)}
+  .pill.rejected{background:#F7E2DC;color:var(--danger)}
+  .pill.paid{background:#E1EEF3;color:#2b6a8a}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px}
+  .field input,.field select,.field textarea{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px;background:#fff;color:var(--ink)}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--sea)}
+  .btn{background:var(--sea);color:#fff;padding:13px 18px;border-radius:12px;font-weight:700;font-size:15px}
+  .btn:hover{background:var(--sea-deep)}
+  .btn.block{width:100%}
+  .btn.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line)}
+  .btn.ghost:hover{background:#faf7ef}
+  .btn.coral{background:var(--coral)}
+  .btn.sm{padding:8px 12px;font-size:13px}
+  .btn.ok{background:var(--ok)}
+  .btn.dgr{background:var(--danger)}
+  .btn.gold{background:var(--gold)}
+  .phone{max-width:420px;margin:24px auto;background:var(--card);border-radius:28px;border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden}
+  .phone-head{background:linear-gradient(150deg,var(--sea),var(--sea-deep));color:#fff;padding:22px 20px 26px}
+  .phone-head .who{font-size:13px;opacity:.85}
+  .phone-head h2{margin:2px 0 0;color:#fff;font-size:22px}
+  .phone-body{padding:18px 18px 24px}
+  .seg{display:flex;background:var(--sand);border-radius:12px;padding:4px;margin-bottom:18px}
+  .seg button{flex:1;background:transparent;padding:10px;border-radius:9px;font-weight:700;font-size:14px;color:var(--ink-soft)}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .prop-card{border:1.5px solid var(--line);border-radius:14px;margin-bottom:12px;overflow:hidden}
+  .prop-card.on{border-color:var(--sea)}
+  .prop-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;cursor:pointer}
+  .prop-card.on .prop-top{background:#F1F9F8}
+  .prop-top .rate{font-size:12px;color:var(--ink-soft)}
+  .chk{width:22px;height:22px;border-radius:7px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff}
+  .prop-card.on .chk{background:var(--sea);border-color:var(--sea)}
+  .prop-detail{padding:0 14px 14px;border-top:1px dashed var(--line)}
+  .photo-row{display:flex;gap:10px;margin:12px 0}
+  .photo{flex:1;border:1.5px dashed var(--line);border-radius:12px;padding:14px 8px;text-align:center;color:var(--ink-soft);font-size:12.5px;background:#FbFaf6;cursor:pointer}
+  .photo.has{border-style:solid;border-color:var(--ok);color:var(--ok);background:#F1F9F4}
+  .dmg{margin-top:6px}
+  .dmg summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--coral);list-style:none}
+  .dmg summary::-webkit-details-marker{display:none}
+  .dmg textarea{width:100%;margin-top:8px;padding:10px;border:1.5px solid var(--line);border-radius:10px;min-height:60px}
+  .dmg .photo{margin-top:8px}
+  .runtot{display:flex;justify-content:space-between;align-items:baseline;margin:16px 0;padding:14px;background:var(--ink);color:#fff;border-radius:12px}
+  .runtot b{font-size:22px;font-family:Georgia,serif}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+  .stat{padding:16px}
+  .stat .k{font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em}
+  .stat .v{font-family:Georgia,serif;font-size:26px;margin-top:4px}
+  .stat .v.coral{color:var(--coral)}
+  .stat .v.gold{color:var(--gold)}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+  .tabs button{background:#fff;border:1.5px solid var(--line);color:var(--ink-soft);padding:9px 15px;border-radius:999px;font-weight:600;font-size:14px}
+  .tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:12px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft)}
+  tr:last-child td{border-bottom:none}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--sea);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin-right:8px}
+  .rate-in{width:90px;padding:8px;border:1.5px solid var(--line);border-radius:9px}
+  .proof-link{color:var(--sea);font-weight:600;cursor:pointer;border-bottom:1px dotted}
+  .dmg-flag{color:var(--coral);font-weight:700;cursor:pointer;border-bottom:1px dotted}
+  .sectitle{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 12px;flex-wrap:wrap}
+  .sectitle h2{margin:0;font-size:20px}
+  .inv{border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  .inv-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .inv-head .who{font-weight:700;font-size:16px}
+  .inv-line{display:flex;justify-content:space-between;font-size:13.5px;padding:6px 0;border-bottom:1px dashed var(--line)}
+  .inv-line.tot{border-bottom:none;font-weight:700;font-size:16px;padding-top:10px}
+  .overlay{position:fixed;inset:0;background:rgba(18,38,31,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}
+  .modal{background:#fff;border-radius:18px;max-width:460px;width:100%;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  .modal-head{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .modal-body{padding:20px;max-height:72vh;overflow:auto}
+  .fakeimg{height:130px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:700;margin-bottom:6px;font-size:13px}
+  .fakeimg.before{background:linear-gradient(135deg,#e7d3c4,#d9b89f);color:#7a4a2a}
+  .fakeimg.after{background:linear-gradient(135deg,#cfe6e3,#a9d3cf);color:var(--sea-deep)}
+  .fakeimg.receipt{background:linear-gradient(135deg,#efe3c9,#e0cf9d);color:#7a5a1e}
+  .fakeimg.damage{background:linear-gradient(135deg,#f0cfc5,#e0a795);color:#7a3524}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:13px 20px;border-radius:12px;box-shadow:var(--shadow);z-index:80;font-size:14px;font-weight:600;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1;bottom:34px}
+  .note{font-size:12.5px;color:var(--ink-soft);background:#FBF7EC;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .userchip{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .userchip .role{font-family:Arial,sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 9px;border-radius:999px}
+  .role.owner{background:#F6E1C9;color:#8a5a1e}
+  .role.admin{background:#D5EAE8;color:#0A5E5D}
+  .role.cleaner{background:#E3E9DE;color:#3A5249}
+  .userchip .uname{color:#fff;font-size:14px;font-weight:600}
+  .userchip .logout{background:rgba(255,255,255,.12);color:#fff;font-size:12px;font-weight:600;padding:6px 12px;border-radius:8px}
+  .login-bg{position:fixed;inset:0;background:linear-gradient(160deg,#0E7C7B,#12261F);display:flex;align-items:center;justify-content:center;padding:18px;z-index:90}
+  .login{background:#fff;border-radius:20px;max-width:380px;width:100%;padding:32px 28px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .login h1{margin:0 0 4px;font-size:24px}
+  .login .sub{color:var(--ink-soft);font-size:13.5px;margin-bottom:22px}
+  .login .err{background:#F7E2DC;color:var(--danger);font-size:13px;padding:10px 12px;border-radius:10px;margin-bottom:14px;display:none}
+  .login .err.show{display:block}
+  .demo-hint{margin-top:18px;border-top:1px solid var(--line);padding-top:14px;font-family:Arial,sans-serif;font-size:12px;color:var(--ink-soft)}
+  .demo-hint b{color:var(--ink)}
+  .demo-hint .row{display:flex;justify-content:space-between;gap:8px;padding:4px 6px;cursor:pointer;border-radius:6px}
+  .demo-hint .row:hover{background:#f1f9f8;color:var(--sea)}
+  @media(max-width:560px){.wrap{padding:14px 10px 80px}}
+</style>
+
+<div id="loginScreen" class="login-bg">
+  <div class="login">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <span style="width:14px;height:14px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 4px rgba(226,104,60,.25)"></span>
+      <span style="font-family:Georgia,serif;font-size:15px;color:var(--ink-soft)">Stay Here PR · Limpieza</span>
+    </div>
+    <h1>Iniciar sesión</h1>
+    <div class="sub">Accede con tu correo y contraseña.</div>
+    <div id="loginErr" class="err">Correo o contraseña incorrectos.</div>
+    <div class="field"><label>Correo</label><input id="loginUser" type="email" autocomplete="username" placeholder="tucorreo@ejemplo.com"></div>
+    <div class="field"><label>Contraseña</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+    <button class="btn block" onclick="doLogin()">Entrar</button>
+    <button class="btn ghost block" style="margin-top:10px" onclick="doSignup()">Crear cuenta nueva</button>
+    <div class="demo-hint">
+      ¿Primera vez? Crea tu cuenta con tu correo y avisa al dueño para que la active y te asigne rol.
+    </div>
+  </div>
+</div>
+
+<div class="topbar">
+  <div class="brand"><span class="dot"></span> Stay&nbsp;Here&nbsp;PR · Limpieza</div>
+  <div class="modeswitch" id="modeSwitch">
+    <button id="mCleaner" class="on" onclick="setMode('cleaner')">📱 Personal</button>
+    <button id="mOffice" onclick="setMode('office')">🖥️ Back Office</button>
+  </div>
+  <div class="userchip" id="userChip" style="display:none">
+    <span class="uname" id="chipName"></span>
+    <span class="role" id="chipRole"></span>
+    <button class="logout" onclick="doLogout()">Salir</button>
+  </div>
+</div>
+
+<div id="viewCleaner" class="wrap">
+  <div class="phone">
+    <div class="phone-head">
+      <div class="who">Sesión de servicio · <span id="today"></span></div>
+      <h2 id="cleanerName">María Rivera</h2>
+    </div>
+    <div class="phone-body">
+      <div class="seg">
+        <button id="segService" class="on" onclick="segTo('service')">Servicio</button>
+        <button id="segExpense" onclick="segTo('expense')">Gasto</button>
+      </div>
+      <div id="paneService">
+        <div class="field"><label>Fecha del servicio</label><input type="date" id="svcDate"></div>
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">
+          Propiedades limpiadas <span class="muted" style="font-weight:400">— toca para abrir y adjuntar fotos</span>
+        </label>
+        <div id="propList"></div>
+        <div class="runtot"><span>Total del servicio</span><b id="svcTotal">$0.00</b></div>
+        <button class="btn block" onclick="submitService()">Enviar servicio</button>
+      </div>
+      <div id="paneExpense" class="hide">
+        <div class="field"><label>Fecha</label><input type="date" id="expDate"></div>
+        <div class="field"><label>Propiedad asociada</label><select id="expProp"></select></div>
+        <div class="field"><label>Descripción del gasto</label><input id="expDesc" placeholder="Ej: Detergente, bolsas de basura"></div>
+        <div class="field"><label>Monto ($)</label><input id="expAmt" type="number" inputmode="decimal" placeholder="0.00"></div>
+        <div class="field"><label>Foto del recibo</label>
+          <div id="expPhoto" class="photo" onclick="document.getElementById('expFileInput').click()">🧾 Toca para adjuntar recibo</div>
+          <input id="expFileInput" type="file" accept="image/*" capture="environment" style="display:none" onchange="pickExp(this.files[0])">
+        </div>
+        <button class="btn coral block" onclick="submitExpense()">Enviar gasto</button>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="max-width:420px;margin:12px auto 0">
+    Cada propiedad exige foto <b>antes</b> y <b>después</b>. El campo de <b>daño</b> es opcional y avisa a la administradora. Cambia de persona en Back Office → Tarifas.
+  </div>
+</div>
+
+<div id="viewOffice" class="wrap hide">
+  <div class="grid">
+    <div class="card stat"><div class="k">Pendientes</div><div class="v" id="stPending">0</div></div>
+    <div class="card stat"><div class="k">Daños reportados</div><div class="v coral" id="stDmg">0</div></div>
+    <div class="card stat"><div class="k">Servicios aprob.</div><div class="v" id="stSvc">$0</div></div>
+    <div class="card stat"><div class="k">Gastos aprob.</div><div class="v gold" id="stExp">$0</div></div>
+  </div>
+  <div class="tabs">
+    <button id="tInbox" class="on" onclick="tabTo('inbox')">📥 Bandeja</button>
+    <button id="tInvoices" onclick="tabTo('invoices')">🧾 Facturas semanales</button>
+    <button id="tDamage" onclick="tabTo('damage')">⚠️ Daños</button>
+    <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
+    <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
+    <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
+    <button id="tData" onclick="tabTo('data')">🗄️ Base de datos</button>
+  </div>
+  <div id="tabInbox" class="card" style="padding:18px">
+    <div class="sectitle"><h2>Bandeja de aprobación</h2><span class="muted" id="inboxCount"></span></div>
+    <div style="overflow:auto"><table id="inboxTable"></table></div>
+  </div>
+  <div id="tabInvoices" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>Facturas por semana</h2><span class="muted">Renglones aprobados agrupados por persona</span></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Cada semana (lun–dom) agrupa los servicios y gastos aprobados de cada persona en una factura pagadera.</p>
+    <div id="invoiceList"></div>
+  </div>
+  <div id="tabDamage" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>Reportes de daño</h2></div>
+    <div style="overflow:auto"><table id="damageTable"></table></div>
+  </div>
+  <div id="tabRates" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>Tarifas por persona / propiedad</h2>
+      <select id="rateWho" onchange="renderRates()" style="padding:9px 12px;border:1.5px solid var(--line);border-radius:10px"></select>
+    </div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Tarifa por día negociada, independiente para cada persona.</p>
+    <div style="overflow:auto"><table id="ratesTable"></table></div>
+  </div>
+  <div id="tabSettings" class="hide">
+    <div class="card" style="padding:18px;margin-bottom:16px">
+      <div class="sectitle"><h2>🏠 Propiedades</h2></div>
+      <p class="muted" style="font-size:13.5px;margin-top:-4px">Los Airbnb que administras. Después les pones tarifa por persona en la pestaña <b>Tarifas</b>.</p>
+      <div style="overflow:auto"><table id="propTable"></table></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:flex-end">
+        <div class="field" style="margin:0;flex:1.2;min-width:170px"><label>Nombre de la propiedad</label><input id="npName" placeholder="Ej: Casa Coral — Ponce"></div>
+        <div class="field" style="margin:0;flex:1;min-width:150px"><label>Dirección (opcional)</label><input id="npAddr" placeholder="Ponce, PR"></div>
+        <button class="btn sm" onclick="addProperty()">Añadir propiedad</button>
+      </div>
+    </div>
+    <div class="card" style="padding:18px;margin-bottom:16px">
+      <div class="sectitle"><h2>Datos de la empresa (facturado a)</h2></div>
+      <p class="muted" style="font-size:13.5px;margin-top:-4px">Estos datos aparecen como <b>“Facturar a”</b> en cada factura que emite el personal.</p>
+      <div id="companyForm"></div>
+    </div>
+    <div class="card" style="padding:18px">
+      <div class="sectitle"><h2>Personal (emisor de factura)</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="profWho" onchange="renderProfileForm()" style="padding:9px 12px;border:1.5px solid var(--line);border-radius:10px"></select>
+          <button class="btn sm dgr" onclick="removeProfessional()">Eliminar</button>
+        </div>
+      </div>
+      <p class="muted" style="font-size:13.5px;margin-top:-4px">Datos de la persona que <b>emite</b> la factura. Dirección, teléfono e identificación fiscal.</p>
+      <div id="profileForm"></div>
+      <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
+        <h3 style="font-size:15px;margin:0 0 10px">➕ Añadir personal nuevo</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+          <div class="field"><label>Nombre completo</label><input id="spName" placeholder="Nombre y apellido"></div>
+          <div class="field"><label>Teléfono</label><input id="spPhone" placeholder="(787) 555-0000"></div>
+        </div>
+        <div class="field"><label>Dirección</label><input id="spAddr" placeholder="Calle, ciudad, PR"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+          <div class="field"><label>Identificación fiscal (SSN/EIN)</label><input id="spTax" placeholder="000-00-0000"></div>
+          <div class="field"><label>Correo</label><input id="spEmail" placeholder="correo@ejemplo.com"></div>
+        </div>
+        <button class="btn" onclick="addProfessional()">Añadir personal</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding:18px;margin-top:16px">
+      <div class="sectitle"><h2>📧 Lista de distribución de correos</h2></div>
+      <p class="muted" style="font-size:13.5px;margin-top:-4px">Correos que reciben el envío semanal automático (factura + reporte de fotos + fotos). Activa o desactiva cada uno; solo los activos reciben el correo.</p>
+      <div style="overflow:auto"><table id="distTable"></table></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:flex-end">
+        <div class="field" style="margin:0;flex:1;min-width:150px"><label>Nombre / etiqueta</label><input id="distName" placeholder="Ej: Administradora"></div>
+        <div class="field" style="margin:0;flex:1.4;min-width:180px"><label>Correo</label><input id="distEmail" placeholder="correo@ejemplo.com"></div>
+        <button class="btn sm" onclick="addDist()">Añadir correo</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tabUsers" class="hide">
+    <div class="card" style="padding:18px;margin-bottom:16px">
+      <div class="sectitle"><h2>Usuarios y accesos</h2></div>
+      <p class="muted" style="font-size:13.5px;margin-top:-4px">Controla quién entra y con qué permisos. Los usuarios <b>Personal</b> solo ven su propio formulario; <b>Administradora</b> ve el back office; <b>Dueño</b> administra todo.</p>
+      <div style="overflow:auto"><table id="usersTable"></table></div>
+    </div>
+    <div class="card" style="padding:18px">
+      <div class="sectitle"><h2>Crear nuevo usuario</h2></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+        <div class="field"><label>Nombre para mostrar</label><input id="nuName" placeholder="Nombre completo"></div>
+        <div class="field"><label>Usuario</label><input id="nuUser" placeholder="usuario"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+        <div class="field"><label>Contraseña temporal</label><input id="nuPass" placeholder="contraseña"></div>
+        <div class="field"><label>Rol</label><select id="nuRole"><option value="cleaner">Personal (limpieza)</option><option value="admin">Administradora</option><option value="owner">Dueño</option></select></div>
+      </div>
+      <div class="field" id="nuLinkWrap"><label>Vincular a perfil de personal</label><select id="nuLink"></select></div>
+      <button class="btn" onclick="createUser()">Crear usuario</button>
+    </div>
+  </div>
+
+  <div id="tabData" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>Exportar base de datos</h2></div>
+    <p class="muted" style="font-size:13.5px">Todos los registros con enlaces a evidencia (antes/después, recibos, daños).</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 18px">
+      <button class="btn sm" onclick="exportCSV()">⬇️ CSV</button>
+      <button class="btn sm ghost" onclick="exportJSON()">⬇️ JSON (con evidencia)</button>
+    </div>
+    <div style="overflow:auto"><table id="dataTable"></table></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const sb = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+window.sb = sb;
+
+/* ---------- ESTADO (se llena desde Supabase en loadAll) ---------- */
+let properties=[];     // {id,name}
+let staff=[];          // {id,name,address,phone,taxid,email}
+let company={name:'',address:'',ein:'',email:'',phone:''};  // bill-to (company_settings)
+let distribution=[];   // {id,name,email,active}
+let users=[];          // profiles: {id,user(email),name,role,staffId,active}
+let rates={};          // rates[staffId][propId] = amount
+let subs=[];           // envíos normalizados (ver loadAll)
+let currentStaff=null; // professional_id activo
+let session=null;      // usuario logueado
+const ROLE_LABEL={owner:'Dueño',admin:'Administradora',cleaner:'Personal'};
+function can(what){
+  if(!session)return false;
+  const r=session.role;
+  switch(what){
+    case 'office': return r==='owner'||r==='admin';
+    case 'users': return r==='owner';
+    case 'settings': case 'rates': case 'approve': case 'invoices': case 'data': case 'damage':
+      return r==='owner'||r==='admin';
+    case 'submit': return true; // everyone can submit their own
+    default: return false;
+  }
+}
+/* ---------- CARGA DE DATOS DESDE SUPABASE ---------- */
+async function loadAll(){
+  const [propsR, staffR, ratesR, subsR, itemsR, distR, compR, profR] = await Promise.all([
+    sb.from('properties').select('*').order('name'),
+    sb.from('professionals').select('*').order('name'),
+    sb.from('rates').select('*'),
+    sb.from('submissions').select('*').order('date',{ascending:false}),
+    sb.from('submission_items').select('*'),
+    sb.from('distribution').select('*'),
+    sb.from('company_settings').select('*').eq('id',1).maybeSingle(),
+    sb.from('profiles').select('*'),
+  ]);
+  properties=(propsR.data||[]).map(p=>({id:p.id,name:p.name}));
+  staff=(staffR.data||[]).map(s=>({id:s.id,name:s.name,address:s.address||'',phone:s.phone||'',taxid:s.tax_id||'',email:s.email||''}));
+  rates={};
+  (ratesR.data||[]).forEach(r=>{(rates[r.professional_id]=rates[r.professional_id]||{})[r.property_id]=Number(r.amount);});
+  staff.forEach(s=>{rates[s.id]=rates[s.id]||{};});
+  distribution=(distR.data||[]).map(d=>({id:d.id,name:d.label||d.email,email:d.email,active:d.active}));
+  if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||''};
+  users=(profR.data||[]).map(p=>({id:p.id,user:p.email||'',name:p.display_name,role:p.role,staffId:p.staff_id,active:p.active}));
+  const itemsBySub={};
+  (itemsR.data||[]).forEach(it=>{(itemsBySub[it.submission_id]=itemsBySub[it.submission_id]||[]).push(it);});
+  subs=(subsR.data||[]).map(s=>{
+    if(s.type==='service'){
+      const items=(itemsBySub[s.id]||[]).map(i=>({id:i.id,prop:i.property_id,
+        before:!!i.photo_before,after:!!i.photo_after,pathBefore:i.photo_before,pathAfter:i.photo_after,
+        damage:i.damage_note||'',damagePhoto:!!i.damage_photo,pathDamage:i.damage_photo,rate:Number(i.rate_applied)}));
+      return {id:s.id,type:'service',staff:s.professional_id,date:s.date,items,total:Number(s.total),status:s.status,paid:s.paid,archivedAt:s.archived_at};
+    }
+    return {id:s.id,type:'expense',staff:s.professional_id,date:s.date,prop:s.property_id,desc:s.expense_desc||'',
+      amount:Number(s.total),receipt:s.receipt_photo,status:s.status,paid:s.paid,archivedAt:s.archived_at};
+  });
+}
+async function upload(path,file){
+  const {error}=await sb.storage.from('evidence').upload(path,file,{upsert:true,contentType:file.type||'image/jpeg'});
+  if(error){console.error('upload',error);toast('Error subiendo foto');return null;}
+  return path;
+}
+async function signedUrl(path){if(!path)return null;const {data}=await sb.storage.from('evidence').createSignedUrl(path,3600);return data?data.signedUrl:null;}
+function isoDaysAgo(n){const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10);}
+function todayISO(){return new Date().toISOString().slice(0,10);}
+function propName(id){return (properties.find(p=>p.id===id)||{}).name||id;}
+function staffName(id){return (staff.find(s=>s.id===id)||{}).name||id;}
+function money(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function initials(n){return n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2600);}
+function weekKey(iso){const d=new Date(iso+'T00:00');const day=(d.getDay()+6)%7;d.setDate(d.getDate()-day);return d.toISOString().slice(0,10);}
+function weekLabel(mon){const s=new Date(mon+'T00:00');const e=new Date(s);e.setDate(e.getDate()+6);const f=x=>x.toLocaleDateString('es-PR',{day:'numeric',month:'short'});return 'Semana '+f(s)+' – '+f(e);}
+/* ---------- AUTH ---------- */
+function loginError(msg){const e=document.getElementById('loginErr');e.textContent=msg;e.classList.add('show');}
+async function doLogin(){
+  const email=document.getElementById('loginUser').value.trim();
+  const pass=document.getElementById('loginPass').value;
+  document.getElementById('loginErr').classList.remove('show');
+  if(!email||!pass){loginError('Escribe tu correo y contraseña.');return;}
+  const {data,error}=await sb.auth.signInWithPassword({email,password:pass});
+  if(error||!data.user){loginError('Correo o contraseña incorrectos.');return;}
+  const ok=await loadSession(data.user);
+  if(!ok){await sb.auth.signOut();loginError('Tu cuenta aún no está activa. Pide al dueño que la active.');return;}
+  document.getElementById('loginPass').value='';
+  await loadAll();
+  applySession();
+}
+async function doSignup(){
+  const email=document.getElementById('loginUser').value.trim();
+  const pass=document.getElementById('loginPass').value;
+  document.getElementById('loginErr').classList.remove('show');
+  if(!email||pass.length<6){loginError('Escribe tu correo y una contraseña de al menos 6 caracteres.');return;}
+  const {error}=await sb.auth.signUp({email,password:pass});
+  if(error){loginError(error.message);return;}
+  toast('Cuenta creada. Pide al dueño que la active para entrar.');
+}
+async function loadSession(authUser){
+  const {data:prof}=await sb.from('profiles').select('*').eq('id',authUser.id).maybeSingle();
+  if(!prof||!prof.active)return false;
+  session={id:prof.id,user:authUser.email,name:prof.display_name,role:prof.role,staffId:prof.staff_id,active:prof.active};
+  return true;
+}
+async function doLogout(){await sb.auth.signOut();session=null;
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('loginUser').value='';document.getElementById('loginPass').value='';}
+function applySession(){
+  document.getElementById('loginScreen').style.display='none';
+  const chip=document.getElementById('userChip');
+  chip.style.display='flex';
+  document.getElementById('chipName').textContent=session.name;
+  const rEl=document.getElementById('chipRole');
+  rEl.textContent=ROLE_LABEL[session.role];rEl.className='role '+session.role;
+  // Cleaners: lock to their own personal view, hide the Back Office toggle entirely.
+  const isCleaner=session.role==='cleaner';
+  document.getElementById('mOffice').style.display=isCleaner?'none':'';
+  document.getElementById('mCleaner').style.display=isCleaner?'none':'';
+  document.getElementById('modeSwitch').style.display=isCleaner?'none':'flex';
+  // owner-only tab
+  document.getElementById('tUsers').style.display=can('users')?'':'none';
+  if(isCleaner){
+    currentStaff=session.staffId;
+    document.getElementById('cleanerName').textContent=session.name;
+    setMode('cleaner',true);
+    renderPropList();
+  } else {
+    setMode('office',true);
+  }
+}
+
+function setMode(m,force){
+  if(m==='office'&&!can('office'))return;
+  document.getElementById('viewCleaner').classList.toggle('hide',m!=='cleaner');
+  document.getElementById('viewOffice').classList.toggle('hide',m!=='office');
+  document.getElementById('mCleaner').classList.toggle('on',m==='cleaner');
+  document.getElementById('mOffice').classList.toggle('on',m==='office');
+  if(m==='office')renderOffice();
+}
+function segTo(s){
+  document.getElementById('paneService').classList.toggle('hide',s!=='service');
+  document.getElementById('paneExpense').classList.toggle('hide',s!=='expense');
+  document.getElementById('segService').classList.toggle('on',s==='service');
+  document.getElementById('segExpense').classList.toggle('on',s==='expense');
+}
+const TABS=['inbox','invoices','damage','rates','settings','users','data'];
+function tabTo(t){
+  if(t==='users'&&!can('users'))return;
+  TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
+  document.getElementById('tab'+C).classList.toggle('hide',x!==t);
+  document.getElementById('t'+C).classList.toggle('on',x===t);});}
+let selection={};
+function ensureSel(pid){if(!selection[pid])selection[pid]={beforeFile:null,afterFile:null,damage:'',damageFile:null};return selection[pid];}
+function isSelected(pid){return !!selection[pid];}
+function toggleProp(pid){if(selection[pid])delete selection[pid];else ensureSel(pid);renderPropList();}
+function photoBox(pid,which,has,labelOn,labelOff){
+  return '<label class="photo '+(has?'has':'')+'">'+(has?labelOn:labelOff)+
+    '<input type="file" accept="image/*" capture="environment" style="display:none" onchange="pickPhoto(\''+pid+'\',\''+which+'\',this.files[0])"></label>';
+}
+function renderPropList(){
+  const el=document.getElementById('propList');if(!el)return;el.innerHTML='';
+  properties.forEach(p=>{
+    const rate=(rates[currentStaff]||{})[p.id]||0;
+    const on=isSelected(p.id);const s=selection[p.id];
+    const card=document.createElement('div');
+    card.className='prop-card'+(on?' on':'');
+    card.innerHTML=
+      '<div class="prop-top" onclick="toggleProp(\''+p.id+'\')">'+
+        '<div><div style="font-weight:600">'+p.name+'</div><div class="rate">'+money(rate)+' / servicio</div></div>'+
+        '<div class="chk">'+(on?'✓':'')+'</div>'+
+      '</div>'+
+      (on?('<div class="prop-detail">'+
+        '<div class="photo-row">'+
+          photoBox(p.id,'before',!!s.beforeFile,'✓ Antes','📷 Antes')+
+          photoBox(p.id,'after',!!s.afterFile,'✓ Después','📷 Después')+
+        '</div>'+
+        '<details class="dmg" '+((s.damage||s.damageFile)?'open':'')+'>'+
+          '<summary>⚠️ Reportar daño en la propiedad (opcional)</summary>'+
+          '<textarea placeholder="Describe el daño encontrado…" oninput="setDamage(\''+p.id+'\',this.value)">'+s.damage+'</textarea>'+
+          photoBox(p.id,'damage',!!s.damageFile,'✓ Foto del daño','📷 Foto del daño')+
+        '</details>'+
+      '</div>'):'');
+    el.appendChild(card);
+  });
+  document.getElementById('expProp').innerHTML=properties.map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
+  recalc();
+}
+function pickPhoto(pid,which,file){if(!file)return;const s=ensureSel(pid);
+  if(which==='before')s.beforeFile=file;else if(which==='after')s.afterFile=file;else s.damageFile=file;
+  renderPropList();}
+function setDamage(pid,v){ensureSel(pid).damage=v;}
+function recalc(){let t=0;const r=rates[currentStaff]||{};for(const pid in selection)t+=(r[pid]||0);
+  document.getElementById('svcTotal').textContent=money(t);return t;}
+let _sending=false;
+async function submitService(){
+  if(_sending)return;
+  const ids=Object.keys(selection);
+  if(!ids.length){toast('Selecciona al menos una propiedad');return;}
+  for(const pid of ids){const s=selection[pid];
+    if(!s.beforeFile||!s.afterFile){toast('Falta foto antes/después en '+propName(pid));return;}}
+  _sending=true;toast('Subiendo… no cierres la app');
+  try{
+    const date=document.getElementById('svcDate').value||todayISO();
+    const {data:sub,error}=await sb.from('submissions').insert({type:'service',professional_id:currentStaff,date}).select().single();
+    if(error){console.error(error);toast('Error al crear el servicio');return;}
+    for(const pid of ids){
+      const s=selection[pid];const base=currentStaff+'/'+sub.id+'/'+pid;
+      const pb=await upload(base+'_antes.jpg',s.beforeFile);
+      const pa=await upload(base+'_despues.jpg',s.afterFile);
+      const pd=s.damageFile?await upload(base+'_dano.jpg',s.damageFile):null;
+      const {error:ie}=await sb.from('submission_items').insert({submission_id:sub.id,property_id:pid,
+        photo_before:pb,photo_after:pa,damage_note:s.damage.trim()||null,damage_photo:pd});
+      if(ie)console.error(ie);
+    }
+    const hadDmg=ids.some(pid=>selection[pid].damage.trim());
+    selection={};await loadAll();renderPropList();
+    toast(hadDmg?'✉️ Servicio + daño enviados a la administradora':'✉️ Servicio enviado a la administradora');
+  } finally { _sending=false; }
+}
+let expFile=null;
+function pickExp(file){if(!file)return;expFile=file;const e=document.getElementById('expPhoto');e.classList.add('has');e.textContent='✓ Recibo adjuntado';}
+async function submitExpense(){
+  if(_sending)return;
+  const amt=parseFloat(document.getElementById('expAmt').value);
+  const desc=document.getElementById('expDesc').value.trim();
+  const prop=document.getElementById('expProp').value;
+  if(!desc){toast('Añade una descripción');return;}
+  if(!amt||amt<=0){toast('Añade un monto válido');return;}
+  if(!expFile){toast('Falta la foto del recibo');return;}
+  _sending=true;toast('Subiendo…');
+  try{
+    const date=document.getElementById('expDate').value||todayISO();
+    const {data:sub,error}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,total:amt,expense_desc:desc,property_id:prop}).select().single();
+    if(error){console.error(error);toast('Error al enviar el gasto');return;}
+    const p=await upload(currentStaff+'/'+sub.id+'/recibo.jpg',expFile);
+    if(p)await sb.from('submissions').update({receipt_photo:p}).eq('id',sub.id);
+    document.getElementById('expDesc').value='';document.getElementById('expAmt').value='';expFile=null;
+    const e=document.getElementById('expPhoto');e.className='photo';e.textContent='🧾 Toca para adjuntar recibo';
+    await loadAll();
+    toast('✉️ Gasto enviado a la administradora');
+  } finally { _sending=false; }
+}
+function renderOffice(){renderStats();renderInbox();renderInvoices();renderDamage();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+function renderStats(){
+  document.getElementById('stPending').textContent=subs.filter(s=>s.status==='pending').length;
+  const dmg=subs.filter(s=>s.type==='service').reduce((a,s)=>a+s.items.filter(i=>i.damage).length,0);
+  document.getElementById('stDmg').textContent=dmg;
+  let svc=0,exp=0;
+  subs.filter(s=>s.status==='approved').forEach(s=>{if(s.type==='service')svc+=s.total;else exp+=s.amount;});
+  document.getElementById('stSvc').textContent=money(svc);
+  document.getElementById('stExp').textContent=money(exp);
+}
+function renderInbox(){
+  const pend=subs.filter(s=>s.status==='pending');
+  document.getElementById('inboxCount').textContent=pend.length+' por revisar';
+  const rows=pend.map(s=>{
+    if(s.type==='service'){
+      const detail=s.items.map(i=>propName(i.prop)+(i.damage?' ⚠️':'')).join(', ');
+      return '<tr>'+
+        '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
+        '<td><b>Servicio</b><br><span class="muted" style="font-size:13px">'+detail+'</span></td>'+
+        '<td>'+s.date+'</td>'+
+        '<td><span class="proof-link" onclick="viewService('+s.id+')">Ver fotos</span></td>'+
+        '<td><b>'+money(s.total)+'</b></td>'+
+        '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide('+s.id+',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide('+s.id+',\'rejected\')">Rechazar</button></td></tr>';
+    } else {
+      return '<tr>'+
+        '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
+        '<td><b>Gasto</b><br><span class="muted" style="font-size:13px">'+s.desc+' · '+propName(s.prop)+'</span></td>'+
+        '<td>'+s.date+'</td>'+
+        '<td><span class="proof-link" onclick="viewReceipt('+s.id+')">Ver recibo</span></td>'+
+        '<td><b>'+money(s.amount)+'</b></td>'+
+        '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide('+s.id+',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide('+s.id+',\'rejected\')">Rechazar</button></td></tr>';
+    }
+  }).join('');
+  document.getElementById('inboxTable').innerHTML=
+    '<tr><th>Persona</th><th>Detalle</th><th>Fecha</th><th>Evidencia</th><th>Monto</th><th></th></tr>'+
+    (rows||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">Bandeja vacía. Todo al día ✨</td></tr>');
+}
+async function decide(id,status){const {error}=await sb.from('submissions').update({status}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo actualizar');return;}
+  await loadAll();renderOffice();toast(status==='approved'?'✓ Aprobado':'Rechazado');}
+function renderInvoices(){
+  const appr=subs.filter(s=>s.status==='approved');
+  const groups={};
+  appr.forEach(s=>{const k=weekKey(s.date)+'|'+s.staff;(groups[k]=groups[k]||[]).push(s);});
+  const keys=Object.keys(groups).sort().reverse();
+  const el=document.getElementById('invoiceList');
+  if(!keys.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Aún no hay renglones aprobados.</p>';return;}
+  el.innerHTML=keys.map(k=>{
+    const parts=k.split('|');const wk=parts[0],sid=parts[1];const list=groups[k];
+    let svc=0,exp=0;
+    const lines=list.map(s=>{
+      if(s.type==='service'){svc+=s.total;return '<div class="inv-line"><span>Servicio · '+s.items.map(i=>propName(i.prop)).join(', ')+' <span class="muted">('+s.date+')</span></span><span>'+money(s.total)+'</span></div>';}
+      exp+=s.amount;return '<div class="inv-line"><span>Gasto · '+s.desc+' <span class="muted">('+s.date+')</span></span><span>'+money(s.amount)+'</span></div>';
+    }).join('');
+    const paid=list.every(s=>s.paid);
+    return '<div class="inv">'+
+      '<div class="inv-head">'+
+        '<div><div class="who"><span class="avatar">'+initials(staffName(sid))+'</span>'+staffName(sid)+'</div>'+
+          '<div class="muted" style="font-size:13px;margin-top:2px">'+weekLabel(wk)+'</div></div>'+
+        '<div style="text-align:right"><span class="pill '+(paid?'paid':'approved')+'">'+(paid?'Pagada':'Por pagar')+'</span></div>'+
+      '</div>'+lines+
+      '<div class="inv-line"><span class="muted">Servicios</span><span>'+money(svc)+'</span></div>'+
+      '<div class="inv-line"><span class="muted">Gastos reembolsables</span><span>'+money(exp)+'</span></div>'+
+      '<div class="inv-line tot"><span>Total semana</span><span>'+money(svc+exp)+'</span></div>'+
+      '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">'+
+        '<button class="btn sm ghost" onclick="printInvoice(\''+k+'\')">⬇️ Descargar factura</button>'+
+        '<button class="btn sm" onclick="photoReport(\''+k+'\')">📸 Reporte de fotos</button>'+
+        '<button class="btn sm coral" onclick="sendArchive(\''+k+'\')">✉️ Enviar a la lista</button>'+
+        (paid?'':'<button class="btn sm gold" onclick="markPaid(\''+k+'\')">Marcar pagada</button>')+
+      '</div>'+
+      '<div class="muted" style="font-size:12px;margin-top:8px">'+distSummary()+'</div>'+
+      '</div>';
+  }).join('');
+}
+function distSummary(){
+  const active=distribution.filter(d=>d.active);
+  if(!active.length)return '⚠️ Sin destinatarios activos — configúralos en Ajustes.';
+  return '✉️ Se enviará a: '+active.map(d=>d.name).join(', ');
+}
+async function sendArchive(k){
+  const active=distribution.filter(d=>d.active);
+  if(!active.length){toast('No hay correos activos en la lista');return;}
+  const parts=k.split('|');const wk=parts[0],sid=parts[1];const end=weekEnd(wk);
+  await sb.from('submissions').update({archived_at:new Date().toISOString()})
+    .eq('professional_id',sid).eq('status','approved').gte('date',wk).lte('date',end);
+  await loadAll();renderOffice();
+  toast('Semana marcada como archivada. (El envío automático por correo se conecta en la Fase 3.)');
+}
+async function markPaid(k){const parts=k.split('|');const wk=parts[0],sid=parts[1];const end=weekEnd(wk);
+  await sb.from('submissions').update({paid:true})
+    .eq('professional_id',sid).eq('status','approved').gte('date',wk).lte('date',end);
+  await loadAll();renderOffice();toast('Factura marcada como pagada');}
+function invoiceNo(wk,sid){return 'INV-'+wk.replace(/-/g,'')+'-'+sid;}
+function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1];
+  const p=staff.find(s=>s.id===sid);
+  const list=subs.filter(s=>s.status==='approved'&&weekKey(s.date)===wk&&s.staff===sid)
+                 .sort((a,b)=>a.date<b.date?-1:1);
+  let svc=0,exp=0;
+  const rows=list.map(s=>{
+    const isSvc=s.type==='service';const a=isSvc?s.total:s.amount;
+    if(isSvc)svc+=a;else exp+=a;
+    const desc=isSvc
+      ? 'Servicio de limpieza — '+s.items.map(i=>propName(i.prop)).join(', ')
+      : 'Reembolso de gasto — '+s.desc+' ('+propName(s.prop)+')';
+    return '<tr><td>'+s.date+'</td><td>'+desc+'</td><td class="r">'+money(a)+'</td></tr>';
+  }).join('');
+  const total=svc+exp;
+  const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const doc=
+'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>'+invoiceNo(wk,sid)+'</title><style>'+
+'*{box-sizing:border-box}body{font-family:Georgia,serif;color:#12261F;margin:0;padding:44px;background:#fff;font-size:14px}'+
+'.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0E7C7B;padding-bottom:20px;margin-bottom:26px}'+
+'.title{font-size:34px;letter-spacing:.04em;color:#0E7C7B;margin:0}'+
+'.meta{text-align:right;font-family:Arial,sans-serif;font-size:12.5px;color:#3A5249;line-height:1.7}'+
+'.meta b{color:#12261F}'+
+'.parties{display:flex;justify-content:space-between;gap:30px;margin-bottom:28px;font-family:Arial,sans-serif}'+
+'.parties .box{flex:1}'+
+'.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#0E7C7B;font-weight:700;margin-bottom:6px}'+
+'.parties .name{font-weight:700;font-size:15px;margin-bottom:2px}'+
+'.parties .line{font-size:12.5px;color:#3A5249;line-height:1.6}'+
+'table{width:100%;border-collapse:collapse;margin-bottom:20px;font-family:Arial,sans-serif}'+
+'th{background:#12261F;color:#fff;text-align:left;padding:10px 12px;font-size:11px;letter-spacing:.05em;text-transform:uppercase}'+
+'th.r,td.r{text-align:right}'+
+'td{padding:11px 12px;border-bottom:1px solid #E2D9C6;font-size:13px}'+
+'.sub{display:flex;justify-content:flex-end}'+
+'.sub table{width:300px}'+
+'.sub td{border:none;padding:6px 12px}'+
+'.sub .tot td{border-top:2px solid #12261F;font-weight:700;font-size:17px;padding-top:12px}'+
+'.foot{margin-top:40px;padding-top:16px;border-top:1px solid #E2D9C6;font-family:Arial,sans-serif;font-size:11.5px;color:#3A5249}'+
+'.pay{margin-top:8px}'+
+'@media print{body{padding:0}.noprint{display:none}}'+
+'.noprint{position:fixed;top:16px;right:16px;display:flex;gap:8px}'+
+'.noprint button{font-family:Arial,sans-serif;font-size:13px;font-weight:700;padding:9px 16px;border:none;border-radius:8px;cursor:pointer}'+
+'.pbtn{background:#0E7C7B;color:#fff}.cbtn{background:#eee;color:#333}'+
+'</style></head><body>'+
+'<div class="noprint"><button class="pbtn" onclick="window.print()">Imprimir / Guardar PDF</button><button class="cbtn" onclick="window.close()">Cerrar</button></div>'+
+'<div class="head"><div><h1 class="title">FACTURA</h1><div style="font-family:Arial,sans-serif;font-size:12.5px;color:#3A5249;margin-top:4px">'+weekLabel(wk)+'</div></div>'+
+'<div class="meta"><div><b>No. de factura:</b> '+invoiceNo(wk,sid)+'</div><div><b>Fecha de emisión:</b> '+todayISO()+'</div><div><b>Período:</b> '+wk+' al '+weekEnd(wk)+'</div></div></div>'+
+'<div class="parties">'+
+'<div class="box"><div class="lbl">Emisor (De)</div><div class="name">'+esc(p.name)+'</div>'+
+'<div class="line">'+esc(p.address)+'</div><div class="line">'+esc(p.phone)+'</div>'+
+'<div class="line">Id. fiscal: '+esc(p.taxid)+'</div><div class="line">'+esc(p.email)+'</div></div>'+
+'<div class="box"><div class="lbl">Facturar a (Para)</div><div class="name">'+esc(company.name)+'</div>'+
+'<div class="line">'+esc(company.address)+'</div><div class="line">EIN: '+esc(company.ein)+'</div>'+
+'<div class="line">'+esc(company.phone)+'</div><div class="line">'+esc(company.email)+'</div></div>'+
+'</div>'+
+'<table><thead><tr><th style="width:110px">Fecha</th><th>Descripción</th><th class="r" style="width:110px">Monto</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+'<div class="sub"><table>'+
+'<tr><td>Servicios</td><td class="r">'+money(svc)+'</td></tr>'+
+'<tr><td>Gastos reembolsables</td><td class="r">'+money(exp)+'</td></tr>'+
+'<tr class="tot"><td>TOTAL A PAGAR</td><td class="r">'+money(total)+'</td></tr>'+
+'</table></div>'+
+'<div class="foot">Factura generada por Stay Here PR · Servicios de Limpieza. Todos los renglones fueron aprobados con evidencia fotográfica (antes/después) y recibos archivados.<div class="pay"><b>Gracias por su trabajo.</b></div></div>'+
+'</body></html>';
+  const w=window.open('','_blank');
+  if(w){w.document.write(doc);w.document.close();toast('Factura abierta — usa Imprimir / Guardar PDF');}
+  else{download('factura_'+esc(p.name).replace(/\s/g,'_')+'_'+wk+'.html',doc,'text/html');toast('Factura descargada (HTML)');}
+}
+function weekEnd(mon){const s=new Date(mon+'T00:00');s.setDate(s.getDate()+6);return s.toISOString().slice(0,10);}
+
+async function photoReport(k){
+  const parts=k.split('|');const wk=parts[0],sid=parts[1];
+  const p=staff.find(s=>s.id===sid);
+  const list=subs.filter(s=>s.status==='approved'&&s.type==='service'&&weekKey(s.date)===wk&&s.staff===sid).sort((a,b)=>a.date<b.date?-1:1);
+  const expenses=subs.filter(s=>s.status==='approved'&&s.type==='expense'&&weekKey(s.date)===wk&&s.staff===sid).sort((a,b)=>a.date<b.date?-1:1);
+  const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+  // Firmar todas las fotos de la semana para poder incrustarlas en el reporte
+  const allPaths=[];
+  list.forEach(s=>s.items.forEach(i=>{[i.pathBefore,i.pathAfter,i.pathDamage].forEach(x=>{if(x)allPaths.push(x);});}));
+  expenses.forEach(s=>{if(s.receipt)allPaths.push(s.receipt);});
+  const urlMap={};
+  await Promise.all(allPaths.map(async pth=>{urlMap[pth]=await signedUrl(pth);}));
+  toast('Preparando reporte…');
+
+  // Tarjeta de foto: DÓNDE (propiedad), CUÁNDO (fecha), QUIÉN (persona), POR QUÉ (tipo)
+  function photoCard(kind,label,prop,date,who,why,path,note){
+    const url=path?urlMap[path]:null;
+    return ''+
+    '<figure class="pcard">'+
+      '<div class="pimg '+kind+'"'+(url?' style="background-image:url(\''+url+'\');background-size:cover;background-position:center"':'')+'>'+(url?'':'<span>'+label+'</span>')+'</div>'+
+      '<figcaption>'+
+        '<div class="why '+kind+'">'+why+'</div>'+
+        '<table class="meta">'+
+          '<tr><td class="mk">📍 Dónde</td><td>'+esc(prop)+'</td></tr>'+
+          '<tr><td class="mk">📅 Cuándo</td><td>'+esc(date)+'</td></tr>'+
+          '<tr><td class="mk">👤 Quién</td><td>'+esc(who)+'</td></tr>'+
+          (note?'<tr><td class="mk">📝 Nota</td><td>'+esc(note)+'</td></tr>':'')+
+        '</table>'+
+        '<div class="fname">'+esc(path?path.split('/').pop():'sin archivo')+'</div>'+
+      '</figcaption>'+
+    '</figure>';
+  }
+
+  let photoCount=0;
+  const sections=list.map(s=>{
+    const cards=s.items.map(i=>{
+      const prop=propName(i.prop);
+      let out='';
+      photoCount+=2;
+      out+=photoCard('before','ANTES',prop,s.date,p.name,'Antes de limpiar',i.pathBefore,'');
+      out+=photoCard('after','DESPUÉS',prop,s.date,p.name,'Después de limpiar',i.pathAfter,'');
+      if(i.damage){photoCount++;out+=photoCard('damage','DAÑO',prop,s.date,p.name,'Daño reportado',i.pathDamage,i.damage);}
+      return out;
+    }).join('');
+    return '<div class="svc-block"><h2>Servicio · '+esc(s.date)+'</h2><div class="pgrid">'+cards+'</div></div>';
+  }).join('');
+
+  const expSection = expenses.length?('<div class="svc-block"><h2>Gastos con recibo</h2><div class="pgrid">'+
+    expenses.map(s=>{photoCount++;return photoCard('receipt','RECIBO',propName(s.prop),s.date,p.name,'Recibo de gasto — '+esc(s.desc),s.receipt,money(s.amount));}).join('')+
+    '</div></div>'):'';
+
+  const doc=
+'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Reporte de fotos — '+esc(p.name)+' — '+wk+'</title><style>'+
+'*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#12261F;margin:0;padding:38px;background:#fff}'+
+'.rhead{border-bottom:3px solid #0E7C7B;padding-bottom:18px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap}'+
+'.rhead h1{font-family:Georgia,serif;color:#0E7C7B;font-size:27px;margin:0}'+
+'.rhead .sub{color:#3A5249;font-size:13px;margin-top:4px;line-height:1.7}'+
+'.rhead .sub b{color:#12261F}'+
+'.rhead .badge{text-align:right;font-size:12px;color:#3A5249;line-height:1.7}'+
+'.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;margin:14px 0 24px;color:#3A5249}'+
+'.legend span{display:inline-flex;align-items:center;gap:6px}'+
+'.dot{width:11px;height:11px;border-radius:3px;display:inline-block}'+
+'.d-before{background:#d9b89f}.d-after{background:#a9d3cf}.d-damage{background:#e0a795}.d-receipt{background:#e0cf9d}'+
+'.svc-block{margin-bottom:26px}'+
+'.svc-block h2{font-family:Georgia,serif;font-size:17px;color:#12261F;border-left:4px solid #0E7C7B;padding-left:10px;margin:0 0 14px}'+
+'.pgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}'+
+'.pcard{border:1px solid #E2D9C6;border-radius:12px;overflow:hidden;break-inside:avoid;background:#fff}'+
+'.pimg{height:150px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;letter-spacing:.08em}'+
+'.pimg span{background:rgba(255,255,255,.35);padding:5px 12px;border-radius:20px}'+
+'.pimg.before{background:linear-gradient(135deg,#e7d3c4,#d9b89f);color:#7a4a2a}'+
+'.pimg.after{background:linear-gradient(135deg,#cfe6e3,#a9d3cf);color:#0A5E5D}'+
+'.pimg.damage{background:linear-gradient(135deg,#f0cfc5,#e0a795);color:#7a3524}'+
+'.pimg.receipt{background:linear-gradient(135deg,#efe3c9,#e0cf9d);color:#7a5a1e}'+
+'figcaption{padding:12px 14px}'+
+'.why{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;display:inline-block;padding:3px 9px;border-radius:6px}'+
+'.why.before{background:#f4e6da;color:#7a4a2a}.why.after{background:#dcefec;color:#0A5E5D}.why.damage{background:#f7ddd4;color:#7a3524}.why.receipt{background:#f4ecd6;color:#7a5a1e}'+
+'.meta{width:100%;border-collapse:collapse;font-size:12.5px}'+
+'.meta td{padding:3px 0;vertical-align:top}'+
+'.meta .mk{color:#3A5249;white-space:nowrap;padding-right:12px;width:92px;font-weight:600}'+
+'.fname{margin-top:8px;font-family:monospace;font-size:10.5px;color:#9aa39d}'+
+'.foot{margin-top:26px;padding-top:14px;border-top:1px solid #E2D9C6;font-size:11px;color:#3A5249;line-height:1.6}'+
+'.noprint{position:fixed;top:14px;right:14px;display:flex;gap:8px}'+
+'.noprint button{font-size:13px;font-weight:700;padding:9px 15px;border:none;border-radius:8px;cursor:pointer}'+
+'.pbtn{background:#0E7C7B;color:#fff}.cbtn{background:#eee;color:#333}'+
+'@media print{body{padding:0}.noprint{display:none}}'+
+'</style></head><body>'+
+'<div class="noprint"><button class="pbtn" onclick="window.print()">Imprimir / Guardar PDF</button><button class="cbtn" onclick="window.close()">Cerrar</button></div>'+
+'<div class="rhead">'+
+  '<div><h1>Reporte de fotos</h1>'+
+  '<div class="sub"><b>Personal:</b> '+esc(p.name)+'<br><b>Período:</b> '+weekLabel(wk)+' ('+wk+' al '+weekEnd(wk)+')<br><b>Empresa:</b> '+esc(company.name)+'</div></div>'+
+  '<div class="badge"><b>Total de fotos:</b> '+photoCount+'<br>Generado: '+todayISO()+'</div>'+
+'</div>'+
+'<div class="legend">'+
+  '<span><span class="dot d-before"></span> Antes</span>'+
+  '<span><span class="dot d-after"></span> Después</span>'+
+  '<span><span class="dot d-damage"></span> Daño</span>'+
+  '<span><span class="dot d-receipt"></span> Recibo</span>'+
+'</div>'+
+(sections||'<p style="color:#3A5249">No hay servicios aprobados con fotos en esta semana.</p>')+
+expSection+
+'<div class="foot">Cada foto documenta <b>dónde</b> (propiedad), <b>cuándo</b> (fecha del servicio), <b>quién</b> (personal que realizó el trabajo) y <b>por qué</b> (antes, después, daño o recibo). Este reporte acompaña la factura semanal como evidencia archivable. Una vez enviado por correo, sirve como respaldo permanente y las fotos pueden liberarse de la base de datos sin perder el registro.</div>'+
+'</body></html>';
+  const w=window.open('','_blank');
+  if(w){w.document.write(doc);w.document.close();toast('Reporte de fotos generado — '+photoCount+' fotos');}
+  else{download('reporte_fotos_'+esc(p.name).replace(/\s/g,'_')+'_'+wk+'.html',doc,'text/html');toast('Reporte descargado');}
+}
+function renderDamage(){
+  const rows=[];
+  subs.filter(s=>s.type==='service').forEach(s=>s.items.filter(i=>i.damage).forEach(i=>{
+    rows.push('<tr>'+
+      '<td>'+propName(i.prop)+'</td>'+
+      '<td>'+s.date+'</td>'+
+      '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
+      '<td>'+i.damage+'</td>'+
+      '<td>'+(i.damagePhoto?'<span class="dmg-flag" onclick="viewDamage('+s.id+',\''+i.prop+'\')">Ver foto</span>':'<span class="muted">Sin foto</span>')+'</td>'+
+      '<td><span class="pill '+s.status+'">'+(s.status==='pending'?'Pendiente':s.status==='approved'?'Aprobado':'Rechazado')+'</span></td>'+
+    '</tr>');
+  }));
+  document.getElementById('damageTable').innerHTML=
+    '<tr><th>Propiedad</th><th>Fecha</th><th>Persona</th><th>Descripción del daño</th><th>Foto</th><th>Estado</th></tr>'+
+    (rows.join('')||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">Sin daños reportados 🎉</td></tr>');
+}
+function renderRatesWho(){document.getElementById('rateWho').innerHTML=staff.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');}
+function renderRates(){
+  const who=document.getElementById('rateWho').value||(staff[0]&&staff[0].id);
+  if(!who){document.getElementById('ratesTable').innerHTML='<tr><td class="muted" style="padding:16px">Aún no hay personal registrado.</td></tr>';return;}
+  const r=rates[who]||{};
+  document.getElementById('ratesTable').innerHTML='<tr><th>Propiedad</th><th>Tarifa negociada</th></tr>'+
+    properties.map(p=>'<tr><td>'+p.name+'</td>'+
+      '<td><input class="rate-in" type="number" value="'+(r[p.id]!=null?r[p.id]:0)+'" onchange="setRate(\''+who+'\',\''+p.id+'\',this.value)"> <span class="muted">/ servicio</span></td></tr>').join('');
+}
+async function setRate(who,pid,val){const amount=parseFloat(val)||0;
+  rates[who]=rates[who]||{};rates[who][pid]=amount;
+  const {error}=await sb.from('rates').upsert({professional_id:who,property_id:pid,amount},{onConflict:'professional_id,property_id'});
+  if(error){console.error(error);toast('No se pudo guardar la tarifa');return;}
+  toast('Tarifa actualizada');}
+function fieldRow(label,val,onchg,ph){return '<div class="field"><label>'+label+'</label><input value="'+(val||'').replace(/"/g,'&quot;')+'" placeholder="'+(ph||'')+'" oninput="'+onchg+'"></div>';}
+function renderSettings(){renderProperties();renderCompanyForm();renderProfWho();renderProfileForm();renderDist();}
+function renderProperties(){
+  const el=document.getElementById('propTable');if(!el)return;
+  const rows=properties.map(p=>'<tr><td><b>'+p.name+'</b></td><td class="muted">'+(p.address||'—')+'</td>'+
+    '<td style="text-align:right"><button class="btn sm dgr" onclick="removeProperty(\''+p.id+'\')">Eliminar</button></td></tr>').join('');
+  el.innerHTML='<tr><th>Propiedad</th><th>Dirección</th><th></th></tr>'+
+    (rows||'<tr><td colspan="3" class="muted" style="padding:16px;text-align:center">Sin propiedades. Añade la primera abajo.</td></tr>');
+}
+async function addProperty(){
+  const name=document.getElementById('npName').value.trim();
+  const address=document.getElementById('npAddr').value.trim();
+  if(!name){toast('Escribe el nombre de la propiedad');return;}
+  const {error}=await sb.from('properties').insert({name,address:address||null});
+  if(error){console.error(error);toast('No se pudo añadir la propiedad');return;}
+  document.getElementById('npName').value='';document.getElementById('npAddr').value='';
+  await loadAll();renderOffice();toast('Propiedad añadida');
+}
+async function removeProperty(id){
+  const p=properties.find(x=>x.id===id);if(!p)return;
+  if(!confirm('¿Eliminar la propiedad "'+p.name+'"? También se borran sus tarifas.'))return;
+  const {error}=await sb.from('properties').delete().eq('id',id);
+  if(error){console.error(error);toast('No se pudo eliminar: la propiedad tiene servicios registrados.');return;}
+  await loadAll();renderOffice();toast('Propiedad eliminada');
+}
+async function addProfessional(){
+  const name=document.getElementById('spName').value.trim();
+  if(!name){toast('Escribe el nombre de la persona');return;}
+  const rec={name,
+    address:document.getElementById('spAddr').value.trim()||null,
+    phone:document.getElementById('spPhone').value.trim()||null,
+    tax_id:document.getElementById('spTax').value.trim()||null,
+    email:document.getElementById('spEmail').value.trim()||null};
+  const {error}=await sb.from('professionals').insert(rec);
+  if(error){console.error(error);toast('No se pudo añadir el personal');return;}
+  ['spName','spAddr','spPhone','spTax','spEmail'].forEach(i=>document.getElementById(i).value='');
+  await loadAll();renderOffice();toast('Personal añadido');
+}
+async function removeProfessional(){
+  const who=document.getElementById('profWho').value;
+  const p=staff.find(s=>s.id===who);
+  if(!p){toast('Elige una persona en la lista');return;}
+  const {count}=await sb.from('submissions').select('id',{count:'exact',head:true}).eq('professional_id',who);
+  if(count>0){toast('No se puede eliminar: "'+p.name+'" tiene '+count+' envío(s). Conserva su historial.');return;}
+  if(!confirm('¿Eliminar a "'+p.name+'"? También se borran sus tarifas.'))return;
+  const {error}=await sb.from('professionals').delete().eq('id',who);
+  if(error){console.error(error);toast('No se pudo eliminar');return;}
+  await loadAll();renderOffice();toast('Personal eliminado');
+}
+function renderDist(){
+  const rows=distribution.map(dd=>
+    '<tr>'+
+      '<td><b>'+(dd.name||'—')+'</b></td>'+
+      '<td><code style="font-family:monospace;font-size:13px">'+dd.email+'</code></td>'+
+      '<td>'+(dd.active?'<span class="pill approved">Recibe</span>':'<span class="pill rejected">Pausado</span>')+'</td>'+
+      '<td style="white-space:nowrap">'+
+        '<button class="btn sm '+(dd.active?'ghost':'ok')+'" onclick="toggleDist(\''+dd.id+'\')">'+(dd.active?'Pausar':'Activar')+'</button> '+
+        '<button class="btn sm dgr" onclick="removeDist(\''+dd.id+'\')">Quitar</button>'+
+      '</td>'+
+    '</tr>').join('');
+  document.getElementById('distTable').innerHTML=
+    '<tr><th>Etiqueta</th><th>Correo</th><th>Estado</th><th></th></tr>'+
+    (rows||'<tr><td colspan="4" class="muted" style="padding:20px;text-align:center">Sin correos en la lista. Añade al menos uno.</td></tr>');
+}
+async function toggleDist(id){const dd=distribution.find(x=>x.id===id);if(!dd)return;dd.active=!dd.active;
+  await sb.from('distribution').update({active:dd.active}).eq('id',id);renderDist();toast(dd.active?'Activado':'Pausado');}
+async function removeDist(id){await sb.from('distribution').delete().eq('id',id);
+  distribution=distribution.filter(x=>x.id!==id);renderDist();toast('Correo quitado');}
+async function addDist(){
+  const name=document.getElementById('distName').value.trim();
+  const email=document.getElementById('distEmail').value.trim();
+  if(!email||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){toast('Escribe un correo válido');return;}
+  if(distribution.some(x=>x.email.toLowerCase()===email.toLowerCase())){toast('Ese correo ya está en la lista');return;}
+  const {data,error}=await sb.from('distribution').insert({label:name||email,email,active:true}).select().single();
+  if(error){console.error(error);toast('No se pudo añadir');return;}
+  distribution.push({id:data.id,name:data.label||data.email,email:data.email,active:data.active});
+  document.getElementById('distName').value='';document.getElementById('distEmail').value='';
+  renderDist();toast('Correo añadido');
+}
+function renderCompanyForm(){
+  document.getElementById('companyForm').innerHTML=
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">'+
+    fieldRow('Nombre de la empresa',company.name,"setCompany('name',this.value)")+
+    fieldRow('Identificación patronal (EIN)',company.ein,"setCompany('ein',this.value)")+
+    '</div>'+
+    fieldRow('Dirección',company.address,"setCompany('address',this.value)")+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">'+
+    fieldRow('Correo',company.email,"setCompany('email',this.value)")+
+    fieldRow('Teléfono',company.phone,"setCompany('phone',this.value)")+
+    '</div>';
+}
+let _compT;
+function setCompany(k,v){company[k]=v;clearTimeout(_compT);_compT=setTimeout(async()=>{
+  const {error}=await sb.from('company_settings').update({name:company.name,address:company.address,ein:company.ein,email:company.email,phone:company.phone,updated_at:new Date().toISOString()}).eq('id',1);
+  if(error)console.error(error);else toast('Datos de la empresa guardados');
+},700);}
+function renderProfWho(){const sel=document.getElementById('profWho');const cur=sel.value;
+  sel.innerHTML=staff.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
+  if(cur)sel.value=cur;}
+function renderProfileForm(){
+  const who=document.getElementById('profWho').value||(staff[0]&&staff[0].id);
+  const p=staff.find(s=>s.id===who);
+  if(!p){document.getElementById('profileForm').innerHTML='<p class="muted">Aún no hay personal registrado.</p>';return;}
+  document.getElementById('profileForm').innerHTML=
+    fieldRow('Nombre completo',p.name,"setProf('"+who+"','name',this.value)")+
+    fieldRow('Dirección',p.address,"setProf('"+who+"','address',this.value)")+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">'+
+    fieldRow('Teléfono',p.phone,"setProf('"+who+"','phone',this.value)")+
+    fieldRow('Identificación fiscal (SSN/EIN)',p.taxid,"setProf('"+who+"','taxid',this.value)")+
+    '</div>'+
+    fieldRow('Correo',p.email,"setProf('"+who+"','email',this.value)");
+}
+const _profT={};
+function setProf(id,k,v){const p=staff.find(s=>s.id===id);if(!p)return;p[k]=v;
+  const col={name:'name',address:'address',phone:'phone',taxid:'tax_id',email:'email'}[k];if(!col)return;
+  clearTimeout(_profT[id+k]);_profT[id+k]=setTimeout(async()=>{
+    const {error}=await sb.from('professionals').update({[col]:v}).eq('id',id);if(error)console.error(error);
+  },700);}
+
+/* ---------- USERS (owner only) ---------- */
+function renderUsers(){
+  if(!can('users'))return;
+  const rows=users.map((u,idx)=>{
+    const isSelf=session&&u.user===session.user;
+    return '<tr>'+
+      '<td><b>'+u.name+'</b></td>'+
+      '<td><code style="font-family:monospace">'+u.user+'</code></td>'+
+      '<td><select onchange="changeRole('+idx+',this.value)" '+(isSelf?'disabled':'')+' style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px">'+
+        ['owner','admin','cleaner'].map(r=>'<option value="'+r+'" '+(u.role===r?'selected':'')+'>'+ROLE_LABEL[r]+'</option>').join('')+'</select></td>'+
+      '<td><select onchange="linkStaff('+idx+',this.value)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px"><option value="">— ninguno —</option>'+
+        staff.map(s=>'<option value="'+s.id+'" '+(u.staffId===s.id?'selected':'')+'>'+s.name+'</option>').join('')+'</select></td>'+
+      '<td>'+(u.active?'<span class="pill approved">Activo</span>':'<span class="pill rejected">Inactivo</span>')+'</td>'+
+      '<td style="white-space:nowrap">'+
+        '<button class="btn sm ghost" onclick="resetPass('+idx+')">Restablecer clave</button> '+
+        (isSelf?'':'<button class="btn sm '+(u.active?'dgr':'ok')+'" onclick="toggleActive('+idx+')">'+(u.active?'Desactivar':'Activar')+'</button>')+
+      '</td></tr>';
+  }).join('');
+  document.getElementById('usersTable').innerHTML=
+    '<tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Perfil</th><th>Estado</th><th></th></tr>'+rows;
+  // link dropdown for new user
+  document.getElementById('nuLink').innerHTML='<option value="">— ninguno —</option>'+
+    staff.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
+}
+function propStaff(sid){return (staff.find(s=>s.id===sid)||{}).name||sid;}
+async function changeRole(idx,r){const u=users[idx];u.role=r;
+  const {error}=await sb.from('profiles').update({role:r}).eq('id',u.id);
+  if(error){console.error(error);toast('No se pudo cambiar el rol');return;}
+  toast('Rol actualizado');renderUsers();}
+async function toggleActive(idx){const u=users[idx];u.active=!u.active;
+  const {error}=await sb.from('profiles').update({active:u.active}).eq('id',u.id);
+  if(error){console.error(error);toast('No se pudo actualizar');u.active=!u.active;return;}
+  toast(u.active?'Usuario activado':'Usuario desactivado');renderUsers();}
+async function linkStaff(idx,sid){const u=users[idx];u.staffId=sid||null;
+  const {error}=await sb.from('profiles').update({staff_id:u.staffId}).eq('id',u.id);
+  if(error){console.error(error);toast('No se pudo vincular');return;}
+  toast(sid?'Perfil vinculado':'Vínculo quitado');}
+function resetPass(idx){toast('La persona restablece su clave con “¿Olvidaste tu contraseña?”, o tú desde Supabase → Authentication.');}
+function createUser(){toast('Las cuentas se crean solas en la pantalla de acceso (Crear cuenta nueva). Aquí las activas y les asignas rol/perfil.');}
+
+function allRows(){return subs.map(s=>{const isSvc=s.type==='service';
+  return {id:s.id,tipo:isSvc?'Servicio':'Gasto',persona:staffName(s.staff),fecha:s.date,semana:weekKey(s.date),
+    detalle:isSvc?s.items.map(i=>propName(i.prop)+(i.damage?' [DAÑO: '+i.damage+']':'')).join('; '):s.desc+' ('+propName(s.prop)+')',
+    monto:isSvc?s.total:s.amount,estado:s.status,pagada:s.paid?'Sí':'No',
+    evidencia:isSvc?s.items.map(i=>'antes_'+s.id+'_'+i.prop+'.jpg; despues_'+s.id+'_'+i.prop+'.jpg'+(i.damagePhoto?'; dano_'+s.id+'_'+i.prop+'.jpg':'')).join(' | '):'recibo_'+s.id+'.jpg'};
+});}
+function renderData(){
+  document.getElementById('dataTable').innerHTML=
+    '<tr><th>ID</th><th>Tipo</th><th>Persona</th><th>Fecha</th><th>Detalle</th><th>Monto</th><th>Estado</th></tr>'+
+    allRows().map(x=>'<tr><td>'+x.id+'</td><td>'+x.tipo+'</td><td>'+x.persona+'</td><td>'+x.fecha+'</td><td>'+x.detalle+'</td><td>'+money(x.monto)+'</td><td><span class="pill '+x.estado+'">'+(x.estado==='pending'?'Pendiente':x.estado==='approved'?'Aprobado':'Rechazado')+'</span></td></tr>').join('');
+}
+function download(name,text,type){const b=new Blob([text],{type});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);}
+function exportCSV(){const r=allRows();const head=['id','tipo','persona','fecha','semana','detalle','monto','estado','pagada','evidencia'];
+  const csv=[head.join(',')].concat(r.map(x=>head.map(h=>'"'+String(x[h]).replace(/"/g,'""')+'"').join(','))).join('\n');
+  download('limpieza_registros.csv',csv,'text/csv');toast('CSV descargado');}
+function exportJSON(){download('limpieza_registros.json',JSON.stringify(allRows(),null,2),'application/json');toast('JSON descargado');}
+function openModal(title,inner){const ov=document.createElement('div');ov.className='overlay';ov.onclick=function(e){if(e.target===ov)ov.remove();};
+  ov.innerHTML='<div class="modal"><div class="modal-head"><h3 style="margin:0;font-size:17px">'+title+'</h3>'+
+    '<button class="btn sm ghost" onclick="this.closest(\'.overlay\').remove()">Cerrar</button></div><div class="modal-body">'+inner+'</div></div>';
+  document.body.appendChild(ov);}
+function imgOr(url,fake){return url?'<img src="'+url+'" style="width:100%;height:150px;object-fit:cover;border-radius:12px">':'<div class="fakeimg '+fake+'">Sin foto</div>';}
+async function viewService(id){const s=subs.find(x=>x.id===id);
+  const blocks=await Promise.all(s.items.map(async i=>{
+    const [b,a,d]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter),signedUrl(i.pathDamage)]);
+    return '<div style="margin-bottom:16px">'+
+      '<div style="font-weight:700;margin-bottom:6px">'+propName(i.prop)+' — '+money(i.rate)+'</div>'+
+      '<div style="display:flex;gap:10px">'+
+        '<div style="flex:1">'+imgOr(b,'before')+'<div class="muted" style="font-size:11px;text-align:center">Antes</div></div>'+
+        '<div style="flex:1">'+imgOr(a,'after')+'<div class="muted" style="font-size:11px;text-align:center">Después</div></div>'+
+      '</div>'+
+      (i.damage?'<div class="note" style="margin-top:8px;border-color:#e5b6a6;background:#fbeee8"><b style="color:var(--coral)">⚠️ Daño:</b> '+i.damage+'</div>'+(d?'<img src="'+d+'" style="width:100%;height:150px;object-fit:cover;border-radius:12px;margin-top:6px">':''):'')+
+    '</div>';
+  }));
+  openModal('Servicio de '+staffName(s.staff)+' · '+s.date,blocks.join(''));}
+async function viewReceipt(id){const s=subs.find(x=>x.id===id);const u=await signedUrl(s.receipt);
+  openModal('Recibo · '+s.desc,(u?'<img src="'+u+'" style="width:100%;border-radius:12px">':'<div class="fakeimg receipt">Sin foto</div>')+
+    '<div class="muted" style="font-size:13px;margin-top:6px">'+staffName(s.staff)+' · '+s.date+' · '+money(s.amount)+'</div>');}
+async function viewDamage(id,pid){const s=subs.find(x=>x.id===id);const i=s.items.find(x=>x.prop===pid);const u=await signedUrl(i.pathDamage);
+  openModal('Daño · '+propName(pid),(u?'<img src="'+u+'" style="width:100%;border-radius:12px">':'<div class="fakeimg damage">Sin foto</div>')+
+    '<div class="note" style="margin-top:8px">'+i.damage+'</div>'+
+    '<div class="muted" style="font-size:13px;margin-top:6px">Reportado por '+staffName(s.staff)+' · '+s.date+'</div>');}
+document.getElementById('today').textContent=todayISO();
+document.getElementById('svcDate').value=todayISO();
+document.getElementById('expDate').value=todayISO();
+renderPropList();
+// Login stays up until authenticated. Enter submits.
+['loginUser','loginPass'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();}));
+
+// Aviso si las llaves de Supabase no están configuradas
+if(!window.SUPABASE_URL||window.SUPABASE_URL.includes('TU-PROYECTO')){
+  loginError('⚙️ Falta configurar Supabase: edita el archivo config.js con tu URL y llave.');
+}
+
+// Restaurar sesión si ya había iniciado antes
+(async()=>{
+  try{
+    const {data}=await sb.auth.getSession();
+    if(data&&data.session){
+      const ok=await loadSession(data.session.user);
+      if(ok){await loadAll();applySession();}
+      else{await sb.auth.signOut();}
+    }
+  }catch(e){console.error('restore session',e);}
+})();
+</script>
