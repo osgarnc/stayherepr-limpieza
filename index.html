@@ -610,17 +610,17 @@ function renderInbox(){
         '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
         '<td><b>Servicio</b><br><span class="muted" style="font-size:13px">'+detail+'</span></td>'+
         '<td>'+s.date+'</td>'+
-        '<td><span class="proof-link" onclick="viewService('+s.id+')">Ver fotos</span><br><span class="proof-link" onclick="previewOne('+s.id+')">📄 Vista previa</span></td>'+
+        '<td><span class="proof-link" onclick="viewService(\''+s.id+'\')">Ver fotos</span><br><span class="proof-link" onclick="previewOne(\''+s.id+'\')">📄 Vista previa</span></td>'+
         '<td><b>'+money(s.total)+'</b></td>'+
-        '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide('+s.id+',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide('+s.id+',\'rejected\')">Rechazar</button></td></tr>';
+        '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
     } else {
       return '<tr>'+
         '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
         '<td><b>Gasto</b><br><span class="muted" style="font-size:13px">'+s.desc+' · '+propName(s.prop)+'</span></td>'+
         '<td>'+s.date+'</td>'+
-        '<td><span class="proof-link" onclick="viewReceipt('+s.id+')">Ver recibo</span><br><span class="proof-link" onclick="previewOne('+s.id+')">📄 Vista previa</span></td>'+
+        '<td><span class="proof-link" onclick="viewReceipt(\''+s.id+'\')">Ver recibo</span><br><span class="proof-link" onclick="previewOne(\''+s.id+'\')">📄 Vista previa</span></td>'+
         '<td><b>'+money(s.amount)+'</b></td>'+
-        '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide('+s.id+',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide('+s.id+',\'rejected\')">Rechazar</button></td></tr>';
+        '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
     }
   }).join('');
   document.getElementById('inboxTable').innerHTML=
@@ -865,7 +865,7 @@ function renderDamage(){
       '<td>'+s.date+'</td>'+
       '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
       '<td>'+i.damage+'</td>'+
-      '<td>'+(i.damagePhoto?'<span class="dmg-flag" onclick="viewDamage('+s.id+',\''+i.prop+'\')">Ver foto</span>':'<span class="muted">Sin foto</span>')+'</td>'+
+      '<td>'+(i.damagePhoto?'<span class="dmg-flag" onclick="viewDamage(\''+s.id+'\',\''+i.prop+'\')">Ver foto</span>':'<span class="muted">Sin foto</span>')+'</td>'+
       '<td><span class="pill '+s.status+'">'+(s.status==='pending'?'Pendiente':s.status==='approved'?'Aprobado':'Rechazado')+'</span></td>'+
     '</tr>');
   }));
