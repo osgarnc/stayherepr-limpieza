@@ -26,8 +26,8 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 const money = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = (x: unknown) => String(x ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
-// Semana lunes–domingo (en base a la fecha ISO del envío)
-function weekKey(iso: string) { const d = new Date(iso + "T00:00:00Z"); const day = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - day); return d.toISOString().slice(0, 10); }
+// Semana configurable: empieza el día "ws" (0=domingo … 6=sábado) y dura 7 días
+function weekKey(iso: string, ws: number) { const d = new Date(iso + "T00:00:00Z"); const day = (d.getUTCDay() - ws + 7) % 7; d.setUTCDate(d.getUTCDate() - day); return d.toISOString().slice(0, 10); }
 function weekEnd(mon: string) { const s = new Date(mon + "T00:00:00Z"); s.setUTCDate(s.getUTCDate() + 6); return s.toISOString().slice(0, 10); }
 
 async function signed(path: string | null) {
@@ -65,9 +65,10 @@ Deno.serve(async (req) => {
     const itemsBySub: Record<string, any[]> = {};
     (items ?? []).forEach((it: any) => { (itemsBySub[it.submission_id] ||= []).push(it); });
 
-    // Agrupar por persona + semana
+    // Agrupar por persona + semana (según el día de inicio configurado)
+    const ws = Number(company?.week_start_day ?? 1);
     const groups: Record<string, any[]> = {};
-    subs.forEach((s: any) => { const k = s.professional_id + "|" + weekKey(s.date); (groups[k] ||= []).push(s); });
+    subs.forEach((s: any) => { const k = s.professional_id + "|" + weekKey(s.date, ws); (groups[k] ||= []).push(s); });
 
     let recipients = (dist ?? []).map((d: any) => d.email);
     if (MAIL_TEST_TO) recipients = [MAIL_TEST_TO];

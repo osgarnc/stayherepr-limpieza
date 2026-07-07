@@ -217,8 +217,10 @@
     <div style="overflow:auto"><table id="inboxTable"></table></div>
   </div>
   <div id="tabInvoices" class="card hide" style="padding:18px">
-    <div class="sectitle"><h2>Facturas por semana</h2><span class="muted">Renglones aprobados agrupados por persona</span></div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Cada semana (lun–dom) agrupa los servicios y gastos aprobados de cada persona en una factura pagadera.</p>
+    <div class="sectitle"><h2>Facturas por semana</h2>
+      <button class="btn coral sm" onclick="sendAllNow()">✉️ Enviar facturas ahora por correo</button>
+    </div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Agrupa los servicios y gastos <b>aprobados</b> de cada persona por semana. El envío automático corre solo; el botón de arriba lo dispara al instante.</p>
     <div id="invoiceList"></div>
   </div>
   <div id="tabDamage" class="card hide" style="padding:18px">
@@ -325,7 +327,7 @@ window.sb = sb;
 /* ---------- ESTADO (se llena desde Supabase en loadAll) ---------- */
 let properties=[];     // {id,name}
 let staff=[];          // {id,name,address,phone,taxid,email}
-let company={name:'',address:'',ein:'',email:'',phone:''};  // bill-to (company_settings)
+let company={name:'',address:'',ein:'',email:'',phone:'',week_start_day:1};  // bill-to (company_settings)
 let distribution=[];   // {id,name,email,active}
 let users=[];          // profiles: {id,user(email),name,role,staffId,active}
 let rates={};          // rates[staffId][propId] = amount
@@ -363,7 +365,7 @@ async function loadAll(){
   (ratesR.data||[]).forEach(r=>{(rates[r.professional_id]=rates[r.professional_id]||{})[r.property_id]=Number(r.amount);});
   staff.forEach(s=>{rates[s.id]=rates[s.id]||{};});
   distribution=(distR.data||[]).map(d=>({id:d.id,name:d.label||d.email,email:d.email,active:d.active}));
-  if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||''};
+  if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||'',week_start_day:(compR.data.week_start_day??1)};
   users=(profR.data||[]).map(p=>({id:p.id,user:p.email||'',name:p.display_name,role:p.role,staffId:p.staff_id,active:p.active}));
   const itemsBySub={};
   (itemsR.data||[]).forEach(it=>{(itemsBySub[it.submission_id]=itemsBySub[it.submission_id]||[]).push(it);});
@@ -391,8 +393,9 @@ function staffName(id){return (staff.find(s=>s.id===id)||{}).name||id;}
 function money(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function initials(n){return n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2600);}
-function weekKey(iso){const d=new Date(iso+'T00:00');const day=(d.getDay()+6)%7;d.setDate(d.getDate()-day);return d.toISOString().slice(0,10);}
+function weekKey(iso){const d=new Date(iso+'T00:00');const ws=(company.week_start_day??1);const day=(d.getDay()-ws+7)%7;d.setDate(d.getDate()-day);return d.toISOString().slice(0,10);}
 function weekLabel(mon){const s=new Date(mon+'T00:00');const e=new Date(s);e.setDate(e.getDate()+6);const f=x=>x.toLocaleDateString('es-PR',{day:'numeric',month:'short'});return 'Semana '+f(s)+' – '+f(e);}
+const DOW=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 /* ---------- AUTH ---------- */
 function loginError(msg){const e=document.getElementById('loginErr');e.textContent=msg;e.classList.add('show');}
 async function doLogin(){
@@ -581,7 +584,7 @@ function renderInbox(){
         '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
         '<td><b>Servicio</b><br><span class="muted" style="font-size:13px">'+detail+'</span></td>'+
         '<td>'+s.date+'</td>'+
-        '<td><span class="proof-link" onclick="viewService('+s.id+')">Ver fotos</span></td>'+
+        '<td><span class="proof-link" onclick="viewService('+s.id+')">Ver fotos</span><br><span class="proof-link" onclick="previewOne('+s.id+')">📄 Vista previa</span></td>'+
         '<td><b>'+money(s.total)+'</b></td>'+
         '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide('+s.id+',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide('+s.id+',\'rejected\')">Rechazar</button></td></tr>';
     } else {
@@ -589,7 +592,7 @@ function renderInbox(){
         '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
         '<td><b>Gasto</b><br><span class="muted" style="font-size:13px">'+s.desc+' · '+propName(s.prop)+'</span></td>'+
         '<td>'+s.date+'</td>'+
-        '<td><span class="proof-link" onclick="viewReceipt('+s.id+')">Ver recibo</span></td>'+
+        '<td><span class="proof-link" onclick="viewReceipt('+s.id+')">Ver recibo</span><br><span class="proof-link" onclick="previewOne('+s.id+')">📄 Vista previa</span></td>'+
         '<td><b>'+money(s.amount)+'</b></td>'+
         '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide('+s.id+',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide('+s.id+',\'rejected\')">Rechazar</button></td></tr>';
     }
@@ -947,7 +950,75 @@ function renderCompanyForm(){
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">'+
     fieldRow('Correo',company.email,"setCompany('email',this.value)")+
     fieldRow('Teléfono',company.phone,"setCompany('phone',this.value)")+
+    '</div>'+
+    '<div class="field"><label>📅 Día en que empieza la semana de facturación</label>'+
+      '<select onchange="setWeekStart(this.value)" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px">'+
+        DOW.map((d,i)=>'<option value="'+i+'" '+((company.week_start_day??1)===i?'selected':'')+'>'+d+'</option>').join('')+
+      '</select>'+
+      '<div class="muted" style="font-size:12px;margin-top:6px">La factura semanal agrupa desde este día por 7 días. Ej: si eliges <b>Lunes</b>, cada factura cubre de lunes a domingo.</div>'+
     '</div>';
+}
+async function setWeekStart(v){
+  company.week_start_day=parseInt(v,10);
+  const {error}=await sb.from('company_settings').update({week_start_day:company.week_start_day}).eq('id',1);
+  if(error){console.error(error);toast('No se pudo guardar');return;}
+  renderInvoices();toast('Semana de facturación actualizada');
+}
+async function sendAllNow(){
+  if(!confirm('¿Enviar ahora por correo las facturas de todos los servicios aprobados pendientes de envío?'))return;
+  toast('Enviando…');
+  try{
+    const res=await fetch(window.SUPABASE_URL+'/functions/v1/send-weekly-invoices',{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+window.SUPABASE_ANON_KEY,'apikey':window.SUPABASE_ANON_KEY,'Content-Type':'application/json'}
+    });
+    const j=await res.json();
+    if(j.ok){toast('✉️ '+(j.enviadas??0)+' factura(s) enviada(s)');await loadAll();renderOffice();}
+    else toast('No se pudo enviar: '+(j.error||j.msg||'error'));
+  }catch(e){console.error(e);toast('Error de red al enviar');}
+}
+async function previewOne(id){
+  const s=subs.find(x=>x.id===id); if(!s)return;
+  const p=staff.find(x=>x.id===s.staff)||{};
+  const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  function pcard(why,prop,date,url){
+    const img=url?'<img src="'+url+'" style="width:100%;height:150px;object-fit:cover;border-radius:8px">':'<div style="height:150px;background:#eee;border-radius:8px;text-align:center;line-height:150px;color:#999">Sin foto</div>';
+    return '<div style="display:inline-block;width:180px;margin:6px;vertical-align:top;font-family:Arial,sans-serif;font-size:12px">'+img+'<div style="font-weight:bold;margin-top:4px">'+why+'</div><div style="color:#3A5249">'+esc(prop)+' - '+esc(date)+'</div></div>';
+  }
+  toast('Preparando vista previa…');
+  let rowsHtml='',cards=[];
+  if(s.type==='service'){
+    for(const i of s.items){
+      rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Servicio de limpieza - '+esc(propName(i.prop))+'</td><td class="r">'+money(i.rate)+'</td></tr>';
+      const [b,a,d]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter),signedUrl(i.pathDamage)]);
+      cards.push(pcard('Antes',propName(i.prop),s.date,b));
+      cards.push(pcard('Después',propName(i.prop),s.date,a));
+      if(i.damage)cards.push(pcard('Daño: '+esc(i.damage),propName(i.prop),s.date,d));
+    }
+  } else {
+    rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Reembolso - '+esc(s.desc)+' ('+esc(propName(s.prop))+')</td><td class="r">'+money(s.amount)+'</td></tr>';
+    cards.push(pcard('Recibo: '+esc(s.desc),propName(s.prop),s.date,await signedUrl(s.receipt)));
+  }
+  const total=s.type==='service'?s.total:s.amount;
+  const doc='<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Vista previa</title><style>'+
+    'body{font-family:Georgia,serif;color:#12261F;margin:0;padding:32px;background:#fff}'+
+    '.tag{display:inline-block;background:#FBF1DA;color:#B9822A;font-family:Arial,sans-serif;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px}'+
+    'table{width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;margin:16px 0}'+
+    'th{background:#12261F;color:#fff;text-align:left;padding:8px}td{padding:8px;border-bottom:1px solid #E2D9C6}.r{text-align:right}'+
+    'h1{color:#0E7C7B;margin:8px 0}h2{color:#0E7C7B;border-top:2px solid #E2D9C6;padding-top:16px}'+
+    '.noprint{position:fixed;top:14px;right:14px}.noprint button{font-family:Arial,sans-serif;font-weight:700;padding:9px 15px;border:none;border-radius:8px;cursor:pointer;background:#0E7C7B;color:#fff}'+
+    '@media print{.noprint{display:none}body{padding:0}}'+
+    '</style></head><body>'+
+    '<div class="noprint"><button onclick="window.print()">Imprimir / Guardar PDF</button></div>'+
+    '<span class="tag">VISTA PREVIA — pendiente de aprobación</span>'+
+    '<h1>Servicio de '+esc(p.name)+'</h1>'+
+    '<div style="font-family:Arial,sans-serif;font-size:13px;color:#3A5249">Fecha: '+esc(s.date)+'</div>'+
+    '<table><thead><tr><th>Fecha</th><th>Descripción</th><th class="r">Monto</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'+
+    '<p style="text-align:right;font-size:18px"><b>Total: '+money(total)+'</b></p>'+
+    '<h2>Fotos</h2><div>'+cards.join('')+'</div>'+
+    '</body></html>';
+  const w=window.open('','_blank');
+  if(w){w.document.write(doc);w.document.close();}else{toast('Permite ventanas emergentes para ver la vista previa');}
 }
 let _compT;
 function setCompany(k,v){company[k]=v;clearTimeout(_compT);_compT=setTimeout(async()=>{
