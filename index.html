@@ -162,7 +162,10 @@
   <div class="phone">
     <div class="phone-head">
       <div class="who">Sesión de servicio · <span id="today"></span></div>
-      <h2 id="cleanerName">María Rivera</h2>
+      <h2 id="cleanerName">—</h2>
+      <div id="cleanerPickWrap" style="display:none;margin-top:8px">
+        <select id="cleanerPick" onchange="pickCleaner(this.value)" style="width:100%;padding:10px;border-radius:10px;border:none;font-size:15px"></select>
+      </div>
     </div>
     <div class="phone-body">
       <div class="seg">
@@ -446,12 +449,26 @@ function applySession(){
   if(isCleaner){
     currentStaff=session.staffId;
     document.getElementById('cleanerName').textContent=session.name;
+    document.getElementById('cleanerPickWrap').style.display='none';
     setMode('cleaner',true);
     renderPropList();
   } else {
+    // Dueño/admin: en la vista Personal puede registrar a nombre de un personal (selector)
+    currentStaff=null;
+    document.getElementById('cleanerName').textContent='Registrar servicio';
+    document.getElementById('cleanerPickWrap').style.display='block';
+    renderCleanerPicker();
     setMode('office',true);
   }
 }
+function renderCleanerPicker(){
+  if(!session||session.role==='cleaner')return;
+  const pick=document.getElementById('cleanerPick');if(!pick)return;
+  const cur=currentStaff||'';
+  pick.innerHTML='<option value="">— Elige a nombre de quién —</option>'+
+    staff.map(s=>'<option value="'+s.id+'" '+(s.id===cur?'selected':'')+'>'+s.name+'</option>').join('');
+}
+function pickCleaner(id){currentStaff=id||null;renderPropList();}
 
 function setMode(m,force){
   if(m==='office'&&!can('office'))return;
@@ -460,6 +477,7 @@ function setMode(m,force){
   document.getElementById('mCleaner').classList.toggle('on',m==='cleaner');
   document.getElementById('mOffice').classList.toggle('on',m==='office');
   if(m==='office')renderOffice();
+  if(m==='cleaner'){ if(session&&session.role!=='cleaner'){renderCleanerPicker();} renderPropList(); }
 }
 function segTo(s){
   document.getElementById('paneService').classList.toggle('hide',s!=='service');
@@ -518,6 +536,7 @@ function recalc(){let t=0;const r=rates[currentStaff]||{};for(const pid in selec
 let _sending=false;
 async function submitService(){
   if(_sending)return;
+  if(!currentStaff){toast('Elige arriba a nombre de quién registrar el servicio');return;}
   const ids=Object.keys(selection);
   if(!ids.length){toast('Selecciona al menos una propiedad');return;}
   for(const pid of ids){const s=selection[pid];
@@ -545,6 +564,7 @@ let expFile=null;
 function pickExp(file){if(!file)return;expFile=file;const e=document.getElementById('expPhoto');e.classList.add('has');e.textContent='✓ Recibo adjuntado';}
 async function submitExpense(){
   if(_sending)return;
+  if(!currentStaff){toast('Elige arriba a nombre de quién registrar el gasto');return;}
   const amt=parseFloat(document.getElementById('expAmt').value);
   const desc=document.getElementById('expDesc').value.trim();
   const prop=document.getElementById('expProp').value;
