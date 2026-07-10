@@ -26,9 +26,17 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 const money = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = (x: unknown) => String(x ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
-// Semana configurable: empieza el día "ws" (0=domingo … 6=sábado) y dura 7 días
-function weekKey(iso: string, ws: number) { const d = new Date(iso + "T00:00:00Z"); const day = (d.getUTCDay() - ws + 7) % 7; d.setUTCDate(d.getUTCDate() - day); return d.toISOString().slice(0, 10); }
-function weekEnd(mon: string) { const s = new Date(mon + "T00:00:00Z"); s.setUTCDate(s.getUTCDate() + 6); return s.toISOString().slice(0, 10); }
+// Bisemanal: períodos de 14 días (domingo→sábado) anclados a un domingo de inicio
+const BIWEEK_ANCHOR = "2026-07-12"; // domingo, inicio de la 1ª bisemana
+function biweekKey(iso: string) {
+  const anchor = new Date(BIWEEK_ANCHOR + "T00:00:00Z");
+  const d = new Date(iso + "T00:00:00Z");
+  const period = Math.floor((d.getTime() - anchor.getTime()) / (14 * 86400000));
+  const start = new Date(anchor); start.setUTCDate(start.getUTCDate() + period * 14);
+  return start.toISOString().slice(0, 10);
+}
+function biweekEnd(startISO: string) { const s = new Date(startISO + "T00:00:00Z"); s.setUTCDate(s.getUTCDate() + 13); return s.toISOString().slice(0, 10); }
+function todayUTC() { return new Date().toISOString().slice(0, 10); }
 
 async function signed(path: string | null) {
   if (!path) return null;
@@ -64,28 +72,35 @@ Deno.serve(async (req) => {
     const itemsBySub: Record<string, any[]> = {};
     (items ?? []).forEach((it: any) => { (itemsBySub[it.submission_id] ||= []).push(it); });
 
-    // Agrupar por persona + semana (según el día de inicio configurado)
-    const ws = Number(company?.week_start_day ?? 1);
+    // ¿Enviar todo (manual) o solo bisemanas ya cerradas (automático/cron)?
+    let sendAll = false;
+    try { const body = await req.json(); sendAll = !!(body && body.all === true); } catch (_) { /* sin body = automático */ }
+
+    // Agrupar por persona + bisemana
     const groups: Record<string, any[]> = {};
-    subs.forEach((s: any) => { const k = s.professional_id + "|" + weekKey(s.date, ws); (groups[k] ||= []).push(s); });
+    subs.forEach((s: any) => { const k = s.professional_id + "|" + biweekKey(s.date); (groups[k] ||= []).push(s); });
 
     let recipients = (dist ?? []).map((d: any) => d.email);
     if (MAIL_TEST_TO) recipients = [MAIL_TEST_TO];
     if (recipients.length === 0) return jsonResp({ ok: false, msg: "No hay correos activos en la lista de distribución." });
 
     let sent = 0; const results: any[] = [];
+    const today = todayUTC();
     for (const key of Object.keys(groups)) {
       const [pid, wk] = key.split("|");
+      const end = biweekEnd(wk);
+      // El automático solo envía bisemanas ya cerradas (fin < hoy). El manual envía todo.
+      if (!sendAll && end >= today) { results.push({ persona: proById(pid)?.name, bisemana: wk + " al " + end, ok: false, motivo: "bisemana en curso" }); continue; }
       const list = groups[key].sort((a: any, b: any) => (a.date < b.date ? -1 : 1));
       const pro = proById(pid);
-      const html = await buildEmail(pro, wk, list, itemsBySub, company, propName);
-      const subject = `Factura ${pro?.name ?? ""} - Semana ${wk} al ${weekEnd(wk)}`;
+      const html = await buildEmail(pro, wk, end, list, itemsBySub, company, propName);
+      const subject = `Factura bisemanal ${pro?.name ?? ""} - ${wk} al ${end}`;
       const r = await sendEmail(recipients, subject, html);
       if (r.ok) {
         sent++;
         await sb.from("submissions").update({ archived_at: new Date().toISOString() }).in("id", list.map((s: any) => s.id));
       }
-      results.push({ persona: pro?.name, semana: wk, ok: r.ok, error: r.error });
+      results.push({ persona: pro?.name, bisemana: wk + " al " + end, ok: r.ok, error: r.error });
     }
     return jsonResp({ ok: true, enviadas: sent, grupos: Object.keys(groups).length, results });
   } catch (e) {
@@ -103,26 +118,54 @@ async function sendEmail(to: string[], subject: string, html: string) {
   return { ok: false, error: await res.text() };
 }
 
-async function buildEmail(pro: any, wk: string, list: any[], itemsBySub: Record<string, any[]>, company: any, propName: (id: string) => string) {
-  let svc = 0, exp = 0;
-  const rows = list.map((s: any) => {
+async function buildEmail(pro: any, wk: string, end: string, list: any[], itemsBySub: Record<string, any[]>, company: any, propName: (id: string) => string) {
+  // ---- Servicios agrupados por PROPIEDAD (con subtotal por propiedad) ----
+  const byProp: Record<string, { name: string; lines: any[]; subtotal: number }> = {};
+  let servicesGross = 0;
+  const expenses: any[] = [];
+  let expensesTotal = 0;
+
+  for (const s of list) {
     if (s.type === "service") {
-      svc += Number(s.total);
-      const names = (itemsBySub[s.id] ?? []).map((i: any) => propName(i.property_id)).join(", ");
-      const ex: string[] = [];
-      (itemsBySub[s.id] ?? []).forEach((i: any) => {
-        if (Number(i.early_checkin) > 0) ex.push("Early Check-in");
-        if (Number(i.late_checkout) > 0) ex.push("Late Check-out");
-        if (Number(i.extra_guest) > 0) ex.push("Extra huésped");
+      for (const i of (itemsBySub[s.id] ?? [])) {
+        const pid = i.property_id;
+        const base = Number(i.rate_applied) || 0;
+        const ex: string[] = [];
+        if (Number(i.early_checkin) > 0) ex.push("Early Check-in " + money(Number(i.early_checkin)));
+        if (Number(i.late_checkout) > 0) ex.push("Late Check-out " + money(Number(i.late_checkout)));
+        if (Number(i.extra_guest) > 0) ex.push("Extra huésped " + money(Number(i.extra_guest)));
         if (Number(i.laundry) > 0) ex.push("Lavandería " + money(Number(i.laundry)));
-      });
-      const exLine = ex.length ? `<br><span style="color:#3A5249;font-size:11px">Cargos: ${esc(ex.join(", "))}</span>` : "";
-      return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Servicio de limpieza - ${esc(names)}${exLine}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
+        const extras = (Number(i.early_checkin) || 0) + (Number(i.late_checkout) || 0) + (Number(i.extra_guest) || 0) + (Number(i.laundry) || 0);
+        const tot = base + extras;
+        servicesGross += tot;
+        (byProp[pid] ??= { name: propName(pid), lines: [], subtotal: 0 });
+        byProp[pid].lines.push({ date: s.date, ex, tot });
+        byProp[pid].subtotal += tot;
+      }
+    } else {
+      const g = Number(s.total) || 0; expensesTotal += g;
+      expenses.push({ date: s.date, desc: s.expense_desc, prop: propName(s.property_id), amount: g });
     }
-    exp += Number(s.total);
-    return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Reembolso - ${esc(s.expense_desc)} (${esc(propName(s.property_id))})</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
+  }
+  const tax = servicesGross * 0.10;
+  const servicesNet = servicesGross - tax;
+  const totalPay = servicesNet + expensesTotal;
+
+  const propBlocks = Object.values(byProp).map((p) => {
+    const rows = p.lines.map((l: any) =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(l.date)}${l.ex.length ? `<br><span style="color:#3A5249;font-size:11px">${esc(l.ex.join(", "))}</span>` : ""}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${money(l.tot)}</td></tr>`
+    ).join("");
+    return `<div style="margin-bottom:12px"><div style="font-weight:bold;color:#12261F">${esc(p.name)}</div>` +
+      `<table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px">${rows}` +
+      `<tr><td style="padding:6px 8px;text-align:right;font-weight:bold">Subtotal ${esc(p.name)}</td><td style="padding:6px 8px;text-align:right;font-weight:bold">${money(p.subtotal)}</td></tr></table></div>`;
   }).join("");
-  const total = svc + exp;
+
+  const expBlock = expenses.length
+    ? `<h3 style="color:#0E7C7B;font-size:15px;margin:16px 0 6px">Gastos reembolsables (sin descuento)</h3>` +
+      `<table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px">` +
+      expenses.map((e: any) => `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(e.date)} - ${esc(e.desc)} (${esc(e.prop)})</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${money(e.amount)}</td></tr>`).join("") +
+      `<tr><td style="padding:6px 8px;text-align:right;font-weight:bold">Subtotal gastos</td><td style="padding:6px 8px;text-align:right;font-weight:bold">${money(expensesTotal)}</td></tr></table>`
+    : "";
 
   const cards: string[] = [];
   for (const s of list) {
@@ -141,19 +184,23 @@ async function buildEmail(pro: any, wk: string, list: any[], itemsBySub: Record<
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"></head><body style="margin:0;background:#fff">
     <div style="font-family:Georgia,serif;color:#12261F;max-width:660px;margin:auto;padding:16px">
-    <h1 style="color:#0E7C7B;margin:0 0 4px">FACTURA</h1>
-    <div style="font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin-bottom:16px">Período: ${wk} al ${weekEnd(wk)}</div>
+    <h1 style="color:#0E7C7B;margin:0 0 4px">FACTURA BISEMANAL</h1>
+    <div style="font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin-bottom:16px">Período: ${wk} al ${end}</div>
     <table style="width:100%;font-family:Arial,sans-serif;font-size:13px;margin-bottom:16px"><tr>
-      <td style="vertical-align:top;width:50%"><b>Emisor</b><br>${esc(pro?.name)}<br>${esc(pro?.address || "")}<br>Id. fiscal: ${esc(pro?.tax_id || "")}<br>${esc(pro?.email || "")}</td>
-      <td style="vertical-align:top;width:50%"><b>Facturar a</b><br>${esc(company?.name || "")}<br>${esc(company?.address || "")}<br>EIN: ${esc(company?.ein || "")}</td>
+      <td style="vertical-align:top;width:50%"><b>Empleado</b><br>${esc(pro?.name)}<br>${esc(pro?.address || "")}<br>Id. fiscal: ${esc(pro?.tax_id || "")}<br>${esc(pro?.email || "")}</td>
+      <td style="vertical-align:top;width:50%"><b>Pagado por</b><br>${esc(company?.name || "")}<br>${esc(company?.address || "")}<br>EIN: ${esc(company?.ein || "")}</td>
     </tr></table>
-    <table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px">
-      <thead><tr style="background:#12261F;color:#fff"><th style="text-align:left;padding:8px">Fecha</th><th style="text-align:left;padding:8px">Descripción</th><th style="text-align:right;padding:8px">Monto</th></tr></thead>
-      <tbody>${rows}</tbody>
+    <h3 style="color:#0E7C7B;font-size:15px;margin:0 0 6px">Servicios por propiedad</h3>
+    ${propBlocks || '<p style="color:#3A5249;font-family:Arial,sans-serif;font-size:13px">Sin servicios.</p>'}
+    ${expBlock}
+    <table style="width:100%;font-family:Arial,sans-serif;font-size:14px;margin-top:16px;border-top:2px solid #12261F">
+      <tr><td style="padding:6px 8px">Subtotal servicios (bruto)</td><td style="padding:6px 8px;text-align:right">${money(servicesGross)}</td></tr>
+      <tr><td style="padding:6px 8px;color:#C0492E">Taxes (-10% sobre servicios)</td><td style="padding:6px 8px;text-align:right;color:#C0492E">-${money(tax)}</td></tr>
+      <tr><td style="padding:6px 8px">Servicios netos</td><td style="padding:6px 8px;text-align:right">${money(servicesNet)}</td></tr>
+      ${expensesTotal > 0 ? `<tr><td style="padding:6px 8px">Gastos reembolsables (completo)</td><td style="padding:6px 8px;text-align:right">${money(expensesTotal)}</td></tr>` : ""}
+      <tr><td style="padding:10px 8px;font-size:19px;font-weight:bold;border-top:1px solid #ccc">TOTAL A PAGAR</td><td style="padding:10px 8px;text-align:right;font-size:19px;font-weight:bold;border-top:1px solid #ccc">${money(totalPay)}</td></tr>
     </table>
-    <p style="text-align:right;font-family:Arial,sans-serif;font-size:14px">Servicios: ${money(svc)} &nbsp;&nbsp; Gastos: ${money(exp)}<br>
-      <b style="font-size:20px">TOTAL A PAGAR: ${money(total)}</b></p>
-    <h2 style="color:#0E7C7B;font-size:18px;border-top:2px solid #E2D9C6;padding-top:16px">Reporte de fotos</h2>
+    <h2 style="color:#0E7C7B;font-size:18px;border-top:2px solid #E2D9C6;padding-top:16px;margin-top:20px">Reporte de fotos</h2>
     <div>${cards.join("") || '<p style="color:#3A5249">Sin fotos.</p>'}</div>
     <p style="color:#3A5249;font-family:Arial,sans-serif;font-size:11px;margin-top:20px">Stay Here PR - Servicios de limpieza. Cada foto documenta donde, cuando, quien y por que (antes, despues, dano o recibo).</p>
     </div></body></html>`;

@@ -207,7 +207,7 @@
   </div>
   <div class="tabs">
     <button id="tInbox" class="on" onclick="tabTo('inbox')">📥 Bandeja</button>
-    <button id="tInvoices" onclick="tabTo('invoices')">🧾 Facturas semanales</button>
+    <button id="tInvoices" onclick="tabTo('invoices')">🧾 Facturas bisemanales</button>
     <button id="tDamage" onclick="tabTo('damage')">⚠️ Daños</button>
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
@@ -219,10 +219,10 @@
     <div style="overflow:auto"><table id="inboxTable"></table></div>
   </div>
   <div id="tabInvoices" class="card hide" style="padding:18px">
-    <div class="sectitle"><h2>Facturas por semana</h2>
+    <div class="sectitle"><h2>Facturas por bisemana</h2>
       <button class="btn coral sm" onclick="sendAllNow()">✉️ Enviar facturas ahora por correo</button>
     </div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Agrupa los servicios y gastos <b>aprobados</b> de cada persona por semana. El envío automático corre solo; el botón de arriba lo dispara al instante.</p>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Agrupa los <b>aprobados</b> por empleado en bisemanas (dom–sáb, 14 días). Detalle por propiedad, con −10% de Taxes sobre servicios. El envío automático (lunes 9am) corre solo; el botón de arriba lo dispara al instante.</p>
     <div id="invoiceList"></div>
   </div>
   <div id="tabDamage" class="card hide" style="padding:18px">
@@ -406,8 +406,9 @@ function staffName(id){return (staff.find(s=>s.id===id)||{}).name||id;}
 function money(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function initials(n){return n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2600);}
-function weekKey(iso){const d=new Date(iso+'T00:00');const ws=(company.week_start_day??1);const day=(d.getDay()-ws+7)%7;d.setDate(d.getDate()-day);return d.toISOString().slice(0,10);}
-function weekLabel(mon){const s=new Date(mon+'T00:00');const e=new Date(s);e.setDate(e.getDate()+6);const f=x=>x.toLocaleDateString('es-PR',{day:'numeric',month:'short'});return 'Semana '+f(s)+' – '+f(e);}
+const BIWEEK_ANCHOR='2026-07-12'; // domingo, inicio de la 1ª bisemana
+function weekKey(iso){const anchor=new Date(BIWEEK_ANCHOR+'T00:00:00Z');const d=new Date(iso+'T00:00:00Z');const period=Math.floor((d.getTime()-anchor.getTime())/(14*86400000));const start=new Date(anchor);start.setUTCDate(start.getUTCDate()+period*14);return start.toISOString().slice(0,10);}
+function weekLabel(mon){const s=new Date(mon+'T00:00:00Z');const e=new Date(s);e.setUTCDate(e.getUTCDate()+13);const f=x=>x.toLocaleDateString('es-PR',{day:'numeric',month:'short',timeZone:'UTC'});return 'Bisemana '+f(s)+' – '+f(e);}
 const DOW=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 /* ---------- AUTH ---------- */
 function loginError(msg){const e=document.getElementById('loginErr');e.textContent=msg;e.classList.add('show');}
@@ -725,19 +726,23 @@ async function markPaid(k){const parts=k.split('|');const wk=parts[0],sid=parts[
 function invoiceNo(wk,sid){return 'INV-'+wk.replace(/-/g,'')+'-'+sid;}
 function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1];
   const p=staff.find(s=>s.id===sid);
-  const list=subs.filter(s=>s.status==='approved'&&weekKey(s.date)===wk&&s.staff===sid)
-                 .sort((a,b)=>a.date<b.date?-1:1);
-  let svc=0,exp=0;
-  const rows=list.map(s=>{
-    const isSvc=s.type==='service';const a=isSvc?s.total:s.amount;
-    if(isSvc)svc+=a;else exp+=a;
-    const desc=isSvc
-      ? 'Servicio de limpieza — '+s.items.map(i=>propName(i.prop)).join(', ')
-      : 'Reembolso de gasto — '+s.desc+' ('+propName(s.prop)+')';
-    return '<tr><td>'+s.date+'</td><td>'+desc+'</td><td class="r">'+money(a)+'</td></tr>';
-  }).join('');
-  const total=svc+exp;
+  const list=subs.filter(s=>s.status==='approved'&&weekKey(s.date)===wk&&s.staff===sid).sort((a,b)=>a.date<b.date?-1:1);
   const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const byProp={};let servicesGross=0;const expenses=[];let expensesTotal=0;
+  list.forEach(s=>{
+    if(s.type==='service'){
+      s.items.forEach(i=>{const t=itemTotal(i);servicesGross+=t;const ex=extrasLabel(i);
+        (byProp[i.prop]=byProp[i.prop]||{name:propName(i.prop),lines:[],subtotal:0});
+        byProp[i.prop].lines.push({date:s.date,ex,t});byProp[i.prop].subtotal+=t;});
+    } else { expensesTotal+=s.amount; expenses.push({date:s.date,desc:s.desc,prop:propName(s.prop),amount:s.amount}); }
+  });
+  const tax=servicesGross*0.10,servicesNet=servicesGross-tax,total=servicesNet+expensesTotal;
+  const propRows=Object.keys(byProp).map(pid=>{const pr=byProp[pid];
+    return pr.lines.map(l=>'<tr><td>'+l.date+'</td><td>'+esc(pr.name)+(l.ex.length?' <span style="color:#3A5249;font-size:11px">('+esc(l.ex.join(', '))+')</span>':'')+'</td><td class="r">'+money(l.t)+'</td></tr>').join('')+
+      '<tr><td></td><td style="text-align:right;font-weight:700">Subtotal '+esc(pr.name)+'</td><td class="r" style="font-weight:700">'+money(pr.subtotal)+'</td></tr>';
+  }).join('');
+  const expRows=expenses.map(e=>'<tr><td>'+e.date+'</td><td>Reembolso — '+esc(e.desc)+' ('+esc(e.prop)+')</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
+  const rows=propRows+expRows;
   const doc=
 '<!doctype html><html lang="es"><head><meta charset="utf-8"><title>'+invoiceNo(wk,sid)+'</title><style>'+
 '*{box-sizing:border-box}body{font-family:Georgia,serif;color:#12261F;margin:0;padding:44px;background:#fff;font-size:14px}'+
@@ -766,10 +771,10 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
 '.pbtn{background:#0E7C7B;color:#fff}.cbtn{background:#eee;color:#333}'+
 '</style></head><body>'+
 '<div class="noprint"><button class="pbtn" onclick="window.print()">Imprimir / Guardar PDF</button><button class="cbtn" onclick="window.close()">Cerrar</button></div>'+
-'<div class="head"><div><h1 class="title">FACTURA</h1><div style="font-family:Arial,sans-serif;font-size:12.5px;color:#3A5249;margin-top:4px">'+weekLabel(wk)+'</div></div>'+
+'<div class="head"><div><h1 class="title">FACTURA BISEMANAL</h1><div style="font-family:Arial,sans-serif;font-size:12.5px;color:#3A5249;margin-top:4px">'+weekLabel(wk)+'</div></div>'+
 '<div class="meta"><div><b>No. de factura:</b> '+invoiceNo(wk,sid)+'</div><div><b>Fecha de emisión:</b> '+todayISO()+'</div><div><b>Período:</b> '+wk+' al '+weekEnd(wk)+'</div></div></div>'+
 '<div class="parties">'+
-'<div class="box"><div class="lbl">Emisor (De)</div><div class="name">'+esc(p.name)+'</div>'+
+'<div class="box"><div class="lbl">Empleado (De)</div><div class="name">'+esc(p.name)+'</div>'+
 '<div class="line">'+esc(p.address)+'</div><div class="line">'+esc(p.phone)+'</div>'+
 '<div class="line">Id. fiscal: '+esc(p.taxid)+'</div><div class="line">'+esc(p.email)+'</div></div>'+
 '<div class="box"><div class="lbl">Facturar a (Para)</div><div class="name">'+esc(company.name)+'</div>'+
@@ -778,8 +783,10 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
 '</div>'+
 '<table><thead><tr><th style="width:110px">Fecha</th><th>Descripción</th><th class="r" style="width:110px">Monto</th></tr></thead><tbody>'+rows+'</tbody></table>'+
 '<div class="sub"><table>'+
-'<tr><td>Servicios</td><td class="r">'+money(svc)+'</td></tr>'+
-'<tr><td>Gastos reembolsables</td><td class="r">'+money(exp)+'</td></tr>'+
+'<tr><td>Subtotal servicios (bruto)</td><td class="r">'+money(servicesGross)+'</td></tr>'+
+'<tr><td style="color:#C0492E">Taxes (−10% servicios)</td><td class="r" style="color:#C0492E">−'+money(tax)+'</td></tr>'+
+'<tr><td>Servicios netos</td><td class="r">'+money(servicesNet)+'</td></tr>'+
+(expensesTotal>0?'<tr><td>Gastos reembolsables (completo)</td><td class="r">'+money(expensesTotal)+'</td></tr>':'')+
 '<tr class="tot"><td>TOTAL A PAGAR</td><td class="r">'+money(total)+'</td></tr>'+
 '</table></div>'+
 '<div class="foot">Factura generada por Stay Here PR · Servicios de Limpieza. Todos los renglones fueron aprobados con evidencia fotográfica (antes/después) y recibos archivados.<div class="pay"><b>Gracias por su trabajo.</b></div></div>'+
@@ -788,7 +795,7 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
   if(w){w.document.write(doc);w.document.close();toast('Factura abierta — usa Imprimir / Guardar PDF');}
   else{download('factura_'+esc(p.name).replace(/\s/g,'_')+'_'+wk+'.html',doc,'text/html');toast('Factura descargada (HTML)');}
 }
-function weekEnd(mon){const s=new Date(mon+'T00:00');s.setDate(s.getDate()+6);return s.toISOString().slice(0,10);}
+function weekEnd(mon){const s=new Date(mon+'T00:00:00Z');s.setUTCDate(s.getUTCDate()+13);return s.toISOString().slice(0,10);}
 
 async function photoReport(k){
   const parts=k.split('|');const wk=parts[0],sid=parts[1];
@@ -1030,12 +1037,7 @@ function renderCompanyForm(){
     fieldRow('Correo',company.email,"setCompany('email',this.value)")+
     fieldRow('Teléfono',company.phone,"setCompany('phone',this.value)")+
     '</div>'+
-    '<div class="field"><label>📅 Día en que empieza la semana de facturación</label>'+
-      '<select onchange="setWeekStart(this.value)" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px">'+
-        DOW.map((d,i)=>'<option value="'+i+'" '+((company.week_start_day??1)===i?'selected':'')+'>'+d+'</option>').join('')+
-      '</select>'+
-      '<div class="muted" style="font-size:12px;margin-top:6px">La factura semanal agrupa desde este día por 7 días. Ej: si eliges <b>Lunes</b>, cada factura cubre de lunes a domingo.</div>'+
-    '</div>';
+    '<div class="note" style="margin-top:6px">📅 Facturación <b>bisemanal</b> (domingo a sábado, 14 días). 1ª bisemana: dom 12 jul – sáb 25 jul. Envío automático el lunes siguiente 9am.</div>';
 }
 async function setWeekStart(v){
   company.week_start_day=parseInt(v,10);
@@ -1049,7 +1051,8 @@ async function sendAllNow(){
   try{
     const res=await fetch(window.SUPABASE_URL+'/functions/v1/send-weekly-invoices',{
       method:'POST',
-      headers:{'Authorization':'Bearer '+window.SUPABASE_ANON_KEY,'apikey':window.SUPABASE_ANON_KEY,'Content-Type':'application/json'}
+      headers:{'Authorization':'Bearer '+window.SUPABASE_ANON_KEY,'apikey':window.SUPABASE_ANON_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({all:true})
     });
     const j=await res.json();
     if(j.ok){toast('✉️ '+(j.enviadas??0)+' factura(s) enviada(s)');await loadAll();renderOffice();}
