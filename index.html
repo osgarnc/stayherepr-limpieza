@@ -138,7 +138,8 @@
     <div class="field"><label>Correo</label><input id="loginUser" type="email" autocomplete="username" placeholder="tucorreo@ejemplo.com"></div>
     <div class="field"><label>Contraseña</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••"></div>
     <button class="btn block" onclick="doLogin()">Entrar</button>
-    <button class="btn ghost block" style="margin-top:10px" onclick="doSignup()">Crear cuenta nueva</button>
+    <div style="text-align:center;margin-top:12px"><span class="proof-link" style="font-size:13.5px;cursor:pointer" onclick="forgotPassword()">¿Olvidaste tu contraseña?</span></div>
+    <button class="btn ghost block" style="margin-top:12px" onclick="doSignup()">Crear cuenta nueva</button>
     <div class="demo-hint">
       ¿Primera vez? Crea tu cuenta con tu correo y avisa al dueño para que la active y te asigne rol.
     </div>
@@ -430,6 +431,14 @@ async function doSignup(){
   const {error}=await sb.auth.signUp({email,password:pass});
   if(error){loginError(error.message);return;}
   toast('Cuenta creada. Pide al dueño que la active para entrar.');
+}
+async function forgotPassword(){
+  const email=document.getElementById('loginUser').value.trim();
+  document.getElementById('loginErr').classList.remove('show');
+  if(!email){loginError('Escribe tu correo arriba y vuelve a tocar “¿Olvidaste tu contraseña?”');return;}
+  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin});
+  if(error){loginError(error.message);return;}
+  toast('📧 Te enviamos un enlace para restablecer tu contraseña. Revisa tu correo (y la carpeta de spam).');
 }
 async function loadSession(authUser){
   const {data:prof}=await sb.from('profiles').select('*').eq('id',authUser.id).maybeSingle();
@@ -1215,6 +1224,17 @@ renderPropList();
 if(!window.SUPABASE_URL||window.SUPABASE_URL.includes('TU-PROYECTO')){
   loginError('⚙️ Falta configurar Supabase: edita el archivo config.js con tu URL y llave.');
 }
+
+// Cuando la persona llega desde el enlace de "olvidé mi contraseña", pedir la nueva
+sb.auth.onAuthStateChange(async (event)=>{
+  if(event==='PASSWORD_RECOVERY'){
+    const np=prompt('Recuperación de contraseña.\nEscribe tu nueva contraseña (mínimo 6 caracteres):');
+    if(np&&np.length>=6){
+      const {error}=await sb.auth.updateUser({password:np});
+      toast(error?('Error: '+error.message):'✅ Contraseña actualizada. Ya puedes usar la app.');
+    } else if(np!==null){ toast('La contraseña debe tener al menos 6 caracteres'); }
+  }
+});
 
 // Restaurar sesión si ya había iniciado antes
 (async()=>{
