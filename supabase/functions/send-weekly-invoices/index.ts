@@ -36,11 +36,13 @@ async function signed(path: string | null) {
   return data?.signedUrl ?? null;
 }
 
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-cron-secret", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 function jsonResp(obj: unknown, status = 200) {
-  return new Response(JSON.stringify(obj, null, 2), { status, headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(obj, null, 2), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   try {
     if (CRON_SECRET && req.headers.get("x-cron-secret") !== CRON_SECRET) {
       return jsonResp({ ok: false, error: "No autorizado" }, 401);
@@ -55,11 +57,8 @@ Deno.serve(async (req) => {
     const propName = (id: string) => (props ?? []).find((p: any) => p.id === id)?.name ?? id;
     const proById = (id: string) => (pros ?? []).find((p: any) => p.id === id);
 
-    const { data: subs, error: subsErr } = await sb.from("submissions").select("*").eq("status", "approved").is("archived_at", null);
-    if (!subs || subs.length === 0) return jsonResp({
-      ok: true, sent: 0, msg: "No hay nada aprobado pendiente de enviar.",
-      debug: { serviceKeyLen: (SERVICE_KEY || "").length, url: SUPABASE_URL, subsErr: subsErr?.message ?? null, subsCount: subs?.length ?? null },
-    });
+    const { data: subs } = await sb.from("submissions").select("*").eq("status", "approved").is("archived_at", null);
+    if (!subs || subs.length === 0) return jsonResp({ ok: true, sent: 0, msg: "No hay nada aprobado pendiente de enviar." });
 
     const { data: items } = await sb.from("submission_items").select("*").in("submission_id", subs.map((s: any) => s.id));
     const itemsBySub: Record<string, any[]> = {};

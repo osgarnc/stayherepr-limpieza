@@ -154,6 +154,7 @@
   <div class="userchip" id="userChip" style="display:none">
     <span class="uname" id="chipName"></span>
     <span class="role" id="chipRole"></span>
+    <button class="logout" onclick="changeMyPassword()">🔑 Clave</button>
     <button class="logout" onclick="doLogout()">Salir</button>
   </div>
 </div>
@@ -439,6 +440,14 @@ async function loadSession(authUser){
 async function doLogout(){await sb.auth.signOut();session=null;
   document.getElementById('loginScreen').style.display='flex';
   document.getElementById('loginUser').value='';document.getElementById('loginPass').value='';}
+async function changeMyPassword(){
+  const np=prompt('Escribe tu nueva contraseña (mínimo 6 caracteres):');
+  if(np===null)return;
+  if(!np||np.length<6){toast('La contraseña debe tener al menos 6 caracteres');return;}
+  const {error}=await sb.auth.updateUser({password:np});
+  if(error){toast('No se pudo cambiar: '+error.message);return;}
+  toast('✅ Contraseña actualizada');
+}
 function applySession(){
   document.getElementById('loginScreen').style.display='none';
   const chip=document.getElementById('userChip');
@@ -1109,8 +1118,8 @@ function renderUsers(){
         staff.map(s=>'<option value="'+s.id+'" '+(u.staffId===s.id?'selected':'')+'>'+s.name+'</option>').join('')+'</select></td>'+
       '<td>'+(u.active?'<span class="pill approved">Activo</span>':'<span class="pill rejected">Inactivo</span>')+'</td>'+
       '<td style="white-space:nowrap">'+
-        '<button class="btn sm ghost" onclick="resetPass('+idx+')">Restablecer clave</button> '+
-        (isSelf?'':'<button class="btn sm '+(u.active?'dgr':'ok')+'" onclick="toggleActive('+idx+')">'+(u.active?'Desactivar':'Activar')+'</button>')+
+        (isSelf?'':'<button class="btn sm '+(u.active?'dgr':'ok')+'" onclick="toggleActive('+idx+')">'+(u.active?'Desactivar':'Activar')+'</button> ')+
+        (isSelf?'<span class="muted" style="font-size:12px">tu cuenta</span>':'<button class="btn sm dgr" onclick="deleteUserAccount(\''+u.id+'\')">Eliminar</button>')+
       '</td></tr>';
   }).join('');
   document.getElementById('usersTable').innerHTML=
@@ -1132,7 +1141,23 @@ async function linkStaff(idx,sid){const u=users[idx];u.staffId=sid||null;
   const {error}=await sb.from('profiles').update({staff_id:u.staffId}).eq('id',u.id);
   if(error){console.error(error);toast('No se pudo vincular');return;}
   toast(sid?'Perfil vinculado':'Vínculo quitado');}
-function resetPass(idx){toast('La persona restablece su clave con “¿Olvidaste tu contraseña?”, o tú desde Supabase → Authentication.');}
+async function deleteUserAccount(id){
+  const u=users.find(x=>x.id===id); if(!u)return;
+  if(session&&u.id===session.id){toast('No puedes borrar tu propia cuenta');return;}
+  if(!confirm('¿Eliminar por completo la cuenta de "'+u.name+'" ('+u.user+')?\n\nSe borra su acceso a la app. Los servicios que haya registrado se conservan.'))return;
+  toast('Eliminando…');
+  try{
+    const {data:{session:sess}}=await sb.auth.getSession();
+    const res=await fetch(window.SUPABASE_URL+'/functions/v1/admin-delete-user',{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+(sess?sess.access_token:window.SUPABASE_ANON_KEY),'apikey':window.SUPABASE_ANON_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({targetId:id})
+    });
+    const j=await res.json();
+    if(j.ok){toast('✅ Usuario eliminado');await loadAll();renderOffice();}
+    else toast('No se pudo: '+(j.error||'error'));
+  }catch(e){console.error(e);toast('Error de red al eliminar');}
+}
 function createUser(){toast('Las cuentas se crean solas en la pantalla de acceso (Crear cuenta nueva). Aquí las activas y les asignas rol/perfil.');}
 
 function allRows(){return subs.map(s=>{const isSvc=s.type==='service';
