@@ -114,6 +114,7 @@ async function buildEmail(pro: any, wk: string, list: any[], itemsBySub: Record<
         if (Number(i.early_checkin) > 0) ex.push("Early Check-in");
         if (Number(i.late_checkout) > 0) ex.push("Late Check-out");
         if (Number(i.extra_guest) > 0) ex.push("Extra huésped");
+        if (Number(i.laundry) > 0) ex.push("Lavandería " + money(Number(i.laundry)));
       });
       const exLine = ex.length ? `<br><span style="color:#3A5249;font-size:11px">Cargos: ${esc(ex.join(", "))}</span>` : "";
       return `<tr><td style="padding:8px;border-bottom:1px solid #E2D9C6">${esc(s.date)}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6">Servicio de limpieza - ${esc(names)}${exLine}</td><td style="padding:8px;border-bottom:1px solid #E2D9C6;text-align:right">${money(s.total)}</td></tr>`;
