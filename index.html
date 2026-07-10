@@ -194,7 +194,7 @@
     </div>
   </div>
   <div class="note" style="max-width:420px;margin:12px auto 0">
-    Cada propiedad exige foto <b>antes</b> y <b>después</b>. El campo de <b>daño</b> es opcional y avisa a la administradora. Cambia de persona en Back Office → Tarifas.
+    Cada propiedad exige foto <b>antes</b> y <b>después</b>. Los <b>gastos</b> exigen foto del recibo. Si reportas un <b>daño</b>, exige descripción <b>y</b> foto.
   </div>
 </div>
 
@@ -548,7 +548,7 @@ function renderPropList(){
           '</div>'+
         '</div>'+
         '<details class="dmg" '+((s.damage||s.damageFile)?'open':'')+'>'+
-          '<summary>⚠️ Reportar daño en la propiedad (opcional)</summary>'+
+          '<summary>⚠️ Reportar daño en la propiedad (opcional — si reportas, exige descripción y foto)</summary>'+
           '<textarea placeholder="Describe el daño encontrado…" oninput="setDamage(\''+p.id+'\',this.value)">'+s.damage+'</textarea>'+
           photoBox(p.id,'damage',!!s.damageFile,'✓ Foto del daño','📷 Foto del daño')+
         '</details>'+
@@ -577,7 +577,9 @@ async function submitService(){
   const ids=Object.keys(selection);
   if(!ids.length){toast('Selecciona al menos una propiedad');return;}
   for(const pid of ids){const s=selection[pid];
-    if(!s.beforeFile||!s.afterFile){toast('Falta foto antes/después en '+propName(pid));return;}}
+    if(!s.beforeFile||!s.afterFile){toast('Falta foto antes/después en '+propName(pid));return;}
+    const hasNote=!!s.damage.trim(), hasPhoto=!!s.damageFile;
+    if((hasNote||hasPhoto)&&(!hasNote||!hasPhoto)){toast('El reporte de daño necesita descripción Y foto en '+propName(pid));return;}}
   _sending=true;toast('Subiendo… no cierres la app');
   try{
     const date=document.getElementById('svcDate').value||todayISO();
