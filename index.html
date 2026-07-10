@@ -187,7 +187,7 @@
         <div class="field"><label>Monto ($)</label><input id="expAmt" type="number" inputmode="decimal" placeholder="0.00"></div>
         <div class="field"><label>Foto del recibo</label>
           <div id="expPhoto" class="photo" onclick="document.getElementById('expFileInput').click()">🧾 Toca para adjuntar recibo</div>
-          <input id="expFileInput" type="file" accept="image/*" capture="environment" style="display:none" onchange="pickExp(this.files[0])">
+          <input id="expFileInput" type="file" accept="image/*" style="display:none" onchange="pickExp(this.files[0])">
         </div>
         <button class="btn coral block" onclick="submitExpense()">Enviar gasto</button>
       </div>
@@ -507,7 +507,7 @@ function isSelected(pid){return !!selection[pid];}
 function toggleProp(pid){if(selection[pid])delete selection[pid];else ensureSel(pid);renderPropList();}
 function photoBox(pid,which,has,labelOn,labelOff){
   return '<label class="photo '+(has?'has':'')+'">'+(has?labelOn:labelOff)+
-    '<input type="file" accept="image/*" capture="environment" style="display:none" onchange="pickPhoto(\''+pid+'\',\''+which+'\',this.files[0])"></label>';
+    '<input type="file" accept="image/*" style="display:none" onchange="pickPhoto(\''+pid+'\',\''+which+'\',this.files[0])"></label>';
 }
 function renderPropList(){
   const el=document.getElementById('propList');if(!el)return;
