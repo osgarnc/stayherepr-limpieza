@@ -617,10 +617,13 @@ async function submitExpense(){
   _sending=true;toast('Subiendo…');
   try{
     const date=document.getElementById('expDate').value||todayISO();
-    const {data:sub,error}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,total:amt,expense_desc:desc,property_id:prop}).select().single();
+    // Subir el recibo PRIMERO (ruta única), luego crear el gasto ya con la foto incluida.
+    // (El personal no puede actualizar envíos, así que la foto debe ir en el insert.)
+    const path=currentStaff+'/gasto-'+Date.now()+'-'+Math.floor(Math.random()*100000)+'.jpg';
+    const p=await upload(path,expFile);
+    if(!p){toast('No se pudo subir el recibo, intenta de nuevo');return;}
+    const {error}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,total:amt,expense_desc:desc,property_id:prop,receipt_photo:p}).select().single();
     if(error){console.error(error);toast('Error al enviar el gasto');return;}
-    const p=await upload(currentStaff+'/'+sub.id+'/recibo.jpg',expFile);
-    if(p)await sb.from('submissions').update({receipt_photo:p}).eq('id',sub.id);
     document.getElementById('expDesc').value='';document.getElementById('expAmt').value='';expFile=null;
     const e=document.getElementById('expPhoto');e.className='photo';e.textContent='🧾 Toca para adjuntar recibo';
     await loadAll();
