@@ -502,7 +502,7 @@ function tabTo(t){
   document.getElementById('tab'+C).classList.toggle('hide',x!==t);
   document.getElementById('t'+C).classList.toggle('on',x===t);});}
 let selection={};
-function ensureSel(pid){if(!selection[pid])selection[pid]={beforeFile:null,afterFile:null,damage:'',damageFile:null,earlyCheckin:false,lateCheckout:false,extraGuest:false,laundry:0};return selection[pid];}
+function ensureSel(pid){if(!selection[pid])selection[pid]={beforeFile:null,afterFile:null,damage:'',damageFile:null,earlyCheckin:false,lateCheckout:false,extraGuest:false,laundryOn:false,laundry:0};return selection[pid];}
 function setLaundry(pid,val){ensureSel(pid).laundry=parseFloat(val)||0;recalc();}
 function toggleExtra(pid,which){const s=ensureSel(pid);s[which]=!s[which];renderPropList();}
 function isSelected(pid){return !!selection[pid];}
@@ -539,10 +539,13 @@ function renderPropList(){
           extraChk(p.id,'earlyCheckin','Early Check-in',company.fee_early_checkin,s.earlyCheckin)+
           extraChk(p.id,'lateCheckout','Late Check-out',company.fee_late_checkout,s.lateCheckout)+
           extraChk(p.id,'extraGuest','Extra huésped',company.fee_extra_guest,s.extraGuest)+
-          '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;padding:8px 10px;border:1.5px solid '+((s.laundry||0)>0?'var(--sea)':'var(--line)')+';border-radius:10px;background:'+((s.laundry||0)>0?'#F1F9F8':'#fff')+'">'+
+          '<div style="display:flex;align-items:center;gap:8px;font-size:13.5px;padding:8px 10px;border:1.5px solid '+(s.laundryOn?'var(--sea)':'var(--line)')+';border-radius:10px;background:'+(s.laundryOn?'#F1F9F8':'#fff')+'">'+
+            '<input type="checkbox" '+(s.laundryOn?'checked':'')+' onchange="toggleExtra(\''+p.id+'\',\'laundryOn\')" style="width:18px;height:18px;accent-color:var(--sea)">'+
             '<span style="flex:1">Lavandería</span>'+
-            '<span>$<input type="number" inputmode="decimal" min="0" step="0.01" value="'+((s.laundry||0)>0?s.laundry:'')+'" placeholder="0.00" oninput="setLaundry(\''+p.id+'\',this.value)" style="width:80px;padding:6px;border:1.5px solid var(--line);border-radius:8px;font-size:14px"></span>'+
-          '</label>'+
+            (s.laundryOn
+              ? '$<input type="number" inputmode="decimal" min="0" step="0.01" value="'+((s.laundry||0)>0?s.laundry:'')+'" placeholder="0.00" oninput="setLaundry(\''+p.id+'\',this.value)" style="width:80px;padding:6px;border:1.5px solid var(--line);border-radius:8px;font-size:14px">'
+              : '<span class="muted" style="font-size:12px">marca para añadir</span>')+
+          '</div>'+
         '</div>'+
         '<details class="dmg" '+((s.damage||s.damageFile)?'open':'')+'>'+
           '<summary>⚠️ Reportar daño en la propiedad (opcional)</summary>'+
@@ -564,7 +567,7 @@ function extraChk(pid,which,label,fee,on){
     '<input type="checkbox" '+(on?'checked':'')+' onchange="toggleExtra(\''+pid+'\',\''+which+'\')" style="width:18px;height:18px;accent-color:var(--sea)">'+
     '<span style="flex:1">'+label+'</span><b>+'+money(fee||0)+'</b></label>';
 }
-function extrasFor(pid){const s=selection[pid]||{};return (s.earlyCheckin?(company.fee_early_checkin||0):0)+(s.lateCheckout?(company.fee_late_checkout||0):0)+(s.extraGuest?(company.fee_extra_guest||0):0)+(s.laundry||0);}
+function extrasFor(pid){const s=selection[pid]||{};return (s.earlyCheckin?(company.fee_early_checkin||0):0)+(s.lateCheckout?(company.fee_late_checkout||0):0)+(s.extraGuest?(company.fee_extra_guest||0):0)+(s.laundryOn?(s.laundry||0):0);}
 function recalc(){let t=0;const r=rates[currentStaff]||{};for(const pid in selection)t+=(r[pid]||0)+extrasFor(pid);
   document.getElementById('svcTotal').textContent=money(t);return t;}
 let _sending=false;
@@ -587,7 +590,7 @@ async function submitService(){
       const pd=s.damageFile?await upload(base+'_dano.jpg',s.damageFile):null;
       const {error:ie}=await sb.from('submission_items').insert({submission_id:sub.id,property_id:pid,
         photo_before:pb,photo_after:pa,damage_note:s.damage.trim()||null,damage_photo:pd,
-        laundry:s.laundry||0,
+        laundry:s.laundryOn?(s.laundry||0):0,
         early_checkin:s.earlyCheckin?(company.fee_early_checkin||0.01):0,
         late_checkout:s.lateCheckout?(company.fee_late_checkout||0.01):0,
         extra_guest:s.extraGuest?(company.fee_extra_guest||0.01):0});
