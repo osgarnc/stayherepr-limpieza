@@ -222,7 +222,7 @@
     <div class="sectitle"><h2>Facturas por bisemana</h2>
       <button class="btn coral sm" onclick="sendAllNow()">✉️ Enviar facturas ahora por correo</button>
     </div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Agrupa los <b>aprobados</b> por empleado en bisemanas (dom–sáb, 14 días). Detalle por propiedad, con −10% de Taxes sobre servicios. El envío automático (lunes 9am) corre solo; el botón de arriba lo dispara al instante.</p>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Agrupa los <b>aprobados</b> por empleado en bisemanas (dom–sáb, 14 días). Detalle por propiedad, con −10% de Taxes sobre servicios. El envío automático (domingo 9am) corre solo; el botón de arriba lo dispara al instante.</p>
     <div id="invoiceList"></div>
   </div>
   <div id="tabDamage" class="card hide" style="padding:18px">
@@ -1037,7 +1037,7 @@ function renderCompanyForm(){
     fieldRow('Correo',company.email,"setCompany('email',this.value)")+
     fieldRow('Teléfono',company.phone,"setCompany('phone',this.value)")+
     '</div>'+
-    '<div class="note" style="margin-top:6px">📅 Facturación <b>bisemanal</b> (domingo a sábado, 14 días). 1ª bisemana: dom 12 jul – sáb 25 jul. Envío automático el lunes siguiente 9am.</div>';
+    '<div class="note" style="margin-top:6px">📅 Facturación <b>bisemanal</b> (domingo a sábado, 14 días). 1ª bisemana: dom 12 jul – sáb 25 jul. Envío automático el domingo siguiente 9am.</div>';
 }
 async function setWeekStart(v){
   company.week_start_day=parseInt(v,10);
