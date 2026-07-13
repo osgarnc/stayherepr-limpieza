@@ -769,12 +769,13 @@ function renderInvoices(){
       '</div>'+lines+
       '<div class="inv-line"><span class="muted">Servicios</span><span>'+money(svc)+'</span></div>'+
       '<div class="inv-line"><span class="muted">Gastos reembolsables</span><span>'+money(exp)+'</span></div>'+
-      '<div class="inv-line tot"><span>Total semana</span><span>'+money(svc+exp)+'</span></div>'+
+      '<div class="inv-line tot"><span>Total bisemana</span><span>'+money(svc+exp)+'</span></div>'+
       '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">'+
         '<button class="btn sm ghost" onclick="printInvoice(\''+k+'\')">⬇️ Descargar factura</button>'+
         '<button class="btn sm" onclick="photoReport(\''+k+'\')">📸 Reporte de fotos</button>'+
         '<button class="btn sm coral" onclick="sendArchive(\''+k+'\')">✉️ Enviar a la lista</button>'+
         (paid?'':'<button class="btn sm gold" onclick="markPaid(\''+k+'\')">Marcar pagada</button>')+
+        '<button class="btn sm dgr" onclick="returnToInbox(\''+k+'\')">↩️ Regresar a bandeja</button>'+
       '</div>'+
       '<div class="muted" style="font-size:12px;margin-top:8px">'+distSummary()+'</div>'+
       '</div>';
@@ -798,6 +799,12 @@ async function markPaid(k){const parts=k.split('|');const wk=parts[0],sid=parts[
   await sb.from('submissions').update({paid:true})
     .eq('professional_id',sid).eq('status','approved').gte('date',wk).lte('date',end);
   await loadAll();renderOffice();toast('Factura marcada como pagada');}
+async function returnToInbox(k){const parts=k.split('|');const wk=parts[0],sid=parts[1];const end=weekEnd(wk);
+  if(!confirm('¿Regresar esta factura a la Bandeja de aprobación?\n\nSus servicios/gastos volverán a "pendiente" para revisarlos o editarlos.'))return;
+  const {error}=await sb.from('submissions').update({status:'pending',paid:false,archived_at:null})
+    .eq('professional_id',sid).eq('status','approved').gte('date',wk).lte('date',end);
+  if(error){console.error(error);toast('No se pudo regresar');return;}
+  await loadAll();renderOffice();toast('↩️ Regresado a la Bandeja');}
 function invoiceNo(wk,name){return String(name||'').split(/\s+/).filter(Boolean).map(w=>w[0]).join('').toUpperCase()+'-'+wk;}
 function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1];
   const p=staff.find(s=>s.id===sid);
