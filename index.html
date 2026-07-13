@@ -208,6 +208,7 @@
   <div class="tabs">
     <button id="tInbox" class="on" onclick="tabTo('inbox')">📥 Bandeja</button>
     <button id="tInvoices" onclick="tabTo('invoices')">🧾 Facturas bisemanales</button>
+    <button id="tRejected" onclick="tabTo('rejected')">🚫 Rechazados</button>
     <button id="tDamage" onclick="tabTo('damage')">⚠️ Daños</button>
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
@@ -224,6 +225,11 @@
     </div>
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Agrupa los <b>aprobados</b> por contratista en bisemanas (dom–sáb, 14 días). Detalle por propiedad, con −10% de Taxes sobre servicios. El envío automático (domingo 9am) corre solo; el botón de arriba lo dispara al instante.</p>
     <div id="invoiceList"></div>
+  </div>
+  <div id="tabRejected" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>Servicios y gastos rechazados</h2><span class="muted" id="rejectedCount"></span></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Aquí quedan los que rechazaste en la Bandeja. Puedes regresarlos a la Bandeja para revisarlos o editarlos.</p>
+    <div style="overflow:auto"><table id="rejectedTable"></table></div>
   </div>
   <div id="tabDamage" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Reportes de daño</h2></div>
@@ -501,7 +507,7 @@ function segTo(s){
   document.getElementById('segService').classList.toggle('on',s==='service');
   document.getElementById('segExpense').classList.toggle('on',s==='expense');
 }
-const TABS=['inbox','invoices','damage','rates','settings','users','data'];
+const TABS=['inbox','invoices','rejected','damage','rates','settings','users','data'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -643,7 +649,32 @@ async function submitExpense(){
     toast('✉️ Gasto enviado a la administradora');
   } finally { _sending=false; }
 }
-function renderOffice(){renderStats();renderInbox();renderInvoices();renderDamage();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+function renderRejected(){
+  const rej=subs.filter(s=>s.status==='rejected');
+  document.getElementById('rejectedCount').textContent=rej.length+' rechazado(s)';
+  const rows=rej.map(s=>{
+    const isSvc=s.type==='service';
+    const detalle=isSvc?s.items.map(i=>propName(i.prop)+(i.damage?' ⚠️':'')).join(', '):(s.desc+' · '+propName(s.prop));
+    const evid=isSvc?'<span class="proof-link" onclick="viewService(\''+s.id+'\')">Ver fotos</span>':'<span class="proof-link" onclick="viewReceipt(\''+s.id+'\')">Ver recibo</span>';
+    return '<tr>'+
+      '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
+      '<td><b>'+(isSvc?'Servicio':'Gasto')+'</b><br><span class="muted" style="font-size:13px">'+detalle+'</span></td>'+
+      '<td>'+s.date+'</td>'+
+      '<td>'+evid+'</td>'+
+      '<td><b>'+money(isSvc?s.total:s.amount)+'</b></td>'+
+      '<td><button class="btn sm ok" onclick="returnOneToInbox(\''+s.id+'\')">↩️ Regresar a bandeja</button></td>'+
+    '</tr>';
+  }).join('');
+  document.getElementById('rejectedTable').innerHTML=
+    '<tr><th>Persona</th><th>Detalle</th><th>Fecha</th><th>Evidencia</th><th>Monto</th><th></th></tr>'+
+    (rows||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">Sin rechazados 🎉</td></tr>');
+}
+async function returnOneToInbox(id){
+  const {error}=await sb.from('submissions').update({status:'pending'}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo regresar');return;}
+  await loadAll();renderOffice();toast('↩️ Regresado a la Bandeja');
+}
 function renderStats(){
   document.getElementById('stPending').textContent=subs.filter(s=>s.status==='pending').length;
   const dmg=subs.filter(s=>s.type==='service').reduce((a,s)=>a+s.items.filter(i=>i.damage).length,0);
