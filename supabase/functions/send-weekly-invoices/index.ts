@@ -171,10 +171,12 @@ async function buildEmail(pro: any, wk: string, end: string, list: any[], itemsB
   for (const s of list) {
     if (s.type === "service") {
       for (const i of (itemsBySub[s.id] ?? [])) {
-        const [b, a, d] = await Promise.all([signed(i.photo_before), signed(i.photo_after), signed(i.damage_photo)]);
+        const [b, a] = await Promise.all([signed(i.photo_before), signed(i.photo_after)]);
         cards.push(photoCard("Antes", propName(i.property_id), s.date, b));
         cards.push(photoCard("Después", propName(i.property_id), s.date, a));
-        if (i.damage_note) cards.push(photoCard("Daño: " + esc(i.damage_note), propName(i.property_id), s.date, d));
+        const dmgPaths: string[] = (i.damage_photos && i.damage_photos.length) ? i.damage_photos : (i.damage_photo ? [i.damage_photo] : []);
+        const dmgUrls = await Promise.all(dmgPaths.map((pth: string) => signed(pth)));
+        dmgUrls.forEach((du, di) => cards.push(photoCard("Daño" + (dmgUrls.length > 1 ? " " + (di + 1) : "") + (i.damage_note ? ": " + esc(i.damage_note) : ""), propName(i.property_id), s.date, du)));
       }
     } else {
       const r = await signed(s.receipt_photo);

@@ -385,7 +385,8 @@ async function loadAll(){
     if(s.type==='service'){
       const items=(itemsBySub[s.id]||[]).map(i=>({id:i.id,prop:i.property_id,
         before:!!i.photo_before,after:!!i.photo_after,pathBefore:i.photo_before,pathAfter:i.photo_after,
-        damage:i.damage_note||'',damagePhoto:!!i.damage_photo,pathDamage:i.damage_photo,rate:Number(i.rate_applied),
+        damage:i.damage_note||'',damagePhoto:!!i.damage_photo,pathDamage:i.damage_photo,
+        pathsDamage:((i.damage_photos&&i.damage_photos.length)?i.damage_photos:(i.damage_photo?[i.damage_photo]:[])),rate:Number(i.rate_applied),
         earlyCheckin:Number(i.early_checkin||0),lateCheckout:Number(i.late_checkout||0),extraGuest:Number(i.extra_guest||0),laundry:Number(i.laundry||0)}));
       return {id:s.id,type:'service',staff:s.professional_id,date:s.date,items,total:Number(s.total),status:s.status,paid:s.paid,archivedAt:s.archived_at};
     }
@@ -503,7 +504,9 @@ function tabTo(t){
   document.getElementById('tab'+C).classList.toggle('hide',x!==t);
   document.getElementById('t'+C).classList.toggle('on',x===t);});}
 let selection={};
-function ensureSel(pid){if(!selection[pid])selection[pid]={beforeFile:null,afterFile:null,damage:'',damageFile:null,earlyCheckin:false,lateCheckout:false,extraGuest:false,laundryOn:false,laundry:0};return selection[pid];}
+function ensureSel(pid){if(!selection[pid])selection[pid]={beforeFile:null,afterFile:null,damage:'',damageFiles:[],earlyCheckin:false,lateCheckout:false,extraGuest:false,laundryOn:false,laundry:0};return selection[pid];}
+function addDamagePhoto(pid,file){if(!file)return;const s=ensureSel(pid);(s.damageFiles=s.damageFiles||[]).push(file);renderPropList();}
+function removeDamagePhoto(pid,idx){const s=ensureSel(pid);(s.damageFiles=s.damageFiles||[]).splice(idx,1);renderPropList();}
 function setLaundry(pid,val){ensureSel(pid).laundry=parseFloat(val)||0;recalc();}
 function toggleExtra(pid,which){const s=ensureSel(pid);s[which]=!s[which];renderPropList();}
 function isSelected(pid){return !!selection[pid];}
@@ -548,10 +551,14 @@ function renderPropList(){
               : '<span class="muted" style="font-size:12px">marca para añadir</span>')+
           '</div>'+
         '</div>'+
-        '<details class="dmg" '+((s.damage||s.damageFile)?'open':'')+'>'+
-          '<summary>⚠️ Reportar daño en la propiedad (opcional — si reportas, exige descripción y foto)</summary>'+
+        '<details class="dmg" '+((s.damage||(s.damageFiles&&s.damageFiles.length))?'open':'')+'>'+
+          '<summary>⚠️ Reportar daño en la propiedad (opcional — si reportas, exige descripción y al menos 1 foto)</summary>'+
           '<textarea placeholder="Describe el daño encontrado…" oninput="setDamage(\''+p.id+'\',this.value)">'+s.damage+'</textarea>'+
-          photoBox(p.id,'damage',!!s.damageFile,'✓ Foto del daño','📷 Foto del daño')+
+          '<div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0">'+
+            (s.damageFiles||[]).map((f,idx)=>'<span style="display:inline-flex;align-items:center;gap:6px;background:#F1F9F4;border:1.5px solid var(--ok);color:var(--ok);border-radius:10px;padding:6px 10px;font-size:12.5px">📷 Foto '+(idx+1)+' <b style="cursor:pointer" onclick="removeDamagePhoto(\''+p.id+'\','+idx+')">✕</b></span>').join('')+
+          '</div>'+
+          '<label class="photo" style="border-color:var(--coral);color:var(--coral)">📷 '+((s.damageFiles&&s.damageFiles.length)?'Añadir otra foto del daño':'Añadir foto del daño')+
+            '<input type="file" accept="image/*" style="display:none" onchange="addDamagePhoto(\''+p.id+'\',this.files[0])"></label>'+
         '</details>'+
       '</div>'):'');
     el.appendChild(card);
@@ -560,7 +567,7 @@ function renderPropList(){
   recalc();
 }
 function pickPhoto(pid,which,file){if(!file)return;const s=ensureSel(pid);
-  if(which==='before')s.beforeFile=file;else if(which==='after')s.afterFile=file;else s.damageFile=file;
+  if(which==='before')s.beforeFile=file;else if(which==='after')s.afterFile=file;
   renderPropList();}
 function setDamage(pid,v){ensureSel(pid).damage=v;}
 function extraChk(pid,which,label,fee,on){
@@ -579,8 +586,8 @@ async function submitService(){
   if(!ids.length){toast('Selecciona al menos una propiedad');return;}
   for(const pid of ids){const s=selection[pid];
     if(!s.beforeFile||!s.afterFile){toast('Falta foto antes/después en '+propName(pid));return;}
-    const hasNote=!!s.damage.trim(), hasPhoto=!!s.damageFile;
-    if((hasNote||hasPhoto)&&(!hasNote||!hasPhoto)){toast('El reporte de daño necesita descripción Y foto en '+propName(pid));return;}}
+    const hasNote=!!s.damage.trim(), hasPhoto=!!(s.damageFiles&&s.damageFiles.length);
+    if((hasNote||hasPhoto)&&(!hasNote||!hasPhoto)){toast('El reporte de daño necesita descripción Y al menos 1 foto en '+propName(pid));return;}}
   _sending=true;toast('Subiendo… no cierres la app');
   try{
     const date=document.getElementById('svcDate').value||todayISO();
@@ -590,9 +597,10 @@ async function submitService(){
       const s=selection[pid];const base=currentStaff+'/'+sub.id+'/'+pid;
       const pb=await upload(base+'_antes.jpg',s.beforeFile);
       const pa=await upload(base+'_despues.jpg',s.afterFile);
-      const pd=s.damageFile?await upload(base+'_dano.jpg',s.damageFile):null;
+      const dmgPaths=[];
+      for(let k=0;k<(s.damageFiles||[]).length;k++){const dp=await upload(base+'_dano'+(k+1)+'.jpg',s.damageFiles[k]);if(dp)dmgPaths.push(dp);}
       const {error:ie}=await sb.from('submission_items').insert({submission_id:sub.id,property_id:pid,
-        photo_before:pb,photo_after:pa,damage_note:s.damage.trim()||null,damage_photo:pd,
+        photo_before:pb,photo_after:pa,damage_note:s.damage.trim()||null,damage_photo:dmgPaths[0]||null,damage_photos:dmgPaths,
         laundry:s.laundryOn?(s.laundry||0):0,
         early_checkin:s.earlyCheckin?(company.fee_early_checkin||0.01):0,
         late_checkout:s.lateCheckout?(company.fee_late_checkout||0.01):0,
@@ -806,7 +814,7 @@ async function photoReport(k){
 
   // Firmar todas las fotos de la semana para poder incrustarlas en el reporte
   const allPaths=[];
-  list.forEach(s=>s.items.forEach(i=>{[i.pathBefore,i.pathAfter,i.pathDamage].forEach(x=>{if(x)allPaths.push(x);});}));
+  list.forEach(s=>s.items.forEach(i=>{[i.pathBefore,i.pathAfter].concat(i.pathsDamage||[]).forEach(x=>{if(x)allPaths.push(x);});}));
   expenses.forEach(s=>{if(s.receipt)allPaths.push(s.receipt);});
   const urlMap={};
   await Promise.all(allPaths.map(async pth=>{urlMap[pth]=await signedUrl(pth);}));
@@ -839,7 +847,7 @@ async function photoReport(k){
       photoCount+=2;
       out+=photoCard('before','ANTES',prop,s.date,p.name,'Antes de limpiar',i.pathBefore,'');
       out+=photoCard('after','DESPUÉS',prop,s.date,p.name,'Después de limpiar',i.pathAfter,'');
-      if(i.damage){photoCount++;out+=photoCard('damage','DAÑO',prop,s.date,p.name,'Daño reportado',i.pathDamage,i.damage);}
+      (i.pathsDamage||[]).forEach((dp,di)=>{photoCount++;out+=photoCard('damage','DAÑO'+(i.pathsDamage.length>1?' '+(di+1):''),prop,s.date,p.name,'Daño reportado',dp,i.damage);});
       return out;
     }).join('');
     return '<div class="svc-block"><h2>Servicio · '+esc(s.date)+'</h2><div class="pgrid">'+cards+'</div></div>';
@@ -1073,10 +1081,11 @@ async function previewOne(id){
     for(const i of s.items){
       const ex=extrasLabel(i);
       rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Servicio de limpieza - '+esc(propName(i.prop))+(ex.length?'<br><span style="color:#3A5249;font-size:11px">'+esc(ex.join(' · '))+'</span>':'')+'</td><td class="r">'+money(itemTotal(i))+'</td></tr>';
-      const [b,a,d]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter),signedUrl(i.pathDamage)]);
+      const [b,a]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter)]);
       cards.push(pcard('Antes',propName(i.prop),s.date,b));
       cards.push(pcard('Después',propName(i.prop),s.date,a));
-      if(i.damage)cards.push(pcard('Daño: '+esc(i.damage),propName(i.prop),s.date,d));
+      const dmgs=await Promise.all((i.pathsDamage||[]).map(signedUrl));
+      dmgs.forEach((du,di)=>cards.push(pcard('Daño'+(dmgs.length>1?' '+(di+1):'')+(i.damage?': '+esc(i.damage):''),propName(i.prop),s.date,du)));
     }
   } else {
     rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Reembolso - '+esc(s.desc)+' ('+esc(propName(s.prop))+')</td><td class="r">'+money(s.amount)+'</td></tr>';
@@ -1212,7 +1221,8 @@ function extrasLabel(i){const p=[];if((i.earlyCheckin||0)>0)p.push('Early Check-
 function itemTotal(i){return (i.rate||0)+(i.earlyCheckin||0)+(i.lateCheckout||0)+(i.extraGuest||0)+(i.laundry||0);}
 async function viewService(id){const s=subs.find(x=>x.id===id);
   const blocks=await Promise.all(s.items.map(async i=>{
-    const [b,a,d]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter),signedUrl(i.pathDamage)]);
+    const [b,a]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter)]);
+    const dmgs=(await Promise.all((i.pathsDamage||[]).map(signedUrl))).filter(Boolean);
     const ex=extrasLabel(i);
     return '<div style="margin-bottom:16px">'+
       '<div style="font-weight:700;margin-bottom:6px">'+propName(i.prop)+' — '+money(itemTotal(i))+(ex.length?'<div class="muted" style="font-weight:400;font-size:12px">Base '+money(i.rate)+' · '+ex.join(' · ')+'</div>':'')+'</div>'+
@@ -1220,17 +1230,19 @@ async function viewService(id){const s=subs.find(x=>x.id===id);
         '<div style="flex:1">'+imgOr(b,'before')+'<div class="muted" style="font-size:11px;text-align:center">Antes</div></div>'+
         '<div style="flex:1">'+imgOr(a,'after')+'<div class="muted" style="font-size:11px;text-align:center">Después</div></div>'+
       '</div>'+
-      (i.damage?'<div class="note" style="margin-top:8px;border-color:#e5b6a6;background:#fbeee8"><b style="color:var(--coral)">⚠️ Daño:</b> '+i.damage+'</div>'+(d?'<img src="'+d+'" style="width:100%;height:150px;object-fit:cover;border-radius:12px;margin-top:6px">':''):'')+
+      (i.damage||dmgs.length?'<div class="note" style="margin-top:8px;border-color:#e5b6a6;background:#fbeee8"><b style="color:var(--coral)">⚠️ Daño:</b> '+(i.damage||'')+(dmgs.length>1?' <span class="muted">('+dmgs.length+' fotos)</span>':'')+'</div>'+'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+dmgs.map(du=>'<img src="'+du+'" style="width:calc(50% - 3px);height:130px;object-fit:cover;border-radius:12px">').join('')+'</div>':'')+
     '</div>';
   }));
   openModal('Servicio de '+staffName(s.staff)+' · '+s.date,blocks.join(''));}
 async function viewReceipt(id){const s=subs.find(x=>x.id===id);const u=await signedUrl(s.receipt);
   openModal('Recibo · '+s.desc,(u?'<img src="'+u+'" style="width:100%;border-radius:12px">':'<div class="fakeimg receipt">Sin foto</div>')+
     '<div class="muted" style="font-size:13px;margin-top:6px">'+staffName(s.staff)+' · '+s.date+' · '+money(s.amount)+'</div>');}
-async function viewDamage(id,pid){const s=subs.find(x=>x.id===id);const i=s.items.find(x=>x.prop===pid);const u=await signedUrl(i.pathDamage);
-  openModal('Daño · '+propName(pid),(u?'<img src="'+u+'" style="width:100%;border-radius:12px">':'<div class="fakeimg damage">Sin foto</div>')+
+async function viewDamage(id,pid){const s=subs.find(x=>x.id===id);const i=s.items.find(x=>x.prop===pid);
+  const dmgs=(await Promise.all((i.pathsDamage||[]).map(signedUrl))).filter(Boolean);
+  openModal('Daño · '+propName(pid),
+    (dmgs.length?'<div style="display:flex;flex-wrap:wrap;gap:6px">'+dmgs.map(du=>'<img src="'+du+'" style="width:calc(50% - 3px);border-radius:12px">').join('')+'</div>':'<div class="fakeimg damage">Sin foto</div>')+
     '<div class="note" style="margin-top:8px">'+i.damage+'</div>'+
-    '<div class="muted" style="font-size:13px;margin-top:6px">Reportado por '+staffName(s.staff)+' · '+s.date+'</div>');}
+    '<div class="muted" style="font-size:13px;margin-top:6px">Reportado por '+staffName(s.staff)+' · '+s.date+' · '+dmgs.length+' foto(s)</div>');}
 document.getElementById('today').textContent=todayISO();
 document.getElementById('svcDate').value=todayISO();
 document.getElementById('expDate').value=todayISO();
