@@ -386,7 +386,7 @@ async function loadAll(){
       const items=(itemsBySub[s.id]||[]).map(i=>({id:i.id,prop:i.property_id,
         before:!!i.photo_before,after:!!i.photo_after,pathBefore:i.photo_before,pathAfter:i.photo_after,
         damage:i.damage_note||'',damagePhoto:!!i.damage_photo,pathDamage:i.damage_photo,
-        pathsDamage:((i.damage_photos&&i.damage_photos.length)?i.damage_photos:(i.damage_photo?[i.damage_photo]:[])),rate:Number(i.rate_applied),
+        pathsDamage:((i.damage_photos&&i.damage_photos.length)?i.damage_photos:(i.damage_photo?[i.damage_photo]:[])),damageStatus:i.damage_status||'pending',rate:Number(i.rate_applied),
         earlyCheckin:Number(i.early_checkin||0),lateCheckout:Number(i.late_checkout||0),extraGuest:Number(i.extra_guest||0),laundry:Number(i.laundry||0)}));
       return {id:s.id,type:'service',staff:s.professional_id,date:s.date,items,total:Number(s.total),status:s.status,paid:s.paid,archivedAt:s.archived_at};
     }
@@ -912,21 +912,32 @@ expSection+
   if(w){w.document.write(doc);w.document.close();toast('Reporte de fotos generado — '+photoCount+' fotos');}
   else{download('reporte_fotos_'+esc(p.name).replace(/\s/g,'_')+'_'+wk+'.html',doc,'text/html');toast('Reporte descargado');}
 }
+const DAMAGE_STATUS=[['pending','Pendiente a facturar'],['billed','Facturado'],['closed','No se facturará']];
 function renderDamage(){
   const rows=[];
   subs.filter(s=>s.type==='service').forEach(s=>s.items.filter(i=>i.damage).forEach(i=>{
+    const n=(i.pathsDamage||[]).length;
     rows.push('<tr>'+
       '<td>'+propName(i.prop)+'</td>'+
       '<td>'+s.date+'</td>'+
       '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
       '<td>'+i.damage+'</td>'+
-      '<td>'+(i.damagePhoto?'<span class="dmg-flag" onclick="viewDamage(\''+s.id+'\',\''+i.prop+'\')">Ver foto</span>':'<span class="muted">Sin foto</span>')+'</td>'+
+      '<td>'+(n?'<span class="dmg-flag" onclick="viewDamage(\''+s.id+'\',\''+i.prop+'\')">Ver '+n+' foto'+(n>1?'s':'')+'</span>':'<span class="muted">Sin foto</span>')+'</td>'+
       '<td><span class="pill '+s.status+'">'+(s.status==='pending'?'Pendiente':s.status==='approved'?'Aprobado':'Rechazado')+'</span></td>'+
+      '<td><select onchange="setDamageStatus(\''+i.id+'\',this.value)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px">'+
+        DAMAGE_STATUS.map(o=>'<option value="'+o[0]+'" '+((i.damageStatus||'pending')===o[0]?'selected':'')+'>'+o[1]+'</option>').join('')+
+      '</select></td>'+
     '</tr>');
   }));
   document.getElementById('damageTable').innerHTML=
-    '<tr><th>Propiedad</th><th>Fecha</th><th>Persona</th><th>Descripción del daño</th><th>Foto</th><th>Estado</th></tr>'+
-    (rows.join('')||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">Sin daños reportados 🎉</td></tr>');
+    '<tr><th>Propiedad</th><th>Fecha</th><th>Persona</th><th>Descripción del daño</th><th>Fotos</th><th>Servicio</th><th>Facturación</th></tr>'+
+    (rows.join('')||'<tr><td colspan="7" class="muted" style="padding:24px;text-align:center">Sin daños reportados 🎉</td></tr>');
+}
+async function setDamageStatus(itemId,val){
+  const {error}=await sb.from('submission_items').update({damage_status:val}).eq('id',itemId);
+  if(error){console.error(error);toast('No se pudo actualizar (¿corriste el SQL de daños?)');return;}
+  subs.forEach(s=>{if(s.items)s.items.forEach(i=>{if(i.id===itemId)i.damageStatus=val;});});
+  toast('Facturación del daño actualizada');
 }
 function renderRatesWho(){document.getElementById('rateWho').innerHTML=staff.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');}
 function renderExtraFees(){
