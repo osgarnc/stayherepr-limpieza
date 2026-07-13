@@ -665,7 +665,7 @@ function renderInbox(){
         '<td>'+s.date+'</td>'+
         '<td><span class="proof-link" onclick="viewService(\''+s.id+'\')">Ver fotos</span><br><span class="proof-link" onclick="previewOne(\''+s.id+'\')">📄 Vista previa</span></td>'+
         '<td><b>'+money(s.total)+'</b></td>'+
-        '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
+        '<td style="white-space:nowrap"><button class="btn sm ghost" onclick="editSubmission(\''+s.id+'\')">✏️ Editar</button> <button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
     } else {
       return '<tr>'+
         '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
@@ -673,7 +673,7 @@ function renderInbox(){
         '<td>'+s.date+'</td>'+
         '<td><span class="proof-link" onclick="viewReceipt(\''+s.id+'\')">Ver recibo</span><br><span class="proof-link" onclick="previewOne(\''+s.id+'\')">📄 Vista previa</span></td>'+
         '<td><b>'+money(s.amount)+'</b></td>'+
-        '<td style="white-space:nowrap"><button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
+        '<td style="white-space:nowrap"><button class="btn sm ghost" onclick="editSubmission(\''+s.id+'\')">✏️ Editar</button> <button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
     }
   }).join('');
   document.getElementById('inboxTable').innerHTML=
@@ -683,6 +683,69 @@ function renderInbox(){
 async function decide(id,status){const {error}=await sb.from('submissions').update({status}).eq('id',id);
   if(error){console.error(error);toast('No se pudo actualizar');return;}
   await loadAll();renderOffice();toast(status==='approved'?'✓ Aprobado':'Rechazado');}
+
+/* ---------- EDITAR ENVÍO PENDIENTE (admin/owner) ---------- */
+function edFld(label,id,val){return '<div class="field" style="margin:0"><label>'+label+'</label><input id="'+id+'" type="number" inputmode="decimal" step="0.01" value="'+(val||0)+'"></div>';}
+function editSubmission(id){
+  const s=subs.find(x=>x.id===id); if(!s)return;
+  if(s.status!=='pending'){toast('Solo se pueden editar los que están pendientes');return;}
+  if(s.type==='service'){
+    let html='<div class="field"><label>Fecha del servicio</label><input id="edSvcDate" type="date" value="'+s.date+'"></div>';
+    s.items.forEach(i=>{
+      html+='<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">'+
+        '<div style="font-weight:700;margin-bottom:8px">'+propName(i.prop)+'</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px">'+
+          edFld('Base $','edrate-'+i.id,i.rate)+
+          edFld('Early Check-in $','edec-'+i.id,i.earlyCheckin)+
+          edFld('Late Check-out $','edlc-'+i.id,i.lateCheckout)+
+          edFld('Extra huésped $','edeg-'+i.id,i.extraGuest)+
+          edFld('Lavandería $','edla-'+i.id,i.laundry)+
+        '</div>'+
+        '<div class="field" style="margin:8px 0 0"><label>Descripción de daño</label><input id="eddmg-'+i.id+'" value="'+String(i.damage||'').replace(/"/g,'&quot;')+'"></div>'+
+      '</div>';
+    });
+    html+='<button class="btn block" onclick="saveEditService(\''+s.id+'\')">Guardar cambios</button>';
+    openModal('Editar servicio · '+staffName(s.staff)+' · '+s.date,html);
+  } else {
+    const html='<div class="field"><label>Fecha</label><input id="edExpDate" type="date" value="'+s.date+'"></div>'+
+      '<div class="field"><label>Propiedad</label><select id="edExpProp" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px">'+properties.map(p=>'<option value="'+p.id+'" '+(s.prop===p.id?'selected':'')+'>'+p.name+'</option>').join('')+'</select></div>'+
+      '<div class="field"><label>Descripción</label><input id="edExpDesc" value="'+String(s.desc||'').replace(/"/g,'&quot;')+'"></div>'+
+      '<div class="field"><label>Monto $</label><input id="edExpAmt" type="number" inputmode="decimal" step="0.01" value="'+s.amount+'"></div>'+
+      '<button class="btn block" onclick="saveEditExpense(\''+s.id+'\')">Guardar cambios</button>';
+    openModal('Editar gasto · '+staffName(s.staff)+' · '+s.date,html);
+  }
+}
+async function saveEditService(id){
+  const s=subs.find(x=>x.id===id); if(!s)return;
+  const date=document.getElementById('edSvcDate').value||s.date;
+  toast('Guardando…');
+  const {error:se}=await sb.from('submissions').update({date}).eq('id',id);
+  if(se){console.error(se);toast('No se pudo guardar la fecha');return;}
+  for(const i of s.items){
+    const g=k=>{const el=document.getElementById(k+'-'+i.id);return el?(parseFloat(el.value)||0):0;};
+    const dEl=document.getElementById('eddmg-'+i.id);const dmg=dEl?dEl.value.trim():'';
+    const {error:ie}=await sb.from('submission_items').update({
+      rate_applied:g('edrate'),early_checkin:g('edec'),late_checkout:g('edlc'),extra_guest:g('edeg'),laundry:g('edla'),
+      damage_note:dmg||null
+    }).eq('id',i.id);
+    if(ie)console.error(ie);
+  }
+  const ov=document.querySelector('.overlay');if(ov)ov.remove();
+  await loadAll();renderOffice();toast('✓ Servicio actualizado');
+}
+async function saveEditExpense(id){
+  const date=document.getElementById('edExpDate').value;
+  const prop=document.getElementById('edExpProp').value;
+  const desc=document.getElementById('edExpDesc').value.trim();
+  const amt=parseFloat(document.getElementById('edExpAmt').value)||0;
+  if(!desc){toast('Añade una descripción');return;}
+  if(amt<=0){toast('Monto inválido');return;}
+  toast('Guardando…');
+  const {error}=await sb.from('submissions').update({date,property_id:prop,expense_desc:desc,total:amt}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo guardar');return;}
+  const ov=document.querySelector('.overlay');if(ov)ov.remove();
+  await loadAll();renderOffice();toast('✓ Gasto actualizado');
+}
 function renderInvoices(){
   const appr=subs.filter(s=>s.status==='approved');
   const groups={};
