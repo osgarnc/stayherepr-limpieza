@@ -227,6 +227,10 @@
   </div>
   <div id="tabDamage" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Reportes de daño</h2></div>
+    <div class="tabs" style="margin-bottom:12px">
+      <button id="dmgTabPending" class="on" onclick="setDamageView('pending')">⏳ Pendientes <span id="dmgCountPending"></span></button>
+      <button id="dmgTabDone" onclick="setDamageView('done')">✅ Resueltos <span id="dmgCountDone"></span></button>
+    </div>
     <div style="overflow:auto"><table id="damageTable"></table></div>
   </div>
   <div id="tabRates" class="card hide" style="padding:18px">
@@ -913,9 +917,17 @@ expSection+
   else{download('reporte_fotos_'+esc(p.name).replace(/\s/g,'_')+'_'+wk+'.html',doc,'text/html');toast('Reporte descargado');}
 }
 const DAMAGE_STATUS=[['pending','Pendiente a facturar'],['billed','Facturado'],['closed','No se facturará']];
+let damageView='pending';
+function setDamageView(v){damageView=v;
+  document.getElementById('dmgTabPending').classList.toggle('on',v==='pending');
+  document.getElementById('dmgTabDone').classList.toggle('on',v==='done');
+  renderDamage();}
 function renderDamage(){
-  const rows=[];
+  const rows=[];let nPending=0,nDone=0;
   subs.filter(s=>s.type==='service').forEach(s=>s.items.filter(i=>i.damage).forEach(i=>{
+    const isPending=(i.damageStatus||'pending')==='pending';
+    if(isPending)nPending++;else nDone++;
+    if(damageView==='pending'?!isPending:isPending)return; // mostrar solo los de la sub-pestaña activa
     const n=(i.pathsDamage||[]).length;
     rows.push('<tr>'+
       '<td>'+propName(i.prop)+'</td>'+
@@ -929,15 +941,18 @@ function renderDamage(){
       '</select></td>'+
     '</tr>');
   }));
+  const cP=document.getElementById('dmgCountPending'),cD=document.getElementById('dmgCountDone');
+  if(cP)cP.textContent='('+nPending+')';if(cD)cD.textContent='('+nDone+')';
+  const vacio=damageView==='pending'?'Sin daños pendientes 🎉':'Aún no hay daños resueltos';
   document.getElementById('damageTable').innerHTML=
     '<tr><th>Propiedad</th><th>Fecha</th><th>Persona</th><th>Descripción del daño</th><th>Fotos</th><th>Servicio</th><th>Facturación</th></tr>'+
-    (rows.join('')||'<tr><td colspan="7" class="muted" style="padding:24px;text-align:center">Sin daños reportados 🎉</td></tr>');
+    (rows.join('')||'<tr><td colspan="7" class="muted" style="padding:24px;text-align:center">'+vacio+'</td></tr>');
 }
 async function setDamageStatus(itemId,val){
   const {error}=await sb.from('submission_items').update({damage_status:val}).eq('id',itemId);
   if(error){console.error(error);toast('No se pudo actualizar (¿corriste el SQL de daños?)');return;}
   subs.forEach(s=>{if(s.items)s.items.forEach(i=>{if(i.id===itemId)i.damageStatus=val;});});
-  toast('Facturación del daño actualizada');
+  renderDamage();toast('Facturación del daño actualizada');
 }
 function renderRatesWho(){document.getElementById('rateWho').innerHTML=staff.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');}
 function renderExtraFees(){
