@@ -189,7 +189,7 @@ async function buildEmail(pro: any, wk: string, end: string, list: any[], itemsB
     <h1 style="color:#0E7C7B;margin:0 0 4px">FACTURA BISEMANAL</h1>
     <div style="font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin-bottom:16px">Período: ${wk} al ${end}</div>
     <table style="width:100%;font-family:Arial,sans-serif;font-size:13px;margin-bottom:16px"><tr>
-      <td style="vertical-align:top;width:50%"><b>Empleado</b><br>${esc(pro?.name)}<br>${esc(pro?.address || "")}<br>Id. fiscal: ${esc(pro?.tax_id || "")}<br>${esc(pro?.email || "")}</td>
+      <td style="vertical-align:top;width:50%"><b>Contratista</b><br>${esc(pro?.name)}<br>${esc(pro?.address || "")}<br>Id. fiscal: ${esc(pro?.tax_id || "")}<br>${esc(pro?.email || "")}</td>
       <td style="vertical-align:top;width:50%"><b>Pagado por</b><br>${esc(company?.name || "")}<br>${esc(company?.address || "")}<br>EIN: ${esc(company?.ein || "")}</td>
     </tr></table>
     <h3 style="color:#0E7C7B;font-size:15px;margin:0 0 6px">Servicios por propiedad</h3>

@@ -222,7 +222,7 @@
     <div class="sectitle"><h2>Facturas por bisemana</h2>
       <button class="btn coral sm" onclick="sendAllNow()">✉️ Enviar facturas ahora por correo</button>
     </div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Agrupa los <b>aprobados</b> por empleado en bisemanas (dom–sáb, 14 días). Detalle por propiedad, con −10% de Taxes sobre servicios. El envío automático (domingo 9am) corre solo; el botón de arriba lo dispara al instante.</p>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Agrupa los <b>aprobados</b> por contratista en bisemanas (dom–sáb, 14 días). Detalle por propiedad, con −10% de Taxes sobre servicios. El envío automático (domingo 9am) corre solo; el botón de arriba lo dispara al instante.</p>
     <div id="invoiceList"></div>
   </div>
   <div id="tabDamage" class="card hide" style="padding:18px">
@@ -731,7 +731,7 @@ async function markPaid(k){const parts=k.split('|');const wk=parts[0],sid=parts[
   await sb.from('submissions').update({paid:true})
     .eq('professional_id',sid).eq('status','approved').gte('date',wk).lte('date',end);
   await loadAll();renderOffice();toast('Factura marcada como pagada');}
-function invoiceNo(wk,sid){return 'INV-'+wk.replace(/-/g,'')+'-'+sid;}
+function invoiceNo(wk,name){return String(name||'').split(/\s+/).filter(Boolean).map(w=>w[0]).join('').toUpperCase()+'-'+wk;}
 function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1];
   const p=staff.find(s=>s.id===sid);
   const list=subs.filter(s=>s.status==='approved'&&weekKey(s.date)===wk&&s.staff===sid).sort((a,b)=>a.date<b.date?-1:1);
@@ -752,7 +752,7 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
   const expRows=expenses.map(e=>'<tr><td>'+e.date+'</td><td>Reembolso — '+esc(e.desc)+' ('+esc(e.prop)+')</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
   const rows=propRows+expRows;
   const doc=
-'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>'+invoiceNo(wk,sid)+'</title><style>'+
+'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>'+invoiceNo(wk,p.name)+'</title><style>'+
 '*{box-sizing:border-box}body{font-family:Georgia,serif;color:#12261F;margin:0;padding:44px;background:#fff;font-size:14px}'+
 '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0E7C7B;padding-bottom:20px;margin-bottom:26px}'+
 '.title{font-size:34px;letter-spacing:.04em;color:#0E7C7B;margin:0}'+
@@ -780,9 +780,9 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
 '</style></head><body>'+
 '<div class="noprint"><button class="pbtn" onclick="window.print()">Imprimir / Guardar PDF</button><button class="cbtn" onclick="window.close()">Cerrar</button></div>'+
 '<div class="head"><div><h1 class="title">FACTURA BISEMANAL</h1><div style="font-family:Arial,sans-serif;font-size:12.5px;color:#3A5249;margin-top:4px">'+weekLabel(wk)+'</div></div>'+
-'<div class="meta"><div><b>No. de factura:</b> '+invoiceNo(wk,sid)+'</div><div><b>Fecha de emisión:</b> '+todayISO()+'</div><div><b>Período:</b> '+wk+' al '+weekEnd(wk)+'</div></div></div>'+
+'<div class="meta"><div><b>No. de factura:</b> '+invoiceNo(wk,p.name)+'</div><div><b>Fecha de emisión:</b> '+todayISO()+'</div><div><b>Período:</b> '+wk+' al '+weekEnd(wk)+'</div></div></div>'+
 '<div class="parties">'+
-'<div class="box"><div class="lbl">Empleado (De)</div><div class="name">'+esc(p.name)+'</div>'+
+'<div class="box"><div class="lbl">Contratista (De)</div><div class="name">'+esc(p.name)+'</div>'+
 '<div class="line">'+esc(p.address)+'</div><div class="line">'+esc(p.phone)+'</div>'+
 '<div class="line">Id. fiscal: '+esc(p.taxid)+'</div><div class="line">'+esc(p.email)+'</div></div>'+
 '<div class="box"><div class="lbl">Facturar a (Para)</div><div class="name">'+esc(company.name)+'</div>'+
