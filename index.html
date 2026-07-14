@@ -866,6 +866,20 @@ let editFiles={};
 function editPickFile(key,file,labelId){if(!file)return;editFiles[key]=file;const el=document.getElementById(labelId);if(el){el.textContent=' ✓ nuevo';el.style.color='var(--ok)';}}
 function editAddDamage(key,file,cntId){if(!file)return;(editFiles[key]=editFiles[key]||[]).push(file);const el=document.getElementById(cntId);if(el)el.textContent=' (+'+editFiles[key].length+')';}
 function edFileLbl(key,txt){return '<label class="photo" style="padding:8px;font-size:12px;margin:4px 0 0">'+txt+'<span id="lbl-'+key+'"></span><input type="file" accept="image/*,video/*" style="display:none" onchange="editPickFile(\''+key+'\',this.files[0],\'lbl-'+key+'\')"></label>';}
+function addEditGastoRow(){
+  const el=document.getElementById('editGastosList');if(!el)return;
+  const opts=properties.map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
+  const row='<div class="edg-row" style="border:1.5px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:13px">Recibo/gasto</b><span onclick="this.closest(\'.edg-row\').remove()" style="cursor:pointer;color:var(--danger);font-weight:700">✕</span></div>'+
+    '<select class="edg-prop" style="width:100%;padding:9px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:6px">'+opts+'</select>'+
+    '<input class="edg-desc" placeholder="Descripción (ej: detergente)" style="width:100%;padding:9px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:6px">'+
+    '<div style="display:flex;gap:8px;align-items:stretch">'+
+      '<span style="display:flex;align-items:center;gap:2px">$<input class="edg-amt" type="number" inputmode="decimal" step="0.01" placeholder="0.00" style="width:90px;padding:9px;border:1.5px solid var(--line);border-radius:8px"></span>'+
+      '<label class="photo" style="flex:1;margin:0;padding:9px 8px">🧾 Recibo (foto/video)<input class="edg-file" type="file" accept="image/*,video/*" style="display:none" onchange="var l=this.closest(\'label\');l.childNodes[0].textContent=this.files.length?\'✓ Recibo adjunto\':\'🧾 Recibo (foto/video)\'"></label>'+
+    '</div>'+
+  '</div>';
+  el.insertAdjacentHTML('beforeend',row);
+}
 async function editSubmission(id){
   const s=subs.find(x=>x.id===id); if(!s)return;
   if(s.status!=='pending'){toast('Solo se editan los pendientes. Usa "Regresar a bandeja" para des-aprobar y luego editar.');return;}
@@ -891,7 +905,13 @@ async function editSubmission(id){
         '</div>'+
       '</div>';
     });
-    html+='<button class="btn block" onclick="saveEditService(\''+s.id+'\')">Guardar cambios</button>';
+    html+='<div style="border-top:2px solid var(--line);margin-top:12px;padding-top:12px">'+
+      '<h3 style="font-size:15px;margin:0 0 4px">🧾 Añadir recibo/gasto a este servicio</h3>'+
+      '<p class="muted" style="font-size:12px;margin:0 0 8px">Para cuando el empleado olvidó subir un recibo. Se reembolsa completo (sin taxes).</p>'+
+      '<div id="editGastosList"></div>'+
+      '<button class="btn ghost sm" style="width:100%" onclick="addEditGastoRow()">➕ Añadir recibo</button>'+
+    '</div>'+
+    '<button class="btn block" style="margin-top:12px" onclick="saveEditService(\''+s.id+'\')">Guardar cambios</button>';
     openModal('Editar servicio · '+staffName(s.staff)+' · '+s.date,html);
   } else {
     const rcpt=await signedUrl(s.receipt);
@@ -921,6 +941,17 @@ async function saveEditService(id){
     if(addDmg.length){const newPaths=[];for(let k=0;k<addDmg.length;k++){const p=await upload(base+'_dano-'+Date.now()+'-'+k+extOf(addDmg[k]),addDmg[k]);if(p)newPaths.push(p);}
       const merged=(i.pathsDamage||[]).concat(newPaths);upd.damage_photos=merged;upd.damage_photo=merged[0]||null;}
     const {error:ie}=await sb.from('submission_items').update(upd).eq('id',i.id);if(ie)console.error(ie);
+  }
+  // Recibos/gastos nuevos añadidos por el admin
+  const rows=document.querySelectorAll('#editGastosList .edg-row');
+  for(const row of rows){
+    const prop=row.querySelector('.edg-prop').value;
+    const desc=row.querySelector('.edg-desc').value.trim();
+    const amt=parseFloat(row.querySelector('.edg-amt').value)||0;
+    const file=row.querySelector('.edg-file').files[0];
+    if(!desc||amt<=0||!file){toast('Cada recibo nuevo necesita descripción, monto y foto');_sending=false;return;}
+    const rp=await upload(s.staff+'/gasto-'+id+'-'+Date.now()+'-'+Math.floor(Math.random()*10000)+extOf(file),file);
+    if(rp)await sb.from('submissions').insert({type:'expense',professional_id:s.staff,date:date,total:amt,expense_desc:desc,property_id:prop,receipt_photo:rp,status:'pending'});
   }
   const ov=document.querySelector('.overlay');if(ov)ov.remove();
   editFiles={};await loadAll();renderOffice();toast('✓ Servicio actualizado');
