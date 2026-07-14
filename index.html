@@ -182,7 +182,14 @@
         <button class="btn block" onclick="submitAll()">Enviar</button>
       </div>
       <div id="paneFacturas" class="hide"><div id="myInvoices"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver tus facturas.</p></div></div>
-      <div id="paneReporte" class="hide"><p class="muted" style="text-align:center;padding:20px">Próximamente</p></div>
+      <div id="paneReporte" class="hide">
+        <div class="note" style="margin-bottom:12px">📝 Reporta a administración cualquier cosa que deba atender (fotos + descripción).</div>
+        <div class="field"><label>¿Qué debe atender administración?</label><textarea id="drDesc" placeholder="Describe lo que viste…" style="min-height:70px"></textarea></div>
+        <div id="drPhotos" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px"></div>
+        <label class="photo" style="border-color:var(--sea);color:var(--sea)">📷 Añadir foto<input type="file" accept="image/*" style="display:none" onchange="addReportPhoto(this.files[0])"></label>
+        <button class="btn block" style="margin-top:12px" onclick="submitDailyReport()">Enviar reporte</button>
+        <div id="myReports" style="margin-top:18px"></div>
+      </div>
     </div>
   </div>
   <div class="note" style="max-width:420px;margin:12px auto 0">
@@ -202,6 +209,7 @@
     <button id="tInvoices" onclick="tabTo('invoices')">🧾 Facturas bisemanales</button>
     <button id="tRejected" onclick="tabTo('rejected')">🚫 Rechazados</button>
     <button id="tDamage" onclick="tabTo('damage')">⚠️ Daños</button>
+    <button id="tReports" onclick="tabTo('reports')">📋 Reportes</button>
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
     <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
@@ -230,6 +238,15 @@
       <button id="dmgTabDone" onclick="setDamageView('done')">✅ Resueltos <span id="dmgCountDone"></span></button>
     </div>
     <div style="overflow:auto"><table id="damageTable"></table></div>
+  </div>
+  <div id="tabReports" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>Reportes del personal</h2></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Cosas que el personal reportó para que administración atienda.</p>
+    <div class="tabs" style="margin-bottom:12px">
+      <button id="repTabPending" class="on" onclick="setReportView('pending')">⏳ Pendientes <span id="repCountPending"></span></button>
+      <button id="repTabDone" onclick="setReportView('done')">✅ Resueltos <span id="repCountDone"></span></button>
+    </div>
+    <div id="reportsList"></div>
   </div>
   <div id="tabRates" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Tarifas por persona / propiedad</h2>
@@ -346,6 +363,7 @@ let distribution=[];   // {id,name,email,active}
 let users=[];          // profiles: {id,user(email),name,role,staffId,active}
 let rates={};          // rates[staffId][propId] = amount
 let subs=[];           // envíos normalizados (ver loadAll)
+let reports=[];        // reportes diarios
 let currentStaff=null; // professional_id activo
 let session=null;      // usuario logueado
 const ROLE_LABEL={owner:'Dueño',admin:'Administradora',cleaner:'Personal'};
@@ -363,7 +381,7 @@ function can(what){
 }
 /* ---------- CARGA DE DATOS DESDE SUPABASE ---------- */
 async function loadAll(){
-  const [propsR, staffR, ratesR, subsR, itemsR, distR, compR, profR] = await Promise.all([
+  const [propsR, staffR, ratesR, subsR, itemsR, distR, compR, profR, repR] = await Promise.all([
     sb.from('properties').select('*').order('name'),
     sb.from('professionals').select('*').order('name'),
     sb.from('rates').select('*'),
@@ -372,6 +390,7 @@ async function loadAll(){
     sb.from('distribution').select('*'),
     sb.from('company_settings').select('*').eq('id',1).maybeSingle(),
     sb.from('profiles').select('*'),
+    sb.from('daily_reports').select('*').order('created_at',{ascending:false}),
   ]);
   properties=(propsR.data||[]).map(p=>({id:p.id,name:p.name}));
   staff=(staffR.data||[]).map(s=>({id:s.id,name:s.name,address:s.address||'',phone:s.phone||'',taxid:s.tax_id||'',email:s.email||''}));
@@ -381,6 +400,7 @@ async function loadAll(){
   distribution=(distR.data||[]).map(d=>({id:d.id,name:d.label||d.email,email:d.email,active:d.active}));
   if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||'',week_start_day:(compR.data.week_start_day??1),fee_early_checkin:Number(compR.data.fee_early_checkin||0),fee_late_checkout:Number(compR.data.fee_late_checkout||0),fee_extra_guest:Number(compR.data.fee_extra_guest||0)};
   users=(profR.data||[]).map(p=>({id:p.id,user:p.email||'',name:p.display_name,role:p.role,staffId:p.staff_id,active:p.active}));
+  reports=(repR.data||[]).map(r=>({id:r.id,staff:r.professional_id,date:r.date,description:r.description||'',photos:r.photos||[],status:r.status||'pending',pendingNote:r.pending_note||''}));
   const itemsBySub={};
   (itemsR.data||[]).forEach(it=>{(itemsBySub[it.submission_id]=itemsBySub[it.submission_id]||[]).push(it);});
   subs=(subsR.data||[]).map(s=>{
@@ -499,8 +519,48 @@ function segTo(s){
   Object.keys(P).forEach(k=>document.getElementById(P[k]).classList.toggle('hide',k!==s));
   Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===s));
   if(s==='facturas')renderMyInvoices();
+  if(s==='reporte'){renderReportPhotos();renderMyReports();}
 }
-const TABS=['inbox','invoices','rejected','damage','rates','settings','users','data'];
+/* ---------- REPORTE DIARIO (personal) ---------- */
+let drFiles=[];
+function addReportPhoto(file){if(!file)return;drFiles.push(file);renderReportPhotos();}
+function removeReportPhoto(idx){drFiles.splice(idx,1);renderReportPhotos();}
+function renderReportPhotos(){const el=document.getElementById('drPhotos');if(!el)return;
+  el.innerHTML=drFiles.map((f,idx)=>'<span style="display:inline-flex;align-items:center;gap:6px;background:#F1F9F8;border:1.5px solid var(--sea);color:var(--sea);border-radius:10px;padding:6px 10px;font-size:12.5px">📷 Foto '+(idx+1)+' <b style="cursor:pointer" onclick="removeReportPhoto('+idx+')">✕</b></span>').join('');}
+async function submitDailyReport(){
+  if(_sending)return;
+  if(!currentStaff){toast('Tu cuenta no está vinculada a un perfil. Avisa al dueño.');return;}
+  const desc=document.getElementById('drDesc').value.trim();
+  if(!desc){toast('Escribe qué debe atender administración');return;}
+  _sending=true;toast('Enviando…');
+  try{
+    const paths=[];
+    for(let k=0;k<drFiles.length;k++){const p=await upload(currentStaff+'/reporte-'+Date.now()+'-'+k+'.jpg',drFiles[k]);if(p)paths.push(p);}
+    const {error}=await sb.from('daily_reports').insert({professional_id:currentStaff,description:desc,photos:paths});
+    if(error){console.error(error);toast('No se pudo enviar (¿corriste el SQL?)');return;}
+    document.getElementById('drDesc').value='';drFiles=[];
+    await loadAll();renderReportPhotos();renderMyReports();
+    toast('✅ Reporte enviado a administración');
+  } finally { _sending=false; }
+}
+const DR_STATUS={pending:'Pendiente',partial:'Parcialmente resuelto',resolved:'Resuelto'};
+async function renderMyReports(){
+  const el=document.getElementById('myReports');if(!el)return;
+  const mine=reports.filter(r=>r.staff===currentStaff);
+  if(!mine.length){el.innerHTML='<p class="muted" style="text-align:center;font-size:13px">Aún no has enviado reportes.</p>';return;}
+  const blocks=await Promise.all(mine.map(async r=>{
+    const urls=(await Promise.all((r.photos||[]).map(signedUrl))).filter(Boolean);
+    return '<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">'+
+      '<div style="display:flex;justify-content:space-between;gap:8px"><span class="muted" style="font-size:12px">'+r.date+'</span>'+
+        '<span class="pill '+(r.status==='resolved'?'approved':r.status==='partial'?'pending':'rejected')+'">'+DR_STATUS[r.status]+'</span></div>'+
+      '<div style="margin:6px 0">'+String(r.description||'').replace(/</g,'&lt;')+'</div>'+
+      (r.status==='partial'&&r.pendingNote?'<div class="note" style="font-size:12.5px">Falta: '+String(r.pendingNote).replace(/</g,'&lt;')+'</div>':'')+
+      (urls.length?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+urls.map(u=>'<img src="'+u+'" style="width:calc(33% - 4px);height:80px;object-fit:cover;border-radius:8px">').join('')+'</div>':'')+
+    '</div>';
+  }));
+  el.innerHTML=blocks.join('');
+}
+const TABS=['inbox','invoices','rejected','damage','reports','rates','settings','users','data'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -686,7 +746,51 @@ async function submitAll(){
     toast('✉️ Enviado a la administradora');
   } finally { _sending=false; }
 }
-function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+/* ---------- REPORTES DEL PERSONAL (back office) ---------- */
+let reportView='pending';
+function setReportView(v){reportView=v;
+  document.getElementById('repTabPending').classList.toggle('on',v==='pending');
+  document.getElementById('repTabDone').classList.toggle('on',v==='done');
+  renderReports();}
+async function renderReports(){
+  const el=document.getElementById('reportsList');if(!el)return;
+  let nPend=0,nDone=0;
+  reports.forEach(r=>{if(r.status==='resolved')nDone++;else nPend++;});
+  const cP=document.getElementById('repCountPending'),cD=document.getElementById('repCountDone');
+  if(cP)cP.textContent='('+nPend+')';if(cD)cD.textContent='('+nDone+')';
+  const list=reports.filter(r=>reportView==='done'?r.status==='resolved':r.status!=='resolved');
+  if(!list.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">'+(reportView==='done'?'Aún no hay reportes resueltos':'Sin reportes pendientes 🎉')+'</p>';return;}
+  const blocks=await Promise.all(list.map(async r=>{
+    const urls=(await Promise.all((r.photos||[]).map(signedUrl))).filter(Boolean);
+    const statusSel='<select onchange="setReportStatus(\''+r.id+'\',this.value)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px">'+
+      Object.keys(DR_STATUS).map(k=>'<option value="'+k+'" '+(r.status===k?'selected':'')+'>'+DR_STATUS[k]+'</option>').join('')+'</select>';
+    const noteBox=r.status==='partial'
+      ? '<div class="field" style="margin:8px 0 0"><label>¿Qué falta?</label><input value="'+String(r.pendingNote||'').replace(/"/g,'&quot;')+'" onchange="setReportNote(\''+r.id+'\',this.value)" placeholder="Describe qué falta por resolver"></div>'
+      : '';
+    return '<div style="border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'+
+        '<div><span class="avatar">'+initials(staffName(r.staff))+'</span><b>'+staffName(r.staff)+'</b> <span class="muted" style="font-size:12px">· '+r.date+'</span></div>'+
+        statusSel+
+      '</div>'+
+      '<div style="margin:8px 0">'+String(r.description||'').replace(/</g,'&lt;')+'</div>'+
+      (urls.length?'<div style="display:flex;flex-wrap:wrap;gap:6px">'+urls.map(u=>'<img src="'+u+'" style="width:calc(25% - 5px);height:100px;object-fit:cover;border-radius:8px">').join('')+'</div>':'<span class="muted" style="font-size:12px">Sin fotos</span>')+
+      noteBox+
+    '</div>';
+  }));
+  el.innerHTML=blocks.join('');
+}
+async function setReportStatus(id,val){
+  const {error}=await sb.from('daily_reports').update({status:val}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo actualizar');return;}
+  const r=reports.find(x=>x.id===id);if(r)r.status=val;
+  renderReports();toast('Estado actualizado');
+}
+async function setReportNote(id,val){
+  const {error}=await sb.from('daily_reports').update({pending_note:val}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo guardar la nota');return;}
+  const r=reports.find(x=>x.id===id);if(r)r.pendingNote=val;
+}
 function renderRejected(){
   const rej=subs.filter(s=>s.status==='rejected');
   document.getElementById('rejectedCount').textContent=rej.length+' rechazado(s)';
