@@ -807,7 +807,7 @@ function renderRejected(){
       '<td><b>'+(isSvc?'Servicio':'Gasto')+'</b><br><span class="muted" style="font-size:13px">'+detalle+'</span></td>'+
       '<td>'+s.date+'</td>'+
       '<td>'+evid+'</td>'+
-      '<td><b>'+money(isSvc?s.total:s.amount)+'</b></td>'+
+      '<td><b>'+money(subTotal(s))+'</b></td>'+
       '<td><button class="btn sm ok" onclick="returnOneToInbox(\''+s.id+'\')">↩️ Regresar a bandeja</button></td>'+
     '</tr>';
   }).join('');
@@ -1456,7 +1456,7 @@ async function previewOne(id){
     rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Reembolso - '+esc(s.desc)+' ('+esc(propName(s.prop))+')</td><td class="r">'+money(s.amount)+'</td></tr>';
     cards.push(pcard('Recibo: '+esc(s.desc),propName(s.prop),s.date,await signedUrl(s.receipt)));
   }
-  const total=s.type==='service'?s.total:s.amount;
+  const total=subTotal(s);
   const doc='<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=6"><title>Vista previa</title><style>'+
     'body{font-family:Georgia,serif;color:#12261F;margin:0;padding:32px;background:#fff}'+
     '#lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;cursor:zoom-out;align-items:center;justify-content:center;padding:10px}'+
