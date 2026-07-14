@@ -208,10 +208,13 @@ async function buildEmail(pro: any, wk: string, end: string, list: any[], itemsB
     </div></body></html>`;
 }
 
+function isVideoUrl(u: string) { return /\.(mp4|mov|webm|m4v|3gp|avi|mkv|quicktime)(\?|$)/i.test(u || ""); }
 function photoCard(why: string, prop: string, date: string, url: string | null) {
-  const img = url
-    ? `<img src="${url}" style="width:100%;height:150px;object-fit:cover;border-radius:8px">`
-    : `<div style="height:150px;background:#eee;border-radius:8px;text-align:center;line-height:150px;color:#999">Sin foto</div>`;
+  const img = !url
+    ? `<div style="height:150px;background:#eee;border-radius:8px;text-align:center;line-height:150px;color:#999">Sin foto</div>`
+    : isVideoUrl(url)
+      ? `<a href="${url}" style="display:block;height:150px;background:#12261F;color:#fff;border-radius:8px;text-align:center;line-height:150px;text-decoration:none;font-weight:bold">🎥 Ver video</a>`
+      : `<img src="${url}" style="width:100%;height:150px;object-fit:cover;border-radius:8px">`;
   return `<div style="display:inline-block;width:180px;margin:6px;vertical-align:top;font-family:Arial,sans-serif;font-size:12px">
     ${img}<div style="font-weight:bold;margin-top:4px">${why}</div><div style="color:#3A5249">${esc(prop)} - ${esc(date)}</div></div>`;
 }

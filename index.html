@@ -186,7 +186,7 @@
         <div class="note" style="margin-bottom:12px">📝 Reporta a administración cualquier cosa que deba atender (fotos + descripción).</div>
         <div class="field"><label>¿Qué debe atender administración?</label><textarea id="drDesc" placeholder="Describe lo que viste…" style="min-height:70px"></textarea></div>
         <div id="drPhotos" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px"></div>
-        <label class="photo" style="border-color:var(--sea);color:var(--sea)">📷 Añadir foto<input type="file" accept="image/*" style="display:none" onchange="addReportPhoto(this.files[0])"></label>
+        <label class="photo" style="border-color:var(--sea);color:var(--sea)">📷 Añadir foto<input type="file" accept="image/*,video/*" style="display:none" onchange="addReportPhoto(this.files[0])"></label>
         <button class="btn block" style="margin-top:12px" onclick="submitDailyReport()">Enviar reporte</button>
         <div id="myReports" style="margin-top:18px"></div>
       </div>
@@ -422,6 +422,10 @@ async function upload(path,file){
   return path;
 }
 async function signedUrl(path){if(!path)return null;const {data}=await sb.storage.from('evidence').createSignedUrl(path,3600);return data?data.signedUrl:null;}
+function extOf(file){const t=(file&&file.type)||'';if(t.indexOf('video/')===0)return '.'+((t.split('/')[1]||'mp4').replace('quicktime','mov'));const n=(file&&file.name)||'';const m=n.match(/\.([a-z0-9]+)$/i);return m?'.'+m[1].toLowerCase():'.jpg';}
+function isVideoPath(p){return /\.(mp4|mov|webm|m4v|3gp|avi|mkv|quicktime)(\?|$)/i.test(p||'');}
+function evTag(url,style){if(!url)return '';return isVideoPath(url)?'<video src="'+url+'" controls playsinline style="'+style+'"></video>':'<img src="'+url+'" style="'+style+'">';}
+function evOr(url,style,fake){return url?evTag(url,style):'<div class="fakeimg '+fake+'">Sin foto</div>';}
 function isoDaysAgo(n){const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10);}
 function todayISO(){return new Date().toISOString().slice(0,10);}
 function propName(id){return (properties.find(p=>p.id===id)||{}).name||id;}
@@ -535,7 +539,7 @@ async function submitDailyReport(){
   _sending=true;toast('Enviando…');
   try{
     const paths=[];
-    for(let k=0;k<drFiles.length;k++){const p=await upload(currentStaff+'/reporte-'+Date.now()+'-'+k+'.jpg',drFiles[k]);if(p)paths.push(p);}
+    for(let k=0;k<drFiles.length;k++){const p=await upload(currentStaff+'/reporte-'+Date.now()+'-'+k+extOf(drFiles[k]),drFiles[k]);if(p)paths.push(p);}
     const {error}=await sb.from('daily_reports').insert({professional_id:currentStaff,description:desc,photos:paths});
     if(error){console.error(error);toast('No se pudo enviar (¿corriste el SQL?)');return;}
     document.getElementById('drDesc').value='';drFiles=[];
@@ -555,7 +559,7 @@ async function renderMyReports(){
         '<span class="pill '+(r.status==='resolved'?'approved':r.status==='partial'?'pending':'rejected')+'">'+DR_STATUS[r.status]+'</span></div>'+
       '<div style="margin:6px 0">'+String(r.description||'').replace(/</g,'&lt;')+'</div>'+
       (r.status==='partial'&&r.pendingNote?'<div class="note" style="font-size:12.5px">Falta: '+String(r.pendingNote).replace(/</g,'&lt;')+'</div>':'')+
-      (urls.length?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+urls.map(u=>'<img src="'+u+'" style="width:calc(33% - 4px);height:80px;object-fit:cover;border-radius:8px">').join('')+'</div>':'')+
+      (urls.length?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+urls.map(u=>evTag(u,'width:calc(33% - 4px);height:80px;object-fit:cover;border-radius:8px')).join('')+'</div>':'')+
     '</div>';
   }));
   el.innerHTML=blocks.join('');
@@ -585,7 +589,7 @@ function gastosBlock(pid,s){
         '<input placeholder="Descripción (ej: detergente)" value="'+String(g.desc||'').replace(/"/g,'&quot;')+'" oninput="setGasto(\''+pid+'\','+gi+',\'desc\',this.value)" style="width:100%;padding:9px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:6px">'+
         '<div style="display:flex;gap:8px;align-items:stretch">'+
           '<span style="display:flex;align-items:center;gap:2px">$<input type="number" inputmode="decimal" step="0.01" placeholder="0.00" value="'+((g.amount||0)>0?g.amount:'')+'" oninput="setGasto(\''+pid+'\','+gi+',\'amount\',this.value)" style="width:90px;padding:9px;border:1.5px solid var(--line);border-radius:8px"></span>'+
-          '<label class="photo '+(g.receiptFile?'has':'')+'" style="flex:1;margin:0;padding:9px 8px">'+(g.receiptFile?'✓ Recibo':'🧾 Foto del recibo')+'<input type="file" accept="image/*" style="display:none" onchange="pickGastoReceipt(\''+pid+'\','+gi+',this.files[0])"></label>'+
+          '<label class="photo '+(g.receiptFile?'has':'')+'" style="flex:1;margin:0;padding:9px 8px">'+(g.receiptFile?'✓ Recibo':'🧾 Foto del recibo')+'<input type="file" accept="image/*,video/*" style="display:none" onchange="pickGastoReceipt(\''+pid+'\','+gi+',this.files[0])"></label>'+
         '</div>'+
       '</div>').join('')+
     '<button class="btn ghost sm" style="width:100%" onclick="addGasto(\''+pid+'\')">➕ Añadir gasto</button>'+
@@ -619,7 +623,7 @@ function isSelected(pid){return !!selection[pid];}
 function toggleProp(pid){if(selection[pid])delete selection[pid];else ensureSel(pid);renderPropList();}
 function photoBox(pid,which,has,labelOn,labelOff){
   return '<label class="photo '+(has?'has':'')+'">'+(has?labelOn:labelOff)+
-    '<input type="file" accept="image/*" style="display:none" onchange="pickPhoto(\''+pid+'\',\''+which+'\',this.files[0])"></label>';
+    '<input type="file" accept="image/*,video/*" style="display:none" onchange="pickPhoto(\''+pid+'\',\''+which+'\',this.files[0])"></label>';
 }
 function renderPropList(){
   const el=document.getElementById('propList');if(!el)return;
@@ -663,7 +667,7 @@ function renderPropList(){
               (s.damageFiles||[]).map((f,idx)=>'<span style="display:inline-flex;align-items:center;gap:6px;background:#F1F9F4;border:1.5px solid var(--ok);color:var(--ok);border-radius:10px;padding:6px 10px;font-size:12.5px">📷 Foto '+(idx+1)+' <b style="cursor:pointer" onclick="removeDamagePhoto(\''+p.id+'\','+idx+')">✕</b></span>').join('')+
             '</div>'+
             '<label class="photo" style="border-color:var(--coral);color:var(--coral)">📷 '+((s.damageFiles&&s.damageFiles.length)?'Añadir otra foto del daño':'Añadir foto del daño')+
-              '<input type="file" accept="image/*" style="display:none" onchange="addDamagePhoto(\''+p.id+'\',this.files[0])"></label>'+
+              '<input type="file" accept="image/*,video/*" style="display:none" onchange="addDamagePhoto(\''+p.id+'\',this.files[0])"></label>'+
           '</details>'
         ):'')+
         gastosBlock(p.id,s)+
@@ -719,10 +723,10 @@ async function submitAll(){
       if(error){console.error(error);toast('Error al crear el servicio');return;}
       for(const pid of cleaned){
         const s=selection[pid];const base=currentStaff+'/'+sub.id+'/'+pid;
-        const pb=await upload(base+'_antes.jpg',s.beforeFile);
-        const pa=await upload(base+'_despues.jpg',s.afterFile);
+        const pb=await upload(base+'_antes'+extOf(s.beforeFile),s.beforeFile);
+        const pa=await upload(base+'_despues'+extOf(s.afterFile),s.afterFile);
         const dmgPaths=[];
-        for(let k=0;k<(s.damageFiles||[]).length;k++){const dp=await upload(base+'_dano'+(k+1)+'.jpg',s.damageFiles[k]);if(dp)dmgPaths.push(dp);}
+        for(let k=0;k<(s.damageFiles||[]).length;k++){const dp=await upload(base+'_dano'+(k+1)+extOf(s.damageFiles[k]),s.damageFiles[k]);if(dp)dmgPaths.push(dp);}
         const {error:ie}=await sb.from('submission_items').insert({submission_id:sub.id,property_id:pid,
           photo_before:pb,photo_after:pa,damage_note:s.damage.trim()||null,damage_photo:dmgPaths[0]||null,damage_photos:dmgPaths,
           early_checkin:s.earlyCheckin?(company.fee_early_checkin||0.01):0,
@@ -735,7 +739,7 @@ async function submitAll(){
     for(const pid of ids){
       const gastos=(selection[pid].gastos||[]).filter(g=>(parseFloat(g.amount)||0)>0);
       for(const g of gastos){
-        const path=currentStaff+'/gasto-'+Date.now()+'-'+Math.floor(Math.random()*100000)+'.jpg';
+        const path=currentStaff+'/gasto-'+Date.now()+'-'+Math.floor(Math.random()*100000)+extOf(g.receiptFile);
         const rp=await upload(path,g.receiptFile);
         if(!rp){toast('No se pudo subir un recibo');continue;}
         const {error:ge}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,total:parseFloat(g.amount)||0,expense_desc:g.desc.trim(),property_id:pid,receipt_photo:rp});
@@ -774,7 +778,7 @@ async function renderReports(){
         statusSel+
       '</div>'+
       '<div style="margin:8px 0">'+String(r.description||'').replace(/</g,'&lt;')+'</div>'+
-      (urls.length?'<div style="display:flex;flex-wrap:wrap;gap:6px">'+urls.map(u=>'<img src="'+u+'" style="width:calc(25% - 5px);height:100px;object-fit:cover;border-radius:8px">').join('')+'</div>':'<span class="muted" style="font-size:12px">Sin fotos</span>')+
+      (urls.length?'<div style="display:flex;flex-wrap:wrap;gap:6px">'+urls.map(u=>evTag(u,'width:calc(25% - 5px);height:100px;object-fit:cover;border-radius:8px')).join('')+'</div>':'<span class="muted" style="font-size:12px">Sin fotos</span>')+
       noteBox+
     '</div>';
   }));
@@ -1068,10 +1072,12 @@ async function photoReport(k){
 
   // Tarjeta de foto: DÓNDE (propiedad), CUÁNDO (fecha), QUIÉN (persona), POR QUÉ (tipo)
   function photoCard(kind,label,prop,date,who,why,path,note){
-    const url=path?urlMap[path]:null;
+    const url=path?urlMap[path]:null;const vid=isVideoPath(path);
     return ''+
     '<figure class="pcard">'+
-      '<div class="pimg '+kind+'"'+(url?' style="background-image:url(\''+url+'\');background-size:cover;background-position:center"':'')+'>'+(url?'':'<span>'+label+'</span>')+'</div>'+
+      (vid&&url
+        ? '<a href="'+url+'" class="pimg '+kind+'" style="text-decoration:none;color:inherit"><span>🎥 Ver video</span></a>'
+        : '<div class="pimg '+kind+'"'+(url?' style="background-image:url(\''+url+'\');background-size:cover;background-position:center"':'')+'>'+(url?'':'<span>'+label+'</span>')+'</div>')+
       '<figcaption>'+
         '<div class="why '+kind+'">'+why+'</div>'+
         '<table class="meta">'+
@@ -1340,7 +1346,7 @@ async function previewOne(id){
   const p=staff.find(x=>x.id===s.staff)||{};
   const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
   function pcard(why,prop,date,url){
-    const img=url?'<img src="'+url+'" style="width:100%;height:150px;object-fit:cover;border-radius:8px">':'<div style="height:150px;background:#eee;border-radius:8px;text-align:center;line-height:150px;color:#999">Sin foto</div>';
+    const img=url?evTag(url,'width:100%;height:150px;object-fit:cover;border-radius:8px'):'<div style="height:150px;background:#eee;border-radius:8px;text-align:center;line-height:150px;color:#999">Sin foto</div>';
     return '<div style="display:inline-block;width:180px;margin:6px;vertical-align:top;font-family:Arial,sans-serif;font-size:12px">'+img+'<div style="font-weight:bold;margin-top:4px">'+why+'</div><div style="color:#3A5249">'+esc(prop)+' - '+esc(date)+'</div></div>';
   }
   toast('Preparando vista previa…');
@@ -1484,7 +1490,7 @@ function openModal(title,inner){const ov=document.createElement('div');ov.classN
   ov.innerHTML='<div class="modal"><div class="modal-head"><h3 style="margin:0;font-size:17px">'+title+'</h3>'+
     '<button class="btn sm ghost" onclick="this.closest(\'.overlay\').remove()">Cerrar</button></div><div class="modal-body">'+inner+'</div></div>';
   document.body.appendChild(ov);}
-function imgOr(url,fake){return url?'<img src="'+url+'" style="width:100%;height:150px;object-fit:cover;border-radius:12px">':'<div class="fakeimg '+fake+'">Sin foto</div>';}
+function imgOr(url,fake){return url?evTag(url,'width:100%;height:150px;object-fit:cover;border-radius:12px'):'<div class="fakeimg '+fake+'">Sin foto</div>';}
 function extrasLabel(i){const p=[];if((i.earlyCheckin||0)>0)p.push('Early Check-in '+money(i.earlyCheckin));if((i.lateCheckout||0)>0)p.push('Late Check-out '+money(i.lateCheckout));if((i.extraGuest||0)>0)p.push('Extra huésped '+money(i.extraGuest));if((i.laundry||0)>0)p.push('Lavandería '+money(i.laundry));return p;}
 function itemTotal(i){return (i.rate||0)+(i.earlyCheckin||0)+(i.lateCheckout||0)+(i.extraGuest||0)+(i.laundry||0);}
 async function viewService(id){const s=subs.find(x=>x.id===id);
@@ -1498,17 +1504,17 @@ async function viewService(id){const s=subs.find(x=>x.id===id);
         '<div style="flex:1">'+imgOr(b,'before')+'<div class="muted" style="font-size:11px;text-align:center">Antes</div></div>'+
         '<div style="flex:1">'+imgOr(a,'after')+'<div class="muted" style="font-size:11px;text-align:center">Después</div></div>'+
       '</div>'+
-      (i.damage||dmgs.length?'<div class="note" style="margin-top:8px;border-color:#e5b6a6;background:#fbeee8"><b style="color:var(--coral)">⚠️ Daño:</b> '+(i.damage||'')+(dmgs.length>1?' <span class="muted">('+dmgs.length+' fotos)</span>':'')+'</div>'+'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+dmgs.map(du=>'<img src="'+du+'" style="width:calc(50% - 3px);height:130px;object-fit:cover;border-radius:12px">').join('')+'</div>':'')+
+      (i.damage||dmgs.length?'<div class="note" style="margin-top:8px;border-color:#e5b6a6;background:#fbeee8"><b style="color:var(--coral)">⚠️ Daño:</b> '+(i.damage||'')+(dmgs.length>1?' <span class="muted">('+dmgs.length+' fotos)</span>':'')+'</div>'+'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+dmgs.map(du=>evTag(du,'width:calc(50% - 3px);height:130px;object-fit:cover;border-radius:12px')).join('')+'</div>':'')+
     '</div>';
   }));
   openModal('Servicio de '+staffName(s.staff)+' · '+s.date,blocks.join(''));}
 async function viewReceipt(id){const s=subs.find(x=>x.id===id);const u=await signedUrl(s.receipt);
-  openModal('Recibo · '+s.desc,(u?'<img src="'+u+'" style="width:100%;border-radius:12px">':'<div class="fakeimg receipt">Sin foto</div>')+
+  openModal('Recibo · '+s.desc,(u?evTag(u,'width:100%;border-radius:12px'):'<div class="fakeimg receipt">Sin foto</div>')+
     '<div class="muted" style="font-size:13px;margin-top:6px">'+staffName(s.staff)+' · '+s.date+' · '+money(s.amount)+'</div>');}
 async function viewDamage(id,pid){const s=subs.find(x=>x.id===id);const i=s.items.find(x=>x.prop===pid);
   const dmgs=(await Promise.all((i.pathsDamage||[]).map(signedUrl))).filter(Boolean);
   openModal('Daño · '+propName(pid),
-    (dmgs.length?'<div style="display:flex;flex-wrap:wrap;gap:6px">'+dmgs.map(du=>'<img src="'+du+'" style="width:calc(50% - 3px);border-radius:12px">').join('')+'</div>':'<div class="fakeimg damage">Sin foto</div>')+
+    (dmgs.length?'<div style="display:flex;flex-wrap:wrap;gap:6px">'+dmgs.map(du=>evTag(du,'width:calc(50% - 3px);border-radius:12px')).join('')+'</div>':'<div class="fakeimg damage">Sin foto</div>')+
     '<div class="note" style="margin-top:8px">'+i.damage+'</div>'+
     '<div class="muted" style="font-size:13px;margin-top:6px">Reportado por '+staffName(s.staff)+' · '+s.date+' · '+dmgs.length+' foto(s)</div>');}
 document.getElementById('today').textContent=todayISO();
