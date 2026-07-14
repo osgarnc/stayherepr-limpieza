@@ -358,7 +358,7 @@ window.sb = sb;
 /* ---------- ESTADO (se llena desde Supabase en loadAll) ---------- */
 let properties=[];     // {id,name}
 let staff=[];          // {id,name,address,phone,taxid,email}
-let company={name:'',address:'',ein:'',email:'',phone:'',week_start_day:1,fee_early_checkin:0,fee_late_checkout:0,fee_extra_guest:0};  // bill-to (company_settings)
+let company={name:'',address:'',ein:'',email:'',phone:'',week_start_day:1,fee_early_checkin:0,fee_late_checkout:0,fee_extra_guest:0,send_dow:0,send_hour:9};  // bill-to (company_settings)
 let distribution=[];   // {id,name,email,active}
 let users=[];          // profiles: {id,user(email),name,role,staffId,active}
 let rates={};          // rates[staffId][propId] = amount
@@ -398,7 +398,7 @@ async function loadAll(){
   (ratesR.data||[]).forEach(r=>{(rates[r.professional_id]=rates[r.professional_id]||{})[r.property_id]=Number(r.amount);});
   staff.forEach(s=>{rates[s.id]=rates[s.id]||{};});
   distribution=(distR.data||[]).map(d=>({id:d.id,name:d.label||d.email,email:d.email,active:d.active}));
-  if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||'',week_start_day:(compR.data.week_start_day??1),fee_early_checkin:Number(compR.data.fee_early_checkin||0),fee_late_checkout:Number(compR.data.fee_late_checkout||0),fee_extra_guest:Number(compR.data.fee_extra_guest||0)};
+  if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||'',week_start_day:(compR.data.week_start_day??1),fee_early_checkin:Number(compR.data.fee_early_checkin||0),fee_late_checkout:Number(compR.data.fee_late_checkout||0),fee_extra_guest:Number(compR.data.fee_extra_guest||0),send_dow:Number(compR.data.send_dow??0),send_hour:Number(compR.data.send_hour??9)};
   users=(profR.data||[]).map(p=>({id:p.id,user:p.email||'',name:p.display_name,role:p.role,staffId:p.staff_id,active:p.active}));
   reports=(repR.data||[]).map(r=>({id:r.id,staff:r.professional_id,date:r.date,description:r.description||'',photos:r.photos||[],status:r.status||'pending',pendingNote:r.pending_note||''}));
   const itemsBySub={};
@@ -1319,7 +1319,24 @@ function renderCompanyForm(){
     fieldRow('Correo',company.email,"setCompany('email',this.value)")+
     fieldRow('Teléfono',company.phone,"setCompany('phone',this.value)")+
     '</div>'+
-    '<div class="note" style="margin-top:6px">📅 Facturación <b>bisemanal</b> (domingo a sábado, 14 días). 1ª bisemana: dom 12 jul – sáb 25 jul. Envío automático el domingo siguiente 9am.</div>';
+    '<div class="note" style="margin-top:6px">📅 Facturación <b>bisemanal</b> (domingo a sábado, 14 días). 1ª bisemana: dom 12 jul – sáb 25 jul.</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px;margin-top:10px">'+
+      '<div class="field" style="margin:0"><label>📤 Día del envío automático</label>'+
+        '<select onchange="setSchedule(\'send_dow\',this.value)" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px">'+
+          DOW.map((d,i)=>'<option value="'+i+'" '+((company.send_dow??0)===i?'selected':'')+'>'+d+'</option>').join('')+
+        '</select></div>'+
+      '<div class="field" style="margin:0"><label>🕐 Hora (Puerto Rico)</label>'+
+        '<select onchange="setSchedule(\'send_hour\',this.value)" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px">'+
+          Array.from({length:24},(_,h)=>'<option value="'+h+'" '+((company.send_hour??9)===h?'selected':'')+'>'+(h===0?'12 am':h<12?h+' am':h===12?'12 pm':(h-12)+' pm')+'</option>').join('')+
+        '</select></div>'+
+    '</div>'+
+    '<div class="muted" style="font-size:12px;margin-top:6px">Las facturas de la bisemana cerrada se envían solas ese día y hora. (Requiere el cron cada hora ya configurado.)</div>';
+}
+async function setSchedule(field,val){
+  company[field]=parseInt(val,10);
+  const {error}=await sb.from('company_settings').update({[field]:company[field]}).eq('id',1);
+  if(error){console.error(error);toast('No se pudo guardar');return;}
+  toast('Horario de envío actualizado');
 }
 async function setWeekStart(v){
   company.week_start_day=parseInt(v,10);

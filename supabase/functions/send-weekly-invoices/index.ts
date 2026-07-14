@@ -76,6 +76,16 @@ Deno.serve(async (req) => {
     let sendAll = false;
     try { const body = await req.json(); sendAll = !!(body && body.all === true); } catch (_) { /* sin body = automático */ }
 
+    // En modo automático (cron cada hora), solo enviar en el día+hora configurado (hora de PR, UTC-4)
+    if (!sendAll) {
+      const sendDow = Number(company?.send_dow ?? 0);   // 0=domingo
+      const sendHour = Number(company?.send_hour ?? 9);  // 9am PR
+      const pr = new Date(Date.now() - 4 * 3600 * 1000);
+      if (pr.getUTCDay() !== sendDow || pr.getUTCHours() !== sendHour) {
+        return jsonResp({ ok: true, sent: 0, msg: `No es el horario configurado (día ${sendDow}, ${sendHour}h PR). Ahora en PR: día ${pr.getUTCDay()}, ${pr.getUTCHours()}h.` });
+      }
+    }
+
     // Agrupar por persona + bisemana
     const groups: Record<string, any[]> = {};
     subs.forEach((s: any) => { const k = s.professional_id + "|" + biweekKey(s.date); (groups[k] ||= []).push(s); });
