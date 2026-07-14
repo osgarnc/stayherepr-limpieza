@@ -168,33 +168,25 @@
     </div>
     <div class="phone-body">
       <div class="seg">
-        <button id="segService" class="on" onclick="segTo('service')">Servicio</button>
-        <button id="segExpense" onclick="segTo('expense')">Gasto</button>
+        <button id="segRegistrar" class="on" onclick="segTo('registrar')">📋 Registrar</button>
+        <button id="segFacturas" onclick="segTo('facturas')">🧾 Facturas</button>
+        <button id="segReporte" onclick="segTo('reporte')">📝 Reporte</button>
       </div>
-      <div id="paneService">
-        <div class="field"><label>Fecha del servicio</label><input type="date" id="svcDate"></div>
+      <div id="paneRegistrar">
+        <div class="field"><label>Fecha</label><input type="date" id="svcDate"></div>
         <label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">
-          Propiedades limpiadas <span class="muted" style="font-weight:400">— toca para abrir y adjuntar fotos</span>
+          Propiedades <span class="muted" style="font-weight:400">— toca para abrir. Registra limpieza y/o gastos.</span>
         </label>
         <div id="propList"></div>
-        <div class="runtot"><span>Total del servicio</span><b id="svcTotal">$0.00</b></div>
-        <button class="btn block" onclick="submitService()">Enviar servicio</button>
+        <div class="runtot"><span>Total a reembolsar</span><b id="svcTotal">$0.00</b></div>
+        <button class="btn block" onclick="submitAll()">Enviar</button>
       </div>
-      <div id="paneExpense" class="hide">
-        <div class="field"><label>Fecha</label><input type="date" id="expDate"></div>
-        <div class="field"><label>Propiedad asociada</label><select id="expProp"></select></div>
-        <div class="field"><label>Descripción del gasto</label><input id="expDesc" placeholder="Ej: Detergente, bolsas de basura"></div>
-        <div class="field"><label>Monto ($)</label><input id="expAmt" type="number" inputmode="decimal" placeholder="0.00"></div>
-        <div class="field"><label>Foto del recibo</label>
-          <div id="expPhoto" class="photo" onclick="document.getElementById('expFileInput').click()">🧾 Toca para adjuntar recibo</div>
-          <input id="expFileInput" type="file" accept="image/*" style="display:none" onchange="pickExp(this.files[0])">
-        </div>
-        <button class="btn coral block" onclick="submitExpense()">Enviar gasto</button>
-      </div>
+      <div id="paneFacturas" class="hide"><div id="myInvoices"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver tus facturas.</p></div></div>
+      <div id="paneReporte" class="hide"><p class="muted" style="text-align:center;padding:20px">Próximamente</p></div>
     </div>
   </div>
   <div class="note" style="max-width:420px;margin:12px auto 0">
-    Cada propiedad exige foto <b>antes</b> y <b>después</b>. Los <b>gastos</b> exigen foto del recibo. Si reportas un <b>daño</b>, exige descripción <b>y</b> foto.
+    En cada propiedad puedes registrar <b>limpieza</b> (foto antes/después) y/o <b>gastos</b> (con foto del recibo). Si reportas un <b>daño</b>, exige descripción <b>y</b> foto.
   </div>
 </div>
 
@@ -502,10 +494,11 @@ function setMode(m,force){
   }
 }
 function segTo(s){
-  document.getElementById('paneService').classList.toggle('hide',s!=='service');
-  document.getElementById('paneExpense').classList.toggle('hide',s!=='expense');
-  document.getElementById('segService').classList.toggle('on',s==='service');
-  document.getElementById('segExpense').classList.toggle('on',s==='expense');
+  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte'};
+  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte'};
+  Object.keys(P).forEach(k=>document.getElementById(P[k]).classList.toggle('hide',k!==s));
+  Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===s));
+  if(s==='facturas')renderMyInvoices();
 }
 const TABS=['inbox','invoices','rejected','damage','rates','settings','users','data'];
 function tabTo(t){
@@ -514,10 +507,30 @@ function tabTo(t){
   document.getElementById('tab'+C).classList.toggle('hide',x!==t);
   document.getElementById('t'+C).classList.toggle('on',x===t);});}
 let selection={};
-function ensureSel(pid){if(!selection[pid])selection[pid]={beforeFile:null,afterFile:null,damage:'',damageFiles:[],earlyCheckin:false,lateCheckout:false,extraGuest:false,laundryOn:false,laundry:0};return selection[pid];}
+function ensureSel(pid){if(!selection[pid])selection[pid]={beforeFile:null,afterFile:null,damage:'',damageFiles:[],earlyCheckin:false,lateCheckout:false,extraGuest:false,gastos:[]};return selection[pid];}
 function addDamagePhoto(pid,file){if(!file)return;const s=ensureSel(pid);(s.damageFiles=s.damageFiles||[]).push(file);renderPropList();}
 function removeDamagePhoto(pid,idx){const s=ensureSel(pid);(s.damageFiles=s.damageFiles||[]).splice(idx,1);renderPropList();}
-function setLaundry(pid,val){ensureSel(pid).laundry=parseFloat(val)||0;recalc();}
+function addGasto(pid){ensureSel(pid).gastos.push({amount:0,desc:'',receiptFile:null});renderPropList();}
+function removeGasto(pid,gi){ensureSel(pid).gastos.splice(gi,1);renderPropList();}
+function setGasto(pid,gi,field,val){const g=(ensureSel(pid).gastos||[])[gi];if(!g)return;g[field]=(field==='amount')?(parseFloat(val)||0):val;recalc();}
+function pickGastoReceipt(pid,gi,file){if(!file)return;const g=(ensureSel(pid).gastos||[])[gi];if(g)g.receiptFile=file;renderPropList();}
+function gastosBlock(pid,s){
+  const gastos=s.gastos||[];
+  return '<div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:10px">'+
+    '<div class="muted" style="font-size:12px;font-weight:600;margin-bottom:6px">🧾 Gastos de esta propiedad (reembolso, con recibo)</div>'+
+    gastos.map((g,gi)=>
+      '<div style="border:1.5px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:13px">Gasto '+(gi+1)+'</b><span style="cursor:pointer;color:var(--danger);font-weight:700" onclick="removeGasto(\''+pid+'\','+gi+')">✕</span></div>'+
+        '<input placeholder="Descripción (ej: detergente)" value="'+String(g.desc||'').replace(/"/g,'&quot;')+'" oninput="setGasto(\''+pid+'\','+gi+',\'desc\',this.value)" style="width:100%;padding:9px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:6px">'+
+        '<div style="display:flex;gap:8px;align-items:stretch">'+
+          '<span style="display:flex;align-items:center;gap:2px">$<input type="number" inputmode="decimal" step="0.01" placeholder="0.00" value="'+((g.amount||0)>0?g.amount:'')+'" oninput="setGasto(\''+pid+'\','+gi+',\'amount\',this.value)" style="width:90px;padding:9px;border:1.5px solid var(--line);border-radius:8px"></span>'+
+          '<label class="photo '+(g.receiptFile?'has':'')+'" style="flex:1;margin:0;padding:9px 8px">'+(g.receiptFile?'✓ Recibo':'🧾 Foto del recibo')+'<input type="file" accept="image/*" style="display:none" onchange="pickGastoReceipt(\''+pid+'\','+gi+',this.files[0])"></label>'+
+        '</div>'+
+      '</div>').join('')+
+    '<button class="btn ghost sm" style="width:100%" onclick="addGasto(\''+pid+'\')">➕ Añadir gasto</button>'+
+  '</div>';
+}
+function renderMyInvoices(){const el=document.getElementById('myInvoices');if(el)el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Próximamente</p>';}
 function toggleExtra(pid,which){const s=ensureSel(pid);s[which]=!s[which];renderPropList();}
 function isSelected(pid){return !!selection[pid];}
 function toggleProp(pid){if(selection[pid])delete selection[pid];else ensureSel(pid);renderPropList();}
@@ -544,22 +557,16 @@ function renderPropList(){
         '<div class="chk">'+(on?'✓':'')+'</div>'+
       '</div>'+
       (on?('<div class="prop-detail">'+
+        '<div class="muted" style="font-size:12px;font-weight:600;margin-bottom:4px">🧹 Limpieza (opcional — foto antes y después)</div>'+
         '<div class="photo-row">'+
           photoBox(p.id,'before',!!s.beforeFile,'✓ Antes','📷 Antes')+
           photoBox(p.id,'after',!!s.afterFile,'✓ Después','📷 Después')+
         '</div>'+
         '<div style="display:flex;flex-direction:column;gap:6px;margin:10px 0">'+
-          '<div class="muted" style="font-size:12px;font-weight:600">Cargos adicionales (marca si aplicaron):</div>'+
+          '<div class="muted" style="font-size:12px;font-weight:600">Cargos de la limpieza (marca si aplicaron):</div>'+
           extraChk(p.id,'earlyCheckin','Early Check-in',company.fee_early_checkin,s.earlyCheckin)+
           extraChk(p.id,'lateCheckout','Late Check-out',company.fee_late_checkout,s.lateCheckout)+
           extraChk(p.id,'extraGuest','Extra huésped',company.fee_extra_guest,s.extraGuest)+
-          '<div style="display:flex;align-items:center;gap:8px;font-size:13.5px;padding:8px 10px;border:1.5px solid '+(s.laundryOn?'var(--sea)':'var(--line)')+';border-radius:10px;background:'+(s.laundryOn?'#F1F9F8':'#fff')+'">'+
-            '<input type="checkbox" '+(s.laundryOn?'checked':'')+' onchange="toggleExtra(\''+p.id+'\',\'laundryOn\')" style="width:18px;height:18px;accent-color:var(--sea)">'+
-            '<span style="flex:1">Lavandería</span>'+
-            (s.laundryOn
-              ? '$<input type="number" inputmode="decimal" min="0" step="0.01" value="'+((s.laundry||0)>0?s.laundry:'')+'" placeholder="0.00" oninput="setLaundry(\''+p.id+'\',this.value)" style="width:80px;padding:6px;border:1.5px solid var(--line);border-radius:8px;font-size:14px">'
-              : '<span class="muted" style="font-size:12px">marca para añadir</span>')+
-          '</div>'+
         '</div>'+
         '<details class="dmg" '+((s.damage||(s.damageFiles&&s.damageFiles.length))?'open':'')+'>'+
           '<summary>⚠️ Reportar daño en la propiedad (opcional — si reportas, exige descripción y al menos 1 foto)</summary>'+
@@ -570,10 +577,10 @@ function renderPropList(){
           '<label class="photo" style="border-color:var(--coral);color:var(--coral)">📷 '+((s.damageFiles&&s.damageFiles.length)?'Añadir otra foto del daño':'Añadir foto del daño')+
             '<input type="file" accept="image/*" style="display:none" onchange="addDamagePhoto(\''+p.id+'\',this.files[0])"></label>'+
         '</details>'+
+        gastosBlock(p.id,s)+
       '</div>'):'');
     el.appendChild(card);
   });
-  document.getElementById('expProp').innerHTML=properties.map(p=>'<option value="'+p.id+'">'+p.name+'</option>').join('');
   recalc();
 }
 function pickPhoto(pid,which,file){if(!file)return;const s=ensureSel(pid);
@@ -585,68 +592,69 @@ function extraChk(pid,which,label,fee,on){
     '<input type="checkbox" '+(on?'checked':'')+' onchange="toggleExtra(\''+pid+'\',\''+which+'\')" style="width:18px;height:18px;accent-color:var(--sea)">'+
     '<span style="flex:1">'+label+'</span><b>+'+money(fee||0)+'</b></label>';
 }
-function extrasFor(pid){const s=selection[pid]||{};return (s.earlyCheckin?(company.fee_early_checkin||0):0)+(s.lateCheckout?(company.fee_late_checkout||0):0)+(s.extraGuest?(company.fee_extra_guest||0):0)+(s.laundryOn?(s.laundry||0):0);}
-function recalc(){let t=0;const r=rates[currentStaff]||{};for(const pid in selection)t+=(r[pid]||0)+extrasFor(pid);
+function propServiceTotal(pid){const s=selection[pid]||{};if(!(s.beforeFile&&s.afterFile))return 0;const r=(rates[currentStaff]||{})[pid]||0;
+  return r+(s.earlyCheckin?(company.fee_early_checkin||0):0)+(s.lateCheckout?(company.fee_late_checkout||0):0)+(s.extraGuest?(company.fee_extra_guest||0):0);}
+function propGastosTotal(pid){const s=selection[pid]||{};return (s.gastos||[]).reduce((a,g)=>a+(parseFloat(g.amount)||0),0);}
+function recalc(){let t=0;for(const pid in selection)t+=propServiceTotal(pid)+propGastosTotal(pid);
   document.getElementById('svcTotal').textContent=money(t);return t;}
 let _sending=false;
-async function submitService(){
+async function submitAll(){
   if(_sending)return;
   if(!currentStaff){toast('Tu cuenta no está vinculada a un perfil de personal. Avisa al dueño.');return;}
   const ids=Object.keys(selection);
-  if(!ids.length){toast('Selecciona al menos una propiedad');return;}
-  for(const pid of ids){const s=selection[pid];
-    if(!s.beforeFile||!s.afterFile){toast('Falta foto antes/después en '+propName(pid));return;}
-    const hasNote=!!s.damage.trim(), hasPhoto=!!(s.damageFiles&&s.damageFiles.length);
-    if((hasNote||hasPhoto)&&(!hasNote||!hasPhoto)){toast('El reporte de daño necesita descripción Y al menos 1 foto en '+propName(pid));return;}}
+  if(!ids.length){toast('Abre al menos una propiedad');return;}
+  // --- Validación por propiedad ---
+  for(const pid of ids){
+    const s=selection[pid];
+    const hasClean=!!(s.beforeFile&&s.afterFile);
+    if((s.beforeFile||s.afterFile)&&!hasClean){toast('Falta foto antes o después en '+propName(pid));return;}
+    const wantsCharge=s.earlyCheckin||s.lateCheckout||s.extraGuest;
+    const hasNote=!!s.damage.trim(), hasDmgPhoto=!!(s.damageFiles&&s.damageFiles.length);
+    if((wantsCharge||hasNote||hasDmgPhoto)&&!hasClean){toast('Los cargos y el daño van con la limpieza (foto antes/después) en '+propName(pid));return;}
+    if((hasNote||hasDmgPhoto)&&(!hasNote||!hasDmgPhoto)){toast('El daño necesita descripción Y al menos 1 foto en '+propName(pid));return;}
+    const gastos=(s.gastos||[]).filter(g=>(parseFloat(g.amount)||0)>0||g.desc.trim()||g.receiptFile);
+    for(const g of gastos){
+      if(!(parseFloat(g.amount)>0)){toast('Un gasto en '+propName(pid)+' necesita monto');return;}
+      if(!g.desc.trim()){toast('Un gasto en '+propName(pid)+' necesita descripción');return;}
+      if(!g.receiptFile){toast('Un gasto en '+propName(pid)+' necesita foto del recibo');return;}
+    }
+    if(!hasClean&&gastos.length===0){toast(propName(pid)+' no tiene limpieza ni gastos');return;}
+  }
   _sending=true;toast('Subiendo… no cierres la app');
   try{
     const date=document.getElementById('svcDate').value||todayISO();
-    const {data:sub,error}=await sb.from('submissions').insert({type:'service',professional_id:currentStaff,date}).select().single();
-    if(error){console.error(error);toast('Error al crear el servicio');return;}
-    for(const pid of ids){
-      const s=selection[pid];const base=currentStaff+'/'+sub.id+'/'+pid;
-      const pb=await upload(base+'_antes.jpg',s.beforeFile);
-      const pa=await upload(base+'_despues.jpg',s.afterFile);
-      const dmgPaths=[];
-      for(let k=0;k<(s.damageFiles||[]).length;k++){const dp=await upload(base+'_dano'+(k+1)+'.jpg',s.damageFiles[k]);if(dp)dmgPaths.push(dp);}
-      const {error:ie}=await sb.from('submission_items').insert({submission_id:sub.id,property_id:pid,
-        photo_before:pb,photo_after:pa,damage_note:s.damage.trim()||null,damage_photo:dmgPaths[0]||null,damage_photos:dmgPaths,
-        laundry:s.laundryOn?(s.laundry||0):0,
-        early_checkin:s.earlyCheckin?(company.fee_early_checkin||0.01):0,
-        late_checkout:s.lateCheckout?(company.fee_late_checkout||0.01):0,
-        extra_guest:s.extraGuest?(company.fee_extra_guest||0.01):0});
-      if(ie)console.error(ie);
+    const cleaned=ids.filter(pid=>selection[pid].beforeFile&&selection[pid].afterFile);
+    // 1) Servicio (una sola factura con todas las propiedades limpiadas)
+    if(cleaned.length){
+      const {data:sub,error}=await sb.from('submissions').insert({type:'service',professional_id:currentStaff,date}).select().single();
+      if(error){console.error(error);toast('Error al crear el servicio');return;}
+      for(const pid of cleaned){
+        const s=selection[pid];const base=currentStaff+'/'+sub.id+'/'+pid;
+        const pb=await upload(base+'_antes.jpg',s.beforeFile);
+        const pa=await upload(base+'_despues.jpg',s.afterFile);
+        const dmgPaths=[];
+        for(let k=0;k<(s.damageFiles||[]).length;k++){const dp=await upload(base+'_dano'+(k+1)+'.jpg',s.damageFiles[k]);if(dp)dmgPaths.push(dp);}
+        const {error:ie}=await sb.from('submission_items').insert({submission_id:sub.id,property_id:pid,
+          photo_before:pb,photo_after:pa,damage_note:s.damage.trim()||null,damage_photo:dmgPaths[0]||null,damage_photos:dmgPaths,
+          early_checkin:s.earlyCheckin?(company.fee_early_checkin||0.01):0,
+          late_checkout:s.lateCheckout?(company.fee_late_checkout||0.01):0,
+          extra_guest:s.extraGuest?(company.fee_extra_guest||0.01):0});
+        if(ie)console.error(ie);
+      }
     }
-    const hadDmg=ids.some(pid=>selection[pid].damage.trim());
+    // 2) Gastos (un envío de gasto por cada gasto de cada propiedad)
+    for(const pid of ids){
+      const gastos=(selection[pid].gastos||[]).filter(g=>(parseFloat(g.amount)||0)>0);
+      for(const g of gastos){
+        const path=currentStaff+'/gasto-'+Date.now()+'-'+Math.floor(Math.random()*100000)+'.jpg';
+        const rp=await upload(path,g.receiptFile);
+        if(!rp){toast('No se pudo subir un recibo');continue;}
+        const {error:ge}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,total:parseFloat(g.amount)||0,expense_desc:g.desc.trim(),property_id:pid,receipt_photo:rp});
+        if(ge)console.error(ge);
+      }
+    }
     selection={};await loadAll();renderPropList();
-    toast(hadDmg?'✉️ Servicio + daño enviados a la administradora':'✉️ Servicio enviado a la administradora');
-  } finally { _sending=false; }
-}
-let expFile=null;
-function pickExp(file){if(!file)return;expFile=file;const e=document.getElementById('expPhoto');e.classList.add('has');e.textContent='✓ Recibo adjuntado';}
-async function submitExpense(){
-  if(_sending)return;
-  if(!currentStaff){toast('Tu cuenta no está vinculada a un perfil de personal. Avisa al dueño.');return;}
-  const amt=parseFloat(document.getElementById('expAmt').value);
-  const desc=document.getElementById('expDesc').value.trim();
-  const prop=document.getElementById('expProp').value;
-  if(!desc){toast('Añade una descripción');return;}
-  if(!amt||amt<=0){toast('Añade un monto válido');return;}
-  if(!expFile){toast('Falta la foto del recibo');return;}
-  _sending=true;toast('Subiendo…');
-  try{
-    const date=document.getElementById('expDate').value||todayISO();
-    // Subir el recibo PRIMERO (ruta única), luego crear el gasto ya con la foto incluida.
-    // (El personal no puede actualizar envíos, así que la foto debe ir en el insert.)
-    const path=currentStaff+'/gasto-'+Date.now()+'-'+Math.floor(Math.random()*100000)+'.jpg';
-    const p=await upload(path,expFile);
-    if(!p){toast('No se pudo subir el recibo, intenta de nuevo');return;}
-    const {error}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,total:amt,expense_desc:desc,property_id:prop,receipt_photo:p}).select().single();
-    if(error){console.error(error);toast('Error al enviar el gasto');return;}
-    document.getElementById('expDesc').value='';document.getElementById('expAmt').value='';expFile=null;
-    const e=document.getElementById('expPhoto');e.className='photo';e.textContent='🧾 Toca para adjuntar recibo';
-    await loadAll();
-    toast('✉️ Gasto enviado a la administradora');
+    toast('✉️ Enviado a la administradora');
   } finally { _sending=false; }
 }
 function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
@@ -1372,7 +1380,6 @@ async function viewDamage(id,pid){const s=subs.find(x=>x.id===id);const i=s.item
     '<div class="muted" style="font-size:13px;margin-top:6px">Reportado por '+staffName(s.staff)+' · '+s.date+' · '+dmgs.length+' foto(s)</div>');}
 document.getElementById('today').textContent=todayISO();
 document.getElementById('svcDate').value=todayISO();
-document.getElementById('expDate').value=todayISO();
 renderPropList();
 // Login stays up until authenticated. Enter submits.
 ['loginUser','loginPass'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();}));
