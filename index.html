@@ -825,7 +825,7 @@ function renderStats(){
   const dmg=subs.filter(s=>s.type==='service').reduce((a,s)=>a+s.items.filter(i=>i.damage).length,0);
   document.getElementById('stDmg').textContent=dmg;
   let svc=0,exp=0;
-  subs.filter(s=>s.status==='approved').forEach(s=>{if(s.type==='service')svc+=s.total;else exp+=s.amount;});
+  subs.filter(s=>s.status==='approved').forEach(s=>{if(s.type==='service')svc+=subTotal(s);else exp+=s.amount;});
   document.getElementById('stSvc').textContent=money(svc);
   document.getElementById('stExp').textContent=money(exp);
 }
@@ -840,7 +840,7 @@ function renderInbox(){
         '<td><b>Servicio</b><br><span class="muted" style="font-size:13px">'+detail+'</span></td>'+
         '<td>'+s.date+'</td>'+
         '<td><span class="proof-link" onclick="viewService(\''+s.id+'\')">Ver fotos</span><br><span class="proof-link" onclick="previewOne(\''+s.id+'\')">📄 Vista previa</span></td>'+
-        '<td><b>'+money(s.total)+'</b></td>'+
+        '<td><b>'+money(subTotal(s))+'</b></td>'+
         '<td style="white-space:nowrap"><button class="btn sm ghost" onclick="editSubmission(\''+s.id+'\')">✏️ Editar</button> <button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
     } else {
       return '<tr>'+
@@ -889,7 +889,7 @@ async function editSubmission(id){
     let html='<div class="field"><label>Fecha del servicio</label><input id="edSvcDate" type="date" value="'+s.date+'"></div>';
     s.items.forEach((i,ix)=>{const c=cur[ix];
       html+='<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">'+
-        '<div style="font-weight:700;margin-bottom:8px">'+propName(i.prop)+'</div>'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-weight:700">'+propName(i.prop)+'</span><span onclick="deleteServiceItem(\''+i.id+'\',\''+s.id+'\')" style="cursor:pointer;color:var(--danger);font-weight:700;font-size:13px">🗑️ Quitar propiedad</span></div>'+
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px">'+
           edFld('Base $','edrate-'+i.id,i.rate)+edFld('Early $','edec-'+i.id,i.earlyCheckin)+
           edFld('Late $','edlc-'+i.id,i.lateCheckout)+edFld('Huésped $','edeg-'+i.id,i.extraGuest)+
@@ -911,7 +911,8 @@ async function editSubmission(id){
       '<div id="editGastosList"></div>'+
       '<button class="btn ghost sm" style="width:100%" onclick="addEditGastoRow()">➕ Añadir recibo</button>'+
     '</div>'+
-    '<button class="btn block" style="margin-top:12px" onclick="saveEditService(\''+s.id+'\')">Guardar cambios</button>';
+    '<button class="btn block" style="margin-top:12px" onclick="saveEditService(\''+s.id+'\')">Guardar cambios</button>'+
+    '<button class="btn block dgr" style="margin-top:8px" onclick="deleteSubmission(\''+s.id+'\')">🗑️ Eliminar todo el servicio</button>';
     openModal('Editar servicio · '+staffName(s.staff)+' · '+s.date,html);
   } else {
     const rcpt=await signedUrl(s.receipt);
@@ -921,7 +922,8 @@ async function editSubmission(id){
       '<div class="field"><label>Monto $</label><input id="edExpAmt" type="number" inputmode="decimal" step="0.01" value="'+s.amount+'"></div>'+
       '<div class="field"><label>Recibo actual</label>'+(rcpt?evTag(rcpt,'width:100%;max-height:220px;object-fit:contain;border-radius:8px'):'<div class="muted">sin recibo</div>')+'</div>'+
       edFileLbl('receipt-'+s.id,'📷 Reemplazar recibo (foto/video)')+
-      '<button class="btn block" style="margin-top:10px" onclick="saveEditExpense(\''+s.id+'\')">Guardar cambios</button>';
+      '<button class="btn block" style="margin-top:10px" onclick="saveEditExpense(\''+s.id+'\')">Guardar cambios</button>'+
+      '<button class="btn block dgr" style="margin-top:8px" onclick="deleteSubmission(\''+s.id+'\')">🗑️ Eliminar este gasto</button>';
     openModal('Editar gasto · '+staffName(s.staff)+' · '+s.date,html);
   }
 }
@@ -973,6 +975,23 @@ async function saveEditExpense(id){
   const ov=document.querySelector('.overlay');if(ov)ov.remove();
   editFiles={};await loadAll();renderOffice();toast('✓ Gasto actualizado');
 }
+async function deleteSubmission(id){
+  const s=subs.find(x=>x.id===id); if(!s)return;
+  if(!confirm('¿Eliminar por completo este '+(s.type==='service'?'servicio':'gasto')+'? No se puede deshacer.'))return;
+  const {error}=await sb.from('submissions').delete().eq('id',id);
+  if(error){console.error(error);toast('No se pudo eliminar (¿falta el permiso? corre el SQL de abajo)');return;}
+  const ov=document.querySelector('.overlay');if(ov)ov.remove();
+  await loadAll();renderOffice();toast('🗑️ Eliminado');
+}
+async function deleteServiceItem(itemId,subId){
+  const s=subs.find(x=>x.id===subId); if(!s)return;
+  if((s.items||[]).length<=1){ if(!confirm('Es la única propiedad del servicio. ¿Eliminar todo el servicio?'))return; return deleteSubmission(subId); }
+  if(!confirm('¿Quitar esta propiedad del servicio? El total se recalcula.'))return;
+  const {error}=await sb.from('submission_items').delete().eq('id',itemId);
+  if(error){console.error(error);toast('No se pudo quitar (¿falta el permiso? corre el SQL)');return;}
+  const ov=document.querySelector('.overlay');if(ov)ov.remove();
+  await loadAll();editSubmission(subId);toast('Propiedad quitada; total recalculado');
+}
 function renderInvoices(){
   const appr=subs.filter(s=>s.status==='approved');
   const groups={};
@@ -984,7 +1003,7 @@ function renderInvoices(){
     const parts=k.split('|');const wk=parts[0],sid=parts[1];const list=groups[k];
     let svc=0,exp=0;
     const lines=list.map(s=>{
-      if(s.type==='service'){svc+=s.total;return '<div class="inv-line"><span>Servicio · '+s.items.map(i=>propName(i.prop)).join(', ')+' <span class="muted">('+s.date+')</span></span><span>'+money(s.total)+'</span></div>';}
+      if(s.type==='service'){const st=subTotal(s);svc+=st;return '<div class="inv-line"><span>Servicio · '+s.items.map(i=>propName(i.prop)).join(', ')+' <span class="muted">('+s.date+')</span></span><span>'+money(st)+'</span></div>';}
       exp+=s.amount;return '<div class="inv-line"><span>Gasto · '+s.desc+' <span class="muted">('+s.date+')</span></span><span>'+money(s.amount)+'</span></div>';
     }).join('');
     const paid=list.every(s=>s.paid);
@@ -1549,7 +1568,7 @@ function createUser(){toast('Las cuentas se crean solas en la pantalla de acceso
 function allRows(){return subs.map(s=>{const isSvc=s.type==='service';
   return {id:s.id,tipo:isSvc?'Servicio':'Gasto',persona:staffName(s.staff),fecha:s.date,semana:weekKey(s.date),
     detalle:isSvc?s.items.map(i=>propName(i.prop)+(i.damage?' [DAÑO: '+i.damage+']':'')).join('; '):s.desc+' ('+propName(s.prop)+')',
-    monto:isSvc?s.total:s.amount,estado:s.status,pagada:s.paid?'Sí':'No',
+    monto:isSvc?subTotal(s):s.amount,estado:s.status,pagada:s.paid?'Sí':'No',
     evidencia:isSvc?s.items.map(i=>'antes_'+s.id+'_'+i.prop+'.jpg; despues_'+s.id+'_'+i.prop+'.jpg'+(i.damagePhoto?'; dano_'+s.id+'_'+i.prop+'.jpg':'')).join(' | '):'recibo_'+s.id+'.jpg'};
 });}
 function renderData(){
@@ -1569,6 +1588,7 @@ function openModal(title,inner){const ov=document.createElement('div');ov.classN
 function imgOr(url,fake){return url?evTag(url,'width:100%;height:150px;object-fit:cover;border-radius:12px'):'<div class="fakeimg '+fake+'">Sin foto</div>';}
 function extrasLabel(i){const p=[];if((i.earlyCheckin||0)>0)p.push('Early Check-in '+money(i.earlyCheckin));if((i.lateCheckout||0)>0)p.push('Late Check-out '+money(i.lateCheckout));if((i.extraGuest||0)>0)p.push('Extra huésped '+money(i.extraGuest));if((i.laundry||0)>0)p.push('Lavandería '+money(i.laundry));return p;}
 function itemTotal(i){return (i.rate||0)+(i.earlyCheckin||0)+(i.lateCheckout||0)+(i.extraGuest||0)+(i.laundry||0);}
+function subTotal(s){return s.type==='service'?(s.items||[]).reduce((a,i)=>a+itemTotal(i),0):Number(s.amount||0);}
 async function viewService(id){const s=subs.find(x=>x.id===id);
   const blocks=await Promise.all(s.items.map(async i=>{
     const [b,a]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter)]);
