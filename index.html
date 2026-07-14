@@ -1382,9 +1382,13 @@ async function previewOne(id){
   const s=subs.find(x=>x.id===id); if(!s)return;
   const p=staff.find(x=>x.id===s.staff)||{};
   const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  function media(url){
+    if(!url)return '<div style="height:150px;background:#eee;border-radius:8px;text-align:center;line-height:150px;color:#999">Sin foto</div>';
+    if(isVideoPath(url))return '<video src="'+url+'" controls playsinline style="width:100%;height:150px;object-fit:cover;border-radius:8px"></video>';
+    return '<img src="'+url+'" onclick="openLB(this.src)" title="Toca para ampliar" style="width:100%;height:150px;object-fit:cover;border-radius:8px;cursor:zoom-in">';
+  }
   function pcard(why,prop,date,url){
-    const img=url?evTag(url,'width:100%;height:150px;object-fit:cover;border-radius:8px'):'<div style="height:150px;background:#eee;border-radius:8px;text-align:center;line-height:150px;color:#999">Sin foto</div>';
-    return '<div style="display:inline-block;width:180px;margin:6px;vertical-align:top;font-family:Arial,sans-serif;font-size:12px">'+img+'<div style="font-weight:bold;margin-top:4px">'+why+'</div><div style="color:#3A5249">'+esc(prop)+' - '+esc(date)+'</div></div>';
+    return '<div style="display:inline-block;width:180px;margin:6px;vertical-align:top;font-family:Arial,sans-serif;font-size:12px">'+media(url)+'<div style="font-weight:bold;margin-top:4px">'+why+'</div><div style="color:#3A5249">'+esc(prop)+' - '+esc(date)+'</div></div>';
   }
   toast('Preparando vista previa…');
   let rowsHtml='',cards=[];
@@ -1403,8 +1407,10 @@ async function previewOne(id){
     cards.push(pcard('Recibo: '+esc(s.desc),propName(s.prop),s.date,await signedUrl(s.receipt)));
   }
   const total=s.type==='service'?s.total:s.amount;
-  const doc='<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Vista previa</title><style>'+
+  const doc='<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=6"><title>Vista previa</title><style>'+
     'body{font-family:Georgia,serif;color:#12261F;margin:0;padding:32px;background:#fff}'+
+    '#lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;cursor:zoom-out;align-items:center;justify-content:center;padding:10px}'+
+    '#lb.show{display:flex}#lb img{max-width:98vw;max-height:98vh;object-fit:contain}'+
     '.tag{display:inline-block;background:#FBF1DA;color:#B9822A;font-family:Arial,sans-serif;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px}'+
     'table{width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;margin:16px 0}'+
     'th{background:#12261F;color:#fff;text-align:left;padding:8px}td{padding:8px;border-bottom:1px solid #E2D9C6}.r{text-align:right}'+
@@ -1419,6 +1425,8 @@ async function previewOne(id){
     '<table><thead><tr><th>Fecha</th><th>Descripción</th><th class="r">Monto</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'+
     '<p style="text-align:right;font-size:18px"><b>Total: '+money(total)+'</b></p>'+
     '<h2>Fotos</h2><div>'+cards.join('')+'</div>'+
+    '<div id="lb" onclick="this.classList.remove(\'show\')"><img id="lbimg" src=""></div>'+
+    '<script>function openLB(src){var lb=document.getElementById("lb");document.getElementById("lbimg").src=src;lb.classList.add("show");}<\/script>'+
     '</body></html>';
   const w=window.open('','_blank');
   if(w){w.document.write(doc);w.document.close();}else{toast('Permite ventanas emergentes para ver la vista previa');}
