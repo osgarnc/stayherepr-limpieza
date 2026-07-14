@@ -531,7 +531,29 @@ function gastosBlock(pid,s){
     '<button class="btn ghost sm" style="width:100%" onclick="addGasto(\''+pid+'\')">➕ Añadir gasto</button>'+
   '</div>';
 }
-function renderMyInvoices(){const el=document.getElementById('myInvoices');if(el)el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Próximamente</p>';}
+function renderMyInvoices(){
+  const el=document.getElementById('myInvoices');if(!el)return;
+  if(!currentStaff){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Tu cuenta no está vinculada a un perfil.</p>';return;}
+  const mine=subs.filter(s=>s.status==='approved'&&s.staff===currentStaff);
+  const groups={};
+  mine.forEach(s=>{const k=weekKey(s.date);(groups[k]=groups[k]||[]).push(s);});
+  const keys=Object.keys(groups).sort().reverse();
+  if(!keys.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Aún no tienes facturas aprobadas.</p>';return;}
+  el.innerHTML=keys.map(wk=>{
+    const list=groups[wk];let svc=0,exp=0;
+    list.forEach(s=>{if(s.type==='service')s.items.forEach(i=>svc+=itemTotal(i));else exp+=s.amount;});
+    const tax=svc*0.10,total=svc-tax+exp;const paid=list.every(s=>s.paid);const k=wk+'|'+currentStaff;
+    return '<div class="inv">'+
+      '<div class="inv-head"><div><div class="who">'+weekLabel(wk)+'</div><div class="muted" style="font-size:12px;margin-top:2px">'+wk+' al '+weekEnd(wk)+'</div></div>'+
+        '<span class="pill '+(paid?'paid':'approved')+'">'+(paid?'Pagada':'Por pagar')+'</span></div>'+
+      '<div class="inv-line"><span>Servicios (bruto)</span><span>'+money(svc)+'</span></div>'+
+      '<div class="inv-line"><span style="color:var(--danger)">Taxes (−10%)</span><span style="color:var(--danger)">−'+money(tax)+'</span></div>'+
+      (exp>0?'<div class="inv-line"><span>Gastos (reembolso)</span><span>'+money(exp)+'</span></div>':'')+
+      '<div class="inv-line tot"><span>Total a pagar</span><span>'+money(total)+'</span></div>'+
+      '<button class="btn sm ghost block" style="margin-top:10px" onclick="printInvoice(\''+k+'\')">⬇️ Descargar factura</button>'+
+    '</div>';
+  }).join('');
+}
 function toggleExtra(pid,which){const s=ensureSel(pid);s[which]=!s[which];renderPropList();}
 function isSelected(pid){return !!selection[pid];}
 function toggleProp(pid){if(selection[pid])delete selection[pid];else ensureSel(pid);renderPropList();}
