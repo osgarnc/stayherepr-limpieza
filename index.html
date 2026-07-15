@@ -209,6 +209,7 @@
     <button id="tInvoices" onclick="tabTo('invoices')">🧾 Facturas bisemanales</button>
     <button id="tRejected" onclick="tabTo('rejected')">🚫 Rechazados</button>
     <button id="tDamage" onclick="tabTo('damage')">⚠️ Daños</button>
+    <button id="tCharges" onclick="tabTo('charges')">💵 Cargos</button>
     <button id="tReports" onclick="tabTo('reports')">📋 Reportes</button>
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
@@ -238,6 +239,15 @@
       <button id="dmgTabDone" onclick="setDamageView('done')">✅ Resueltos <span id="dmgCountDone"></span></button>
     </div>
     <div style="overflow:auto"><table id="damageTable"></table></div>
+  </div>
+  <div id="tabCharges" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>Cargos de limpieza aplicados</h2></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Early Check-in, Late Check-out y Extra huésped que el personal aplicó en los servicios. Lleva el control de cuáles ya facturaste.</p>
+    <div class="tabs" style="margin-bottom:12px">
+      <button id="chgTabPending" class="on" onclick="setChargeView('pending')">⏳ Pendientes <span id="chgCountPending"></span></button>
+      <button id="chgTabDone" onclick="setChargeView('done')">✅ Resueltos <span id="chgCountDone"></span></button>
+    </div>
+    <div style="overflow:auto"><table id="chargesTable"></table></div>
   </div>
   <div id="tabReports" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Reportes del personal</h2></div>
@@ -409,7 +419,8 @@ async function loadAll(){
         before:!!i.photo_before,after:!!i.photo_after,pathBefore:i.photo_before,pathAfter:i.photo_after,
         damage:i.damage_note||'',damagePhoto:!!i.damage_photo,pathDamage:i.damage_photo,
         pathsDamage:((i.damage_photos&&i.damage_photos.length)?i.damage_photos:(i.damage_photo?[i.damage_photo]:[])),damageStatus:i.damage_status||'pending',rate:Number(i.rate_applied),
-        earlyCheckin:Number(i.early_checkin||0),lateCheckout:Number(i.late_checkout||0),extraGuest:Number(i.extra_guest||0),laundry:Number(i.laundry||0)}));
+        earlyCheckin:Number(i.early_checkin||0),lateCheckout:Number(i.late_checkout||0),extraGuest:Number(i.extra_guest||0),laundry:Number(i.laundry||0),
+        earlyStatus:i.early_status||'pending',lateStatus:i.late_status||'pending',guestStatus:i.guest_status||'pending'}));
       return {id:s.id,type:'service',staff:s.professional_id,date:s.date,items,total:Number(s.total),status:s.status,paid:s.paid,archivedAt:s.archived_at};
     }
     return {id:s.id,type:'expense',staff:s.professional_id,date:s.date,prop:s.property_id,desc:s.expense_desc||'',
@@ -564,7 +575,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['inbox','invoices','rejected','damage','reports','rates','settings','users','data'];
+const TABS=['inbox','invoices','rejected','damage','charges','reports','rates','settings','users','data'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -755,7 +766,47 @@ async function submitAll(){
     toast('✉️ Enviado a la administradora');
   } finally { _sending=false; }
 }
-function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+/* ---------- CARGOS DE LIMPIEZA APLICADOS (back office) ---------- */
+let chargeView='pending';
+function setChargeView(v){chargeView=v;
+  document.getElementById('chgTabPending').classList.toggle('on',v==='pending');
+  document.getElementById('chgTabDone').classList.toggle('on',v==='done');
+  renderCharges();}
+function renderCharges(){
+  const el=document.getElementById('chargesTable');if(!el)return;
+  const all=[];
+  subs.filter(s=>s.type==='service').forEach(s=>(s.items||[]).forEach(i=>{
+    [['early','Early Check-in',i.earlyCheckin,i.earlyStatus],['late','Late Check-out',i.lateCheckout,i.lateStatus],['guest','Extra huésped',i.extraGuest,i.guestStatus]].forEach(function(c){
+      if((c[2]||0)>0)all.push({itemId:i.id,key:c[0],label:c[1],amt:c[2],status:c[3]||'pending',staff:s.staff,date:s.date,prop:i.prop,svcStatus:s.status});
+    });
+  }));
+  let nP=0,nD=0;all.forEach(c=>{if(c.status==='pending')nP++;else nD++;});
+  const cP=document.getElementById('chgCountPending'),cD=document.getElementById('chgCountDone');
+  if(cP)cP.textContent='('+nP+')';if(cD)cD.textContent='('+nD+')';
+  const list=all.filter(c=>chargeView==='pending'?c.status==='pending':c.status!=='pending');
+  const rows=list.map(c=>'<tr>'+
+    '<td><span class="avatar">'+initials(staffName(c.staff))+'</span>'+staffName(c.staff)+'</td>'+
+    '<td>'+c.date+'</td>'+
+    '<td>'+propName(c.prop)+'</td>'+
+    '<td><b>'+c.label+'</b></td>'+
+    '<td><b>'+money(c.amt)+'</b></td>'+
+    '<td><span class="pill '+c.svcStatus+'">'+(c.svcStatus==='pending'?'Pendiente':c.svcStatus==='approved'?'Aprobado':'Rechazado')+'</span></td>'+
+    '<td><select onchange="setChargeStatus(\''+c.itemId+'\',\''+c.key+'\',this.value)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px">'+
+      DAMAGE_STATUS.map(o=>'<option value="'+o[0]+'" '+(c.status===o[0]?'selected':'')+'>'+o[1]+'</option>').join('')+'</select></td>'+
+  '</tr>').join('');
+  const vacio=chargeView==='pending'?'Sin cargos pendientes 🎉':'Aún no hay cargos resueltos';
+  el.innerHTML='<tr><th>Persona</th><th>Fecha</th><th>Propiedad</th><th>Cargo</th><th>Monto</th><th>Servicio</th><th>Facturación</th></tr>'+
+    (rows||'<tr><td colspan="7" class="muted" style="padding:24px;text-align:center">'+vacio+'</td></tr>');
+}
+async function setChargeStatus(itemId,key,val){
+  const field={early:'early_status',late:'late_status',guest:'guest_status'}[key];
+  const local={early:'earlyStatus',late:'lateStatus',guest:'guestStatus'}[key];
+  const {error}=await sb.from('submission_items').update({[field]:val}).eq('id',itemId);
+  if(error){console.error(error);toast('No se pudo actualizar (¿corriste el SQL de cargos?)');return;}
+  subs.forEach(s=>(s.items||[]).forEach(i=>{if(i.id===itemId)i[local]=val;}));
+  renderCharges();toast('Facturación del cargo actualizada');
+}
 /* ---------- REPORTES DEL PERSONAL (back office) ---------- */
 let reportView='pending';
 function setReportView(v){reportView=v;
