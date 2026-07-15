@@ -223,7 +223,7 @@
     <div class="sectitle"><h2>Facturas por bisemana</h2>
       <button class="btn coral sm" onclick="sendAllNow()">✉️ Enviar facturas ahora por correo</button>
     </div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Agrupa los <b>aprobados</b> por contratista en bisemanas (dom–sáb, 14 días). Detalle por propiedad, con −10% de Taxes sobre servicios. El envío automático (domingo 9am) corre solo; el botón de arriba lo dispara al instante.</p>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">📤 Envío automático bisemanal: <b id="invSchedule">—</b> <span style="font-weight:400">(se configura en Perfiles y ajustes)</span>.</p>
     <div id="invoiceList"></div>
   </div>
   <div id="tabRejected" class="card hide" style="padding:18px">
@@ -1006,7 +1006,10 @@ async function deleteItemDamage(itemId,subId){
   const ov=document.querySelector('.overlay');if(ov)ov.remove();
   await loadAll();editSubmission(subId);toast('🗑️ Daño eliminado');
 }
+function hourLabel(h){h=Number(h);return h===0?'12 am':h<12?h+' am':h===12?'12 pm':(h-12)+' pm';}
 function renderInvoices(){
+  const sch=document.getElementById('invSchedule');
+  if(sch)sch.textContent=(DOW[company.send_dow??0]||'Domingo')+' a las '+hourLabel(company.send_hour??9)+' (PR)';
   const appr=subs.filter(s=>s.status==='approved');
   const groups={};
   appr.forEach(s=>{const k=weekKey(s.date)+'|'+s.staff;(groups[k]=groups[k]||[]).push(s);});
@@ -1420,7 +1423,7 @@ async function setSchedule(field,val){
   company[field]=parseInt(val,10);
   const {error}=await sb.from('company_settings').update({[field]:company[field]}).eq('id',1);
   if(error){console.error(error);toast('No se pudo guardar');return;}
-  toast('Horario de envío actualizado');
+  renderInvoices();toast('Horario de envío actualizado');
 }
 async function setWeekStart(v){
   company.week_start_day=parseInt(v,10);
