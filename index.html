@@ -820,8 +820,9 @@ function renderRejected(){
     '<tr><th>Persona</th><th>Detalle</th><th>Fecha</th><th>Evidencia</th><th>Monto</th><th></th></tr>'+
     (rows||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">Sin rechazados 🎉</td></tr>');
 }
-async function returnOneToInbox(id){
-  const {error}=await sb.from('submissions').update({status:'pending'}).eq('id',id);
+async function returnOneToInbox(id,ask){
+  if(ask&&!confirm('¿Regresar solo esta entrada a la Bandeja de aprobación? Vuelve a "pendiente" para revisarla o editarla.'))return;
+  const {error}=await sb.from('submissions').update({status:'pending',paid:false,archived_at:null}).eq('id',id);
   if(error){console.error(error);toast('No se pudo regresar');return;}
   await loadAll();renderOffice();toast('↩️ Regresado a la Bandeja');
 }
@@ -1016,8 +1017,8 @@ function renderInvoices(){
     const parts=k.split('|');const wk=parts[0],sid=parts[1];const list=groups[k];
     let svc=0,exp=0;
     const lines=list.map(s=>{
-      if(s.type==='service'){const st=subTotal(s);svc+=st;return '<div class="inv-line"><span>Servicio · '+s.items.map(i=>propName(i.prop)).join(', ')+' <span class="muted">('+s.date+')</span></span><span>'+money(st)+'</span></div>';}
-      exp+=s.amount;return '<div class="inv-line"><span>Gasto · '+s.desc+' <span class="muted">('+s.date+')</span></span><span>'+money(s.amount)+'</span></div>';
+      if(s.type==='service'){const st=subTotal(s);svc+=st;return '<div class="inv-line"><span>Servicio · '+s.items.map(i=>propName(i.prop)).join(', ')+' <span class="muted">('+s.date+')</span> <span class="proof-link" style="font-size:11px" onclick="returnOneToInbox(\''+s.id+'\',true)">↩️ Regresar</span></span><span>'+money(st)+'</span></div>';}
+      exp+=s.amount;return '<div class="inv-line"><span>Gasto · '+s.desc+' <span class="muted">('+s.date+')</span> <span class="proof-link" style="font-size:11px" onclick="returnOneToInbox(\''+s.id+'\',true)">↩️ Regresar</span></span><span>'+money(s.amount)+'</span></div>';
     }).join('');
     const paid=list.every(s=>s.paid);
     return '<div class="inv">'+
