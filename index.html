@@ -899,7 +899,8 @@ async function editSubmission(id){
           '<div style="flex:1"><div class="muted" style="font-size:11px">Antes</div>'+(c.b?evTag(c.b,'width:100%;height:70px;object-fit:cover;border-radius:8px'):'<div class="muted" style="font-size:11px">sin foto</div>')+edFileLbl('before-'+i.id,'Reemplazar')+'</div>'+
           '<div style="flex:1"><div class="muted" style="font-size:11px">Después</div>'+(c.a?evTag(c.a,'width:100%;height:70px;object-fit:cover;border-radius:8px'):'<div class="muted" style="font-size:11px">sin foto</div>')+edFileLbl('after-'+i.id,'Reemplazar')+'</div>'+
         '</div>'+
-        '<div style="margin-top:8px"><div class="muted" style="font-size:11px">Daño ('+c.d.length+' archivo(s))</div>'+
+        '<div style="margin-top:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="muted" style="font-size:11px">Daño ('+c.d.length+' archivo(s))</div>'+
+          ((i.damage||c.d.length)?'<span onclick="deleteItemDamage(\''+i.id+'\',\''+s.id+'\')" style="cursor:pointer;color:var(--danger);font-size:12px;font-weight:600">🗑️ Eliminar daño</span>':'')+'</div>'+
           '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0">'+c.d.map(u=>evTag(u,'width:calc(33% - 4px);height:60px;object-fit:cover;border-radius:6px')).join('')+'</div>'+
           '<label class="photo" style="padding:8px;font-size:12px;margin:0;border-color:var(--coral);color:var(--coral)">➕ Añadir foto/video de daño<span id="lbl-dmg-'+i.id+'"></span><input type="file" accept="image/*,video/*" style="display:none" onchange="editAddDamage(\'dmg-'+i.id+'\',this.files[0],\'lbl-dmg-'+i.id+'\')"></label>'+
         '</div>'+
@@ -991,6 +992,13 @@ async function deleteServiceItem(itemId,subId){
   if(error){console.error(error);toast('No se pudo quitar (¿falta el permiso? corre el SQL)');return;}
   const ov=document.querySelector('.overlay');if(ov)ov.remove();
   await loadAll();editSubmission(subId);toast('Propiedad quitada; total recalculado');
+}
+async function deleteItemDamage(itemId,subId){
+  if(!confirm('¿Eliminar el reporte de daño de esta propiedad? Se quitan la descripción y las fotos/videos del daño.'))return;
+  const {error}=await sb.from('submission_items').update({damage_note:null,damage_photos:[],damage_photo:null}).eq('id',itemId);
+  if(error){console.error(error);toast('No se pudo eliminar el daño');return;}
+  const ov=document.querySelector('.overlay');if(ov)ov.remove();
+  await loadAll();editSubmission(subId);toast('🗑️ Daño eliminado');
 }
 function renderInvoices(){
   const appr=subs.filter(s=>s.status==='approved');
