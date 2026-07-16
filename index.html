@@ -221,6 +221,7 @@
     <button id="tRejected" onclick="tabTo('rejected')">🚫 Rechazados</button>
     <button id="tDamage" onclick="tabTo('damage')">⚠️ Daños</button>
     <button id="tCharges" onclick="tabTo('charges')">💵 Cargos</button>
+    <button id="tExpenses" onclick="tabTo('expenses')">💸 Gastos</button>
     <button id="tReports" onclick="tabTo('reports')">📋 Reportes</button>
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
@@ -259,6 +260,17 @@
       <button id="chgTabDone" onclick="setChargeView('done')">✅ Resueltos <span id="chgCountDone"></span></button>
     </div>
     <div style="overflow:auto"><table id="chargesTable"></table></div>
+  </div>
+  <div id="tabExpenses" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>Gastos y reembolsos</h2><span class="muted" id="expTotal"></span></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Todos los gastos y facturas libres que registró el personal (y el dueño). Filtra por estado y abre el recibo o detalle.</p>
+    <div class="tabs" style="margin-bottom:12px">
+      <button id="expTabAll" class="on" onclick="setExpenseView('all')">Todos <span id="expCountAll"></span></button>
+      <button id="expTabPending" onclick="setExpenseView('pending')">⏳ Pendientes <span id="expCountPending"></span></button>
+      <button id="expTabApproved" onclick="setExpenseView('approved')">✅ Aprobados <span id="expCountApproved"></span></button>
+      <button id="expTabRejected" onclick="setExpenseView('rejected')">🚫 Rechazados <span id="expCountRejected"></span></button>
+    </div>
+    <div style="overflow:auto"><table id="expensesTable"></table></div>
   </div>
   <div id="tabReports" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Reportes del personal</h2></div>
@@ -588,7 +600,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['inbox','invoices','rejected','damage','charges','reports','rates','settings','users','data'];
+const TABS=['inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -810,7 +822,46 @@ async function submitAll(){
     toast('✉️ Enviado a la administradora');
   } finally { _sending=false; }
 }
-function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+/* ---------- GASTOS Y REEMBOLSOS (back office) ---------- */
+let expenseView='all';
+function setExpenseView(v){expenseView=v;
+  [['all','expTabAll'],['pending','expTabPending'],['approved','expTabApproved'],['rejected','expTabRejected']].forEach(function(p){
+    const b=document.getElementById(p[1]);if(b)b.classList.toggle('on',v===p[0]);});
+  renderExpenses();}
+function renderExpenses(){
+  const el=document.getElementById('expensesTable');if(!el)return;
+  const all=subs.filter(s=>s.type==='expense');
+  let nA=all.length,nP=0,nAp=0,nR=0;
+  all.forEach(s=>{if(s.status==='pending')nP++;else if(s.status==='approved')nAp++;else if(s.status==='rejected')nR++;});
+  const set=function(id,n){const e=document.getElementById(id);if(e)e.textContent='('+n+')';};
+  set('expCountAll',nA);set('expCountPending',nP);set('expCountApproved',nAp);set('expCountRejected',nR);
+  const list=all.filter(s=>expenseView==='all'?true:s.status===expenseView)
+    .sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
+  const total=list.reduce((a,s)=>a+Number(s.amount||0),0);
+  const tEl=document.getElementById('expTotal');if(tEl)tEl.textContent=list.length+' gasto(s) · Total '+money(total);
+  const statusPill=function(s){
+    if(s.status==='approved')return '<span class="pill '+(s.paid?'paid':'approved')+'">'+(s.paid?'Pagada':'Aprobado')+'</span>';
+    if(s.status==='rejected')return '<span class="pill rejected">Rechazado</span>';
+    return '<span class="pill pending">Pendiente</span>';};
+  const rows=list.map(s=>{
+    const isFree=!!s.customLines;
+    const tipo=isFree?'Factura libre':'Reembolso';
+    const detalle=isFree?(s.desc&&s.desc!=='Factura libre'?s.desc:'(varios renglones)'):(s.desc+(s.prop?' · '+propName(s.prop):''));
+    const evid='<span class="proof-link" onclick="viewReceipt(\''+s.id+'\')">'+(isFree?'Ver detalle':'Ver recibo')+'</span>';
+    return '<tr>'+
+      '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
+      '<td>'+s.date+'</td>'+
+      '<td><b>'+tipo+'</b><br><span class="muted" style="font-size:13px">'+detalle+'</span></td>'+
+      '<td>'+evid+'</td>'+
+      '<td><b>'+money(s.amount)+'</b></td>'+
+      '<td>'+statusPill(s)+'</td>'+
+    '</tr>';
+  }).join('');
+  const vacio={all:'Aún no hay gastos registrados',pending:'Sin gastos pendientes 🎉',approved:'Aún no hay gastos aprobados',rejected:'Sin gastos rechazados'}[expenseView];
+  el.innerHTML='<tr><th>Persona</th><th>Fecha</th><th>Detalle</th><th>Evidencia</th><th>Monto</th><th>Estado</th></tr>'+
+    (rows||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">'+vacio+'</td></tr>');
+}
 /* ---------- CARGOS DE LIMPIEZA APLICADOS (back office) ---------- */
 let chargeView='pending';
 function setChargeView(v){chargeView=v;
