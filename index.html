@@ -195,7 +195,7 @@
         <div class="note" style="margin-bottom:10px">🧾 Factura libre (solo dueño) — campos abiertos, para cualquier propósito.<br><b>Emisor:</b> tu perfil · <b>Facturar a:</b> Stay Here PR. Va a la <b>bandeja de aprobación</b>.</div>
         <div class="field"><label>Fecha</label><input id="flFecha" type="date"></div>
         <div class="field"><label>Concepto (opcional)</label><input id="flConcepto" placeholder="Ej: Servicio especial"></div>
-        <label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">Renglones (descripción + monto)</label>
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">Renglones (descripción + monto) — marca <b>Servicio 10%</b> si lleva retención; sin marcar = reembolso de material (exento).</label>
         <div id="flLines"></div>
         <button class="btn ghost sm" style="width:100%" onclick="flAddLine()">➕ Añadir renglón</button>
         <div class="field" style="margin-top:10px"><label>Notas (opcional)</label><textarea id="flNotas" placeholder="Detalles adicionales"></textarea></div>
@@ -629,7 +629,7 @@ function renderMyInvoices(){
   if(!keys.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Aún no tienes facturas aprobadas.</p>';return;}
   el.innerHTML=keys.map(wk=>{
     const list=groups[wk];let svc=0,exp=0;
-    list.forEach(s=>{if(s.type==='service')s.items.forEach(i=>svc+=itemTotal(i));else exp+=s.amount;});
+    list.forEach(s=>{if(s.type==='service')s.items.forEach(i=>svc+=itemTotal(i));else {svc+=expServices(s);exp+=expMaterials(s);}});
     const tax=svc*0.10,total=svc-tax+exp;const paid=list.every(s=>s.paid);const k=wk+'|'+currentStaff;
     return '<div class="inv">'+
       '<div class="inv-head"><div><div class="who">'+weekLabel(wk)+'</div><div class="muted" style="font-size:12px;margin-top:2px">'+wk+' al '+weekEnd(wk)+'</div></div>'+
@@ -649,6 +649,7 @@ function flAddLine(){
     '<div class="fl-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
       '<input class="fl-desc" placeholder="Descripción" style="flex:1;padding:9px;border:1.5px solid var(--line);border-radius:8px">'+
       '<span style="display:flex;align-items:center;gap:2px">$<input class="fl-amt" type="number" inputmode="decimal" step="0.01" placeholder="0.00" style="width:90px;padding:9px;border:1.5px solid var(--line);border-radius:8px"></span>'+
+      '<label title="Márcalo si es un servicio (se le retiene 10%). Si es reembolso de material, déjalo sin marcar (exento)." style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-soft);white-space:nowrap;cursor:pointer"><input type="checkbox" class="fl-svc"> Servicio 10%</label>'+
       '<span onclick="this.closest(\'.fl-row\').remove()" style="cursor:pointer;color:var(--danger);font-weight:700">✕</span>'+
     '</div>');
 }
@@ -658,7 +659,7 @@ async function submitFreeInvoice(){
   const fecha=document.getElementById('flFecha').value||todayISO();
   const concepto=document.getElementById('flConcepto').value.trim();
   const notas=document.getElementById('flNotas').value.trim();
-  const rows=Array.prototype.slice.call(document.querySelectorAll('#flLines .fl-row')).map(function(r){return {desc:r.querySelector('.fl-desc').value.trim(),amount:parseFloat(r.querySelector('.fl-amt').value)||0};}).filter(function(l){return l.desc||l.amount;});
+  const rows=Array.prototype.slice.call(document.querySelectorAll('#flLines .fl-row')).map(function(r){return {desc:r.querySelector('.fl-desc').value.trim(),amount:parseFloat(r.querySelector('.fl-amt').value)||0,svc:!!r.querySelector('.fl-svc').checked};}).filter(function(l){return l.desc||l.amount;});
   const valid=rows.filter(function(l){return l.amount>0;});
   if(!valid.length){toast('Añade al menos un renglón con monto');return;}
   for(var i=0;i<valid.length;i++){ if(!valid[i].desc){toast('Cada renglón necesita descripción');return;} }
@@ -925,7 +926,7 @@ function renderStats(){
   const dmg=subs.filter(s=>s.type==='service').reduce((a,s)=>a+s.items.filter(i=>i.damage).length,0);
   document.getElementById('stDmg').textContent=dmg;
   let svc=0,exp=0;
-  subs.filter(s=>s.status==='approved').forEach(s=>{if(s.type==='service')svc+=subTotal(s);else exp+=s.amount;});
+  subs.filter(s=>s.status==='approved').forEach(s=>{if(s.type==='service')svc+=subTotal(s);else {svc+=expServices(s);exp+=expMaterials(s);}});
   document.getElementById('stSvc').textContent=money(svc);
   document.getElementById('stExp').textContent=money(exp);
 }
@@ -1115,7 +1116,7 @@ function renderInvoices(){
     let svc=0,exp=0;
     const lines=list.map(s=>{
       if(s.type==='service'){const st=subTotal(s);svc+=st;return '<div class="inv-line"><span>Servicio · '+s.items.map(i=>propName(i.prop)).join(', ')+' <span class="muted">('+s.date+')</span> <span class="proof-link" style="font-size:11px" onclick="returnOneToInbox(\''+s.id+'\',true)">↩️ Regresar</span></span><span>'+money(st)+'</span></div>';}
-      exp+=s.amount;return '<div class="inv-line"><span>Gasto · '+s.desc+' <span class="muted">('+s.date+')</span> <span class="proof-link" style="font-size:11px" onclick="returnOneToInbox(\''+s.id+'\',true)">↩️ Regresar</span></span><span>'+money(s.amount)+'</span></div>';
+      svc+=expServices(s);exp+=expMaterials(s);const glbl=s.customLines?('Factura libre'+(s.desc&&s.desc!=='Factura libre'?' · '+s.desc:'')):('Gasto · '+s.desc);return '<div class="inv-line"><span>'+glbl+' <span class="muted">('+s.date+')</span> <span class="proof-link" style="font-size:11px" onclick="returnOneToInbox(\''+s.id+'\',true)">↩️ Regresar</span></span><span>'+money(s.amount)+'</span></div>';
     }).join('');
     const paid=list.every(s=>s.paid);
     return '<div class="inv">'+
@@ -1167,12 +1168,16 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
   const p=staff.find(s=>s.id===sid);
   const list=subs.filter(s=>s.status==='approved'&&weekKey(s.date)===wk&&s.staff===sid).sort((a,b)=>a.date<b.date?-1:1);
   const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  const byProp={};let servicesGross=0;const expenses=[];let expensesTotal=0;
+  const byProp={};let servicesGross=0;const expenses=[];let expensesTotal=0;const svcExtra=[];
   list.forEach(s=>{
     if(s.type==='service'){
       s.items.forEach(i=>{const t=itemTotal(i);servicesGross+=t;const ex=extrasLabel(i);
         (byProp[i.prop]=byProp[i.prop]||{name:propName(i.prop),lines:[],subtotal:0});
         byProp[i.prop].lines.push({date:s.date,ex,t});byProp[i.prop].subtotal+=t;});
+    } else if(s.customLines){
+      (s.customLines.lines||[]).forEach(l=>{const amt=Number(l.amount||0);
+        if(l.svc){servicesGross+=amt;svcExtra.push({date:s.date,desc:l.desc,amount:amt});}
+        else{expensesTotal+=amt;expenses.push({date:s.date,desc:l.desc,prop:'',amount:amt});}});
     } else { expensesTotal+=s.amount; expenses.push({date:s.date,desc:s.desc,prop:propName(s.prop),amount:s.amount}); }
   });
   const tax=servicesGross*0.10,servicesNet=servicesGross-tax,total=servicesNet+expensesTotal;
@@ -1180,8 +1185,9 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
     return pr.lines.map(l=>'<tr><td>'+l.date+'</td><td>'+esc(pr.name)+(l.ex.length?' <span style="color:#3A5249;font-size:11px">('+esc(l.ex.join(', '))+')</span>':'')+'</td><td class="r">'+money(l.t)+'</td></tr>').join('')+
       '<tr><td></td><td style="text-align:right;font-weight:700">Subtotal '+esc(pr.name)+'</td><td class="r" style="font-weight:700">'+money(pr.subtotal)+'</td></tr>';
   }).join('');
-  const expRows=expenses.map(e=>'<tr><td>'+e.date+'</td><td>Reembolso — '+esc(e.desc)+' ('+esc(e.prop)+')</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
-  const rows=propRows+expRows;
+  const svcExtraRows=svcExtra.map(e=>'<tr><td>'+e.date+'</td><td>Servicio — '+esc(e.desc)+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
+  const expRows=expenses.map(e=>'<tr><td>'+e.date+'</td><td>Reembolso — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
+  const rows=propRows+svcExtraRows+expRows;
   const doc=
 '<!doctype html><html lang="es"><head><meta charset="utf-8"><title>'+invoiceNo(wk,p.name)+'</title><style>'+
 '*{box-sizing:border-box}body{font-family:Georgia,serif;color:#12261F;margin:0;padding:44px;background:#fff;font-size:14px}'+
@@ -1564,12 +1570,18 @@ async function previewOne(id){
       dmgs.forEach((du,di)=>cards.push(pcard('Daño'+(dmgs.length>1?' '+(di+1):'')+(i.damage?': '+esc(i.damage):''),propName(i.prop),s.date,du)));
     }
   } else if(s.customLines){
-    (s.customLines.lines||[]).forEach(function(l){rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>'+esc(l.desc)+'</td><td class="r">'+money(l.amount)+'</td></tr>';});
+    (s.customLines.lines||[]).forEach(function(l){rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>'+esc(l.desc)+(l.svc?' <span style="color:#0E7C7B;font-size:11px">(servicio)</span>':' <span style="color:#3A5249;font-size:11px">(material)</span>')+'</td><td class="r">'+money(l.amount)+'</td></tr>';});
   } else {
     rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Reembolso - '+esc(s.desc)+' ('+esc(propName(s.prop))+')</td><td class="r">'+money(s.amount)+'</td></tr>';
     cards.push(pcard('Recibo: '+esc(s.desc),propName(s.prop),s.date,await signedUrl(s.receipt)));
   }
-  const total=subTotal(s);
+  const flSvc=s.customLines?expServices(s):0,flMat=s.customLines?expMaterials(s):0,flTax=flSvc*0.10;
+  const total=s.customLines?(flSvc+flMat-flTax):subTotal(s);
+  const breakdown=(s.customLines&&flSvc>0)?(
+    '<p style="text-align:right;font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin:2px 0">Servicios (bruto): '+money(flSvc)+'</p>'+
+    '<p style="text-align:right;font-family:Arial,sans-serif;font-size:13px;color:#C0492E;margin:2px 0">Retención −10% (servicios): −'+money(flTax)+'</p>'+
+    (flMat>0?'<p style="text-align:right;font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin:2px 0">Materiales (exento): '+money(flMat)+'</p>':'')
+  ):'';
   const doc='<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=6"><title>Vista previa</title><style>'+
     'body{font-family:Georgia,serif;color:#12261F;margin:0;padding:32px;background:#fff}'+
     '#lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;cursor:zoom-out;align-items:center;justify-content:center;padding:10px}'+
@@ -1586,6 +1598,7 @@ async function previewOne(id){
     '<h1>Servicio de '+esc(p.name)+'</h1>'+
     '<div style="font-family:Arial,sans-serif;font-size:13px;color:#3A5249">Fecha: '+esc(s.date)+'</div>'+
     '<table><thead><tr><th>Fecha</th><th>Descripción</th><th class="r">Monto</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'+
+    breakdown+
     '<p style="text-align:right;font-size:18px"><b>Total: '+money(total)+'</b></p>'+
     '<h2>Fotos</h2><div>'+cards.join('')+'</div>'+
     '<div id="lb" onclick="this.classList.remove(\'show\')"><img id="lbimg" src=""></div>'+
@@ -1702,6 +1715,9 @@ function imgOr(url,fake){return url?evTag(url,'width:100%;height:150px;object-fi
 function extrasLabel(i){const p=[];if((i.earlyCheckin||0)>0)p.push('Early Check-in '+money(i.earlyCheckin));if((i.lateCheckout||0)>0)p.push('Late Check-out '+money(i.lateCheckout));if((i.extraGuest||0)>0)p.push('Extra huésped '+money(i.extraGuest));if((i.laundry||0)>0)p.push('Lavandería '+money(i.laundry));return p;}
 function itemTotal(i){return (i.rate||0)+(i.earlyCheckin||0)+(i.lateCheckout||0)+(i.extraGuest||0)+(i.laundry||0);}
 function subTotal(s){return s.type==='service'?(s.items||[]).reduce((a,i)=>a+itemTotal(i),0):Number(s.amount||0);}
+// Factura libre: renglones marcados "servicio" llevan retención 10%; los demás son material (exento).
+function expServices(s){return (s.customLines&&s.customLines.lines)?s.customLines.lines.reduce((a,l)=>a+(l.svc?Number(l.amount||0):0),0):0;}
+function expMaterials(s){return s.customLines?(Number(s.amount||0)-expServices(s)):Number(s.amount||0);}
 async function viewService(id){const s=subs.find(x=>x.id===id);
   const blocks=await Promise.all(s.items.map(async i=>{
     const [b,a]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter)]);
@@ -1721,9 +1737,11 @@ async function viewReceipt(id){const s=subs.find(x=>x.id===id);
   const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
   if(s.customLines){
     const cl=s.customLines;const lines=(cl.lines||[]);
+    const flSvc=expServices(s),flMat=expMaterials(s),flTax=flSvc*0.10,flNet=flSvc+flMat-flTax;
     const body='<div style="font-weight:700;margin-bottom:6px">Factura libre'+(s.desc&&s.desc!=='Factura libre'?': '+esc(s.desc):'')+'</div>'+
-      '<table style="width:100%;border-collapse:collapse;font-size:13px">'+lines.map(l=>'<tr><td style="padding:6px 0;border-bottom:1px solid var(--line)">'+esc(l.desc)+'</td><td style="padding:6px 0;border-bottom:1px solid var(--line);text-align:right">'+money(l.amount)+'</td></tr>').join('')+
-      '<tr><td style="padding:8px 0;font-weight:700">Total</td><td style="padding:8px 0;text-align:right;font-weight:700">'+money(s.amount)+'</td></tr></table>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">'+lines.map(l=>'<tr><td style="padding:6px 0;border-bottom:1px solid var(--line)">'+esc(l.desc)+(l.svc?' <span style="color:#0E7C7B;font-size:11px">(servicio)</span>':' <span class="muted" style="font-size:11px">(material)</span>')+'</td><td style="padding:6px 0;border-bottom:1px solid var(--line);text-align:right">'+money(l.amount)+'</td></tr>').join('')+
+      (flSvc>0?'<tr><td style="padding:6px 0;color:var(--danger)">Retención −10% (servicios)</td><td style="padding:6px 0;text-align:right;color:var(--danger)">−'+money(flTax)+'</td></tr>':'')+
+      '<tr><td style="padding:8px 0;font-weight:700">Total'+(flSvc>0?' a pagar':'')+'</td><td style="padding:8px 0;text-align:right;font-weight:700">'+money(flNet)+'</td></tr></table>'+
       (cl.notas?'<div class="note" style="margin-top:8px;font-size:12.5px"><b>Notas:</b> '+esc(cl.notas)+'</div>':'')+
       '<div class="muted" style="font-size:12px;margin-top:8px">'+staffName(s.staff)+' · '+s.date+'</div>';
     openModal('Factura libre',body);return;
