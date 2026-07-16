@@ -1473,10 +1473,24 @@ function fieldRow(label,val,onchg,ph){return '<div class="field"><label>'+label+
 function renderSettings(){renderProperties();renderCompanyForm();renderProfWho();renderProfileForm();renderDist();}
 function renderProperties(){
   const el=document.getElementById('propTable');if(!el)return;
-  const rows=properties.map(p=>'<tr><td><b>'+p.name+'</b></td><td class="muted">'+(p.address||'—')+'</td>'+
+  const av=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  const inp='width:100%;padding:8px;border:1.5px solid var(--line);border-radius:8px';
+  const rows=properties.map(p=>'<tr>'+
+    '<td><input value="'+av(p.name)+'" onchange="setProperty(\''+p.id+'\',\'name\',this.value)" style="'+inp+';font-weight:700"></td>'+
+    '<td><input value="'+av(p.address||'')+'" onchange="setProperty(\''+p.id+'\',\'address\',this.value)" placeholder="—" style="'+inp+'"></td>'+
     '<td style="text-align:right"><button class="btn sm dgr" onclick="removeProperty(\''+p.id+'\')">Eliminar</button></td></tr>').join('');
   el.innerHTML='<tr><th>Propiedad</th><th>Dirección</th><th></th></tr>'+
     (rows||'<tr><td colspan="3" class="muted" style="padding:16px;text-align:center">Sin propiedades. Añade la primera abajo.</td></tr>');
+}
+async function setProperty(id,field,val){
+  const p=properties.find(x=>x.id===id);if(!p)return;
+  const v=(val||'').trim();
+  if(field==='name'&&!v){toast('El nombre no puede quedar vacío');renderProperties();return;}
+  const col=field==='name'?'name':'address';
+  const {error}=await sb.from('properties').update({[col]:col==='address'?(v||null):v}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo guardar el cambio');return;}
+  p[field]=col==='address'?v:v;
+  renderOffice();toast('Propiedad actualizada');
 }
 async function addProperty(){
   const name=document.getElementById('npName').value.trim();
