@@ -171,6 +171,7 @@
         <button id="segRegistrar" class="on" onclick="segTo('registrar')">📋 Registrar</button>
         <button id="segFacturas" onclick="segTo('facturas')">🧾 Facturas</button>
         <button id="segReporte" onclick="segTo('reporte')">📝 Reporte</button>
+        <button id="segNueva" onclick="segTo('nueva')" style="display:none">🧾 Libre</button>
       </div>
       <div id="paneRegistrar">
         <div class="field"><label>Fecha</label><input type="date" id="svcDate"></div>
@@ -189,6 +190,21 @@
         <label class="photo" style="border-color:var(--sea);color:var(--sea)">📷 Añadir foto<input type="file" accept="image/*,video/*" style="display:none" onchange="addReportPhoto(this.files[0])"></label>
         <button class="btn block" style="margin-top:12px" onclick="submitDailyReport()">Enviar reporte</button>
         <div id="myReports" style="margin-top:18px"></div>
+      </div>
+      <div id="paneNueva" class="hide">
+        <div class="note" style="margin-bottom:10px">🧾 Factura libre (solo dueño) — campos abiertos, para cualquier propósito.</div>
+        <div class="field"><label>De (emisor)</label><input id="flDe" placeholder="Stay Here PR LLC"></div>
+        <div class="field"><label>Facturar a</label><input id="flPara" placeholder="A quién / cliente"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+          <div class="field"><label>Fecha</label><input id="flFecha" type="date"></div>
+          <div class="field"><label>No. factura (opcional)</label><input id="flNum" placeholder="automático"></div>
+        </div>
+        <div class="field"><label>Concepto (opcional)</label><input id="flConcepto" placeholder="Ej: Servicio especial"></div>
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">Renglones</label>
+        <div id="flLines"></div>
+        <button class="btn ghost sm" style="width:100%" onclick="flAddLine()">➕ Añadir renglón</button>
+        <div class="field" style="margin-top:10px"><label>Notas (opcional)</label><textarea id="flNotas" placeholder="Términos, instrucciones de pago, etc."></textarea></div>
+        <button class="btn block" style="margin-top:12px" onclick="generateFreeInvoice()">Generar factura</button>
       </div>
     </div>
   </div>
@@ -510,6 +526,7 @@ function applySession(){
   document.getElementById('mCleaner').style.display=isCleaner?'none':'';
   document.getElementById('modeSwitch').style.display=isCleaner?'none':'flex';
   document.getElementById('tUsers').style.display=can('users')?'':'none';
+  document.getElementById('segNueva').style.display=(session.role==='owner')?'':'none';
   currentStaff=session.staffId;
   document.getElementById('cleanerName').textContent=session.name;
   if(isCleaner){ setMode('cleaner',true); renderPropList(); }
@@ -529,12 +546,13 @@ function setMode(m,force){
   }
 }
 function segTo(s){
-  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte'};
-  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte'};
-  Object.keys(P).forEach(k=>document.getElementById(P[k]).classList.toggle('hide',k!==s));
-  Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===s));
+  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte',nueva:'paneNueva'};
+  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte',nueva:'segNueva'};
+  Object.keys(P).forEach(k=>{const el=document.getElementById(P[k]);if(el)el.classList.toggle('hide',k!==s);});
+  Object.keys(B).forEach(k=>{const el=document.getElementById(B[k]);if(el)el.classList.toggle('on',k===s);});
   if(s==='facturas')renderMyInvoices();
   if(s==='reporte'){renderReportPhotos();renderMyReports();}
+  if(s==='nueva'){const f=document.getElementById('flFecha');if(f&&!f.value)f.value=todayISO();if(!document.getElementById('flLines').children.length){flAddLine();}}
 }
 /* ---------- REPORTE DIARIO (personal) ---------- */
 let drFiles=[];
@@ -628,6 +646,55 @@ function renderMyInvoices(){
       '<button class="btn sm ghost block" style="margin-top:10px" onclick="printInvoice(\''+k+'\')">⬇️ Descargar factura</button>'+
     '</div>';
   }).join('');
+}
+/* ---------- FACTURA LIBRE (solo dueño) ---------- */
+function flAddLine(){
+  const el=document.getElementById('flLines');if(!el)return;
+  el.insertAdjacentHTML('beforeend',
+    '<div class="fl-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
+      '<input class="fl-desc" placeholder="Descripción" style="flex:1;padding:9px;border:1.5px solid var(--line);border-radius:8px">'+
+      '<span style="display:flex;align-items:center;gap:2px">$<input class="fl-amt" type="number" inputmode="decimal" step="0.01" placeholder="0.00" style="width:90px;padding:9px;border:1.5px solid var(--line);border-radius:8px"></span>'+
+      '<span onclick="this.closest(\'.fl-row\').remove()" style="cursor:pointer;color:var(--danger);font-weight:700">✕</span>'+
+    '</div>');
+}
+function generateFreeInvoice(){
+  const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const de=document.getElementById('flDe').value.trim()||(company.name||'');
+  const para=document.getElementById('flPara').value.trim();
+  const fecha=document.getElementById('flFecha').value||todayISO();
+  const concepto=document.getElementById('flConcepto').value.trim();
+  const notas=document.getElementById('flNotas').value.trim();
+  let num=document.getElementById('flNum').value.trim(); if(!num)num='LIBRE-'+fecha.replace(/-/g,'');
+  const rows=Array.prototype.slice.call(document.querySelectorAll('#flLines .fl-row')).map(function(r){return {desc:r.querySelector('.fl-desc').value.trim(),amt:parseFloat(r.querySelector('.fl-amt').value)||0};}).filter(function(l){return l.desc||l.amt;});
+  if(!para){toast('Escribe a quién se factura');return;}
+  if(!rows.length){toast('Añade al menos un renglón con monto');return;}
+  let total=0; const trs=rows.map(function(l){total+=l.amt;return '<tr><td>'+esc(l.desc)+'</td><td class="r">'+money(l.amt)+'</td></tr>';}).join('');
+  const doc='<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+esc(num)+'</title><style>'+
+    '*{box-sizing:border-box}body{font-family:Georgia,serif;color:#12261F;margin:0;padding:40px;background:#fff;font-size:14px}'+
+    '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0E7C7B;padding-bottom:18px;margin-bottom:22px}'+
+    '.title{font-size:32px;letter-spacing:.04em;color:#0E7C7B;margin:0}'+
+    '.meta{text-align:right;font-family:Arial,sans-serif;font-size:12.5px;color:#3A5249;line-height:1.7}.meta b{color:#12261F}'+
+    '.parties{display:flex;justify-content:space-between;gap:30px;margin-bottom:24px;font-family:Arial,sans-serif}.parties .box{flex:1}'+
+    '.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#0E7C7B;font-weight:700;margin-bottom:6px}.parties .name{font-weight:700;font-size:15px;white-space:pre-wrap}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:16px;font-family:Arial,sans-serif}'+
+    'th{background:#12261F;color:#fff;text-align:left;padding:10px 12px;font-size:11px;letter-spacing:.05em;text-transform:uppercase}th.r,td.r{text-align:right}td{padding:11px 12px;border-bottom:1px solid #E2D9C6;font-size:13px}'+
+    '.tot{display:flex;justify-content:flex-end}.tot table{width:280px}.tot td{border:none;padding:6px 12px}.tot .g td{border-top:2px solid #12261F;font-weight:700;font-size:18px;padding-top:12px}'+
+    '.notes{margin-top:20px;font-family:Arial,sans-serif;font-size:12.5px;color:#3A5249;white-space:pre-wrap}'+
+    '.noprint{position:fixed;top:14px;right:14px;display:flex;gap:8px}.noprint button{font-family:Arial,sans-serif;font-size:13px;font-weight:700;padding:9px 15px;border:none;border-radius:8px;cursor:pointer}.pbtn{background:#0E7C7B;color:#fff}.cbtn{background:#eee;color:#333}'+
+    '@media print{body{padding:0}.noprint{display:none}}'+
+    '</style></head><body>'+
+    '<div class="noprint"><button class="pbtn" onclick="window.print()">Imprimir / Guardar PDF</button><button class="cbtn" onclick="window.close()">Cerrar</button></div>'+
+    '<div class="head"><div><h1 class="title">FACTURA</h1>'+(concepto?'<div style="font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin-top:4px">'+esc(concepto)+'</div>':'')+'</div>'+
+      '<div class="meta"><div><b>No.:</b> '+esc(num)+'</div><div><b>Fecha:</b> '+esc(fecha)+'</div></div></div>'+
+    '<div class="parties"><div class="box"><div class="lbl">De</div><div class="name">'+esc(de)+'</div></div>'+
+      '<div class="box"><div class="lbl">Facturar a</div><div class="name">'+esc(para)+'</div></div></div>'+
+    '<table><thead><tr><th>Descripción</th><th class="r" style="width:130px">Monto</th></tr></thead><tbody>'+trs+'</tbody></table>'+
+    '<div class="tot"><table><tr class="g"><td>TOTAL</td><td class="r">'+money(total)+'</td></tr></table></div>'+
+    (notas?'<div class="notes"><b>Notas:</b> '+esc(notas)+'</div>':'')+
+    '</body></html>';
+  const w=window.open('','_blank');
+  if(w){w.document.write(doc);w.document.close();toast('Factura generada — usa Imprimir / Guardar PDF');}
+  else{toast('Permite ventanas emergentes para ver la factura');}
 }
 function toggleExtra(pid,which){const s=ensureSel(pid);s[which]=!s[which];renderPropList();}
 function isSelected(pid){return !!selection[pid];}
