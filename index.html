@@ -1115,7 +1115,9 @@ function renderInvoices(){
     const parts=k.split('|');const wk=parts[0],sid=parts[1];const list=groups[k];
     let svc=0,exp=0;
     const lines=list.map(s=>{
-      if(s.type==='service'){const st=subTotal(s);svc+=st;return '<div class="inv-line"><span>Servicio · '+s.items.map(i=>propName(i.prop)).join(', ')+' <span class="muted">('+s.date+')</span> <span class="proof-link" style="font-size:11px" onclick="returnOneToInbox(\''+s.id+'\',true)">↩️ Regresar</span></span><span>'+money(st)+'</span></div>';}
+      if(s.type==='service'){const st=subTotal(s);svc+=st;
+        const detail=s.items.map(function(i){const ex=extrasLabel(i);return '<div class="muted" style="font-size:11px;padding-left:14px;line-height:1.6">↳ '+propName(i.prop)+': base '+money(i.rate)+(ex.length?' · '+ex.join(' · '):'')+' = <b>'+money(itemTotal(i))+'</b></div>';}).join('');
+        return '<div class="inv-line"><span>Servicio · '+s.items.map(i=>propName(i.prop)).join(', ')+' <span class="muted">('+s.date+')</span> <span class="proof-link" style="font-size:11px" onclick="returnOneToInbox(\''+s.id+'\',true)">↩️ Regresar</span></span><span>'+money(st)+'</span></div>'+detail;}
       svc+=expServices(s);exp+=expMaterials(s);const glbl=s.customLines?('Factura libre'+(s.desc&&s.desc!=='Factura libre'?' · '+s.desc:'')):('Gasto · '+s.desc);return '<div class="inv-line"><span>'+glbl+' <span class="muted">('+s.date+')</span> <span class="proof-link" style="font-size:11px" onclick="returnOneToInbox(\''+s.id+'\',true)">↩️ Regresar</span></span><span>'+money(s.amount)+'</span></div>';
     }).join('');
     const paid=list.every(s=>s.paid);
