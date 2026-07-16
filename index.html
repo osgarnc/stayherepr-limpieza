@@ -192,19 +192,14 @@
         <div id="myReports" style="margin-top:18px"></div>
       </div>
       <div id="paneNueva" class="hide">
-        <div class="note" style="margin-bottom:10px">🧾 Factura libre (solo dueño) — campos abiertos, para cualquier propósito.</div>
-        <div class="field"><label>De (emisor)</label><input id="flDe" placeholder="Stay Here PR LLC"></div>
-        <div class="field"><label>Facturar a</label><input id="flPara" placeholder="A quién / cliente"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-          <div class="field"><label>Fecha</label><input id="flFecha" type="date"></div>
-          <div class="field"><label>No. factura (opcional)</label><input id="flNum" placeholder="automático"></div>
-        </div>
+        <div class="note" style="margin-bottom:10px">🧾 Factura libre (solo dueño) — campos abiertos, para cualquier propósito.<br><b>Emisor:</b> tu perfil · <b>Facturar a:</b> Stay Here PR. Va a la <b>bandeja de aprobación</b>.</div>
+        <div class="field"><label>Fecha</label><input id="flFecha" type="date"></div>
         <div class="field"><label>Concepto (opcional)</label><input id="flConcepto" placeholder="Ej: Servicio especial"></div>
-        <label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">Renglones</label>
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">Renglones (descripción + monto)</label>
         <div id="flLines"></div>
         <button class="btn ghost sm" style="width:100%" onclick="flAddLine()">➕ Añadir renglón</button>
-        <div class="field" style="margin-top:10px"><label>Notas (opcional)</label><textarea id="flNotas" placeholder="Términos, instrucciones de pago, etc."></textarea></div>
-        <button class="btn block" style="margin-top:12px" onclick="generateFreeInvoice()">Generar factura</button>
+        <div class="field" style="margin-top:10px"><label>Notas (opcional)</label><textarea id="flNotas" placeholder="Detalles adicionales"></textarea></div>
+        <button class="btn block" style="margin-top:12px" onclick="submitFreeInvoice()">Enviar a aprobación</button>
       </div>
     </div>
   </div>
@@ -440,7 +435,7 @@ async function loadAll(){
       return {id:s.id,type:'service',staff:s.professional_id,date:s.date,items,total:Number(s.total),status:s.status,paid:s.paid,archivedAt:s.archived_at};
     }
     return {id:s.id,type:'expense',staff:s.professional_id,date:s.date,prop:s.property_id,desc:s.expense_desc||'',
-      amount:Number(s.total),receipt:s.receipt_photo,status:s.status,paid:s.paid,archivedAt:s.archived_at};
+      amount:Number(s.total),receipt:s.receipt_photo,customLines:s.custom_lines||null,status:s.status,paid:s.paid,archivedAt:s.archived_at};
   });
 }
 async function upload(path,file){
@@ -455,7 +450,7 @@ function evTag(url,style){if(!url)return '';return isVideoPath(url)?'<video src=
 function evOr(url,style,fake){return url?evTag(url,style):'<div class="fakeimg '+fake+'">Sin foto</div>';}
 function isoDaysAgo(n){const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10);}
 function todayISO(){return new Date().toISOString().slice(0,10);}
-function propName(id){return (properties.find(p=>p.id===id)||{}).name||id;}
+function propName(id){if(!id)return '';return (properties.find(p=>p.id===id)||{}).name||id;}
 function staffName(id){return (staff.find(s=>s.id===id)||{}).name||id;}
 function money(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function initials(n){return n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();}
@@ -657,44 +652,25 @@ function flAddLine(){
       '<span onclick="this.closest(\'.fl-row\').remove()" style="cursor:pointer;color:var(--danger);font-weight:700">✕</span>'+
     '</div>');
 }
-function generateFreeInvoice(){
-  const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  const de=document.getElementById('flDe').value.trim()||(company.name||'');
-  const para=document.getElementById('flPara').value.trim();
+async function submitFreeInvoice(){
+  if(_sending)return;
+  if(!currentStaff){toast('Tu cuenta no está vinculada a un perfil de personal. Vincúlala en Usuarios.');return;}
   const fecha=document.getElementById('flFecha').value||todayISO();
   const concepto=document.getElementById('flConcepto').value.trim();
   const notas=document.getElementById('flNotas').value.trim();
-  let num=document.getElementById('flNum').value.trim(); if(!num)num='LIBRE-'+fecha.replace(/-/g,'');
-  const rows=Array.prototype.slice.call(document.querySelectorAll('#flLines .fl-row')).map(function(r){return {desc:r.querySelector('.fl-desc').value.trim(),amt:parseFloat(r.querySelector('.fl-amt').value)||0};}).filter(function(l){return l.desc||l.amt;});
-  if(!para){toast('Escribe a quién se factura');return;}
-  if(!rows.length){toast('Añade al menos un renglón con monto');return;}
-  let total=0; const trs=rows.map(function(l){total+=l.amt;return '<tr><td>'+esc(l.desc)+'</td><td class="r">'+money(l.amt)+'</td></tr>';}).join('');
-  const doc='<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+esc(num)+'</title><style>'+
-    '*{box-sizing:border-box}body{font-family:Georgia,serif;color:#12261F;margin:0;padding:40px;background:#fff;font-size:14px}'+
-    '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0E7C7B;padding-bottom:18px;margin-bottom:22px}'+
-    '.title{font-size:32px;letter-spacing:.04em;color:#0E7C7B;margin:0}'+
-    '.meta{text-align:right;font-family:Arial,sans-serif;font-size:12.5px;color:#3A5249;line-height:1.7}.meta b{color:#12261F}'+
-    '.parties{display:flex;justify-content:space-between;gap:30px;margin-bottom:24px;font-family:Arial,sans-serif}.parties .box{flex:1}'+
-    '.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#0E7C7B;font-weight:700;margin-bottom:6px}.parties .name{font-weight:700;font-size:15px;white-space:pre-wrap}'+
-    'table{width:100%;border-collapse:collapse;margin-bottom:16px;font-family:Arial,sans-serif}'+
-    'th{background:#12261F;color:#fff;text-align:left;padding:10px 12px;font-size:11px;letter-spacing:.05em;text-transform:uppercase}th.r,td.r{text-align:right}td{padding:11px 12px;border-bottom:1px solid #E2D9C6;font-size:13px}'+
-    '.tot{display:flex;justify-content:flex-end}.tot table{width:280px}.tot td{border:none;padding:6px 12px}.tot .g td{border-top:2px solid #12261F;font-weight:700;font-size:18px;padding-top:12px}'+
-    '.notes{margin-top:20px;font-family:Arial,sans-serif;font-size:12.5px;color:#3A5249;white-space:pre-wrap}'+
-    '.noprint{position:fixed;top:14px;right:14px;display:flex;gap:8px}.noprint button{font-family:Arial,sans-serif;font-size:13px;font-weight:700;padding:9px 15px;border:none;border-radius:8px;cursor:pointer}.pbtn{background:#0E7C7B;color:#fff}.cbtn{background:#eee;color:#333}'+
-    '@media print{body{padding:0}.noprint{display:none}}'+
-    '</style></head><body>'+
-    '<div class="noprint"><button class="pbtn" onclick="window.print()">Imprimir / Guardar PDF</button><button class="cbtn" onclick="window.close()">Cerrar</button></div>'+
-    '<div class="head"><div><h1 class="title">FACTURA</h1>'+(concepto?'<div style="font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin-top:4px">'+esc(concepto)+'</div>':'')+'</div>'+
-      '<div class="meta"><div><b>No.:</b> '+esc(num)+'</div><div><b>Fecha:</b> '+esc(fecha)+'</div></div></div>'+
-    '<div class="parties"><div class="box"><div class="lbl">De</div><div class="name">'+esc(de)+'</div></div>'+
-      '<div class="box"><div class="lbl">Facturar a</div><div class="name">'+esc(para)+'</div></div></div>'+
-    '<table><thead><tr><th>Descripción</th><th class="r" style="width:130px">Monto</th></tr></thead><tbody>'+trs+'</tbody></table>'+
-    '<div class="tot"><table><tr class="g"><td>TOTAL</td><td class="r">'+money(total)+'</td></tr></table></div>'+
-    (notas?'<div class="notes"><b>Notas:</b> '+esc(notas)+'</div>':'')+
-    '</body></html>';
-  const w=window.open('','_blank');
-  if(w){w.document.write(doc);w.document.close();toast('Factura generada — usa Imprimir / Guardar PDF');}
-  else{toast('Permite ventanas emergentes para ver la factura');}
+  const rows=Array.prototype.slice.call(document.querySelectorAll('#flLines .fl-row')).map(function(r){return {desc:r.querySelector('.fl-desc').value.trim(),amount:parseFloat(r.querySelector('.fl-amt').value)||0};}).filter(function(l){return l.desc||l.amount;});
+  const valid=rows.filter(function(l){return l.amount>0;});
+  if(!valid.length){toast('Añade al menos un renglón con monto');return;}
+  for(var i=0;i<valid.length;i++){ if(!valid[i].desc){toast('Cada renglón necesita descripción');return;} }
+  const total=valid.reduce(function(a,l){return a+l.amount;},0);
+  _sending=true;toast('Enviando…');
+  try{
+    const {error}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date:fecha,total:total,expense_desc:concepto||'Factura libre',custom_lines:{lines:valid,notas:notas||null},property_id:null,status:'pending'});
+    if(error){console.error(error);toast('No se pudo enviar (¿corriste el SQL de factura libre?)');return;}
+    document.getElementById('flConcepto').value='';document.getElementById('flNotas').value='';document.getElementById('flLines').innerHTML='';flAddLine();
+    await loadAll();
+    toast('✅ Factura libre enviada a la bandeja de aprobación');
+  } finally { _sending=false; }
 }
 function toggleExtra(pid,which){const s=ensureSel(pid);s[which]=!s[which];renderPropList();}
 function isSelected(pid){return !!selection[pid];}
@@ -923,8 +899,8 @@ function renderRejected(){
   document.getElementById('rejectedCount').textContent=rej.length+' rechazado(s)';
   const rows=rej.map(s=>{
     const isSvc=s.type==='service';
-    const detalle=isSvc?s.items.map(i=>propName(i.prop)+(i.damage?' ⚠️':'')).join(', '):(s.desc+' · '+propName(s.prop));
-    const evid=isSvc?'<span class="proof-link" onclick="viewService(\''+s.id+'\')">Ver fotos</span>':'<span class="proof-link" onclick="viewReceipt(\''+s.id+'\')">Ver recibo</span>';
+    const detalle=isSvc?s.items.map(i=>propName(i.prop)+(i.damage?' ⚠️':'')).join(', '):(s.customLines?('🧾 Factura libre'+(s.desc&&s.desc!=='Factura libre'?': '+s.desc:'')):(s.desc+' · '+propName(s.prop)));
+    const evid=isSvc?'<span class="proof-link" onclick="viewService(\''+s.id+'\')">Ver fotos</span>':'<span class="proof-link" onclick="viewReceipt(\''+s.id+'\')">'+(s.customLines?'Ver detalle':'Ver recibo')+'</span>';
     return '<tr>'+
       '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
       '<td><b>'+(isSvc?'Servicio':'Gasto')+'</b><br><span class="muted" style="font-size:13px">'+detalle+'</span></td>'+
@@ -969,9 +945,9 @@ function renderInbox(){
     } else {
       return '<tr>'+
         '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
-        '<td><b>Gasto</b><br><span class="muted" style="font-size:13px">'+s.desc+' · '+propName(s.prop)+'</span></td>'+
+        '<td><b>'+(s.customLines?'Factura libre':'Gasto')+'</b><br><span class="muted" style="font-size:13px">'+(s.customLines?(s.desc&&s.desc!=='Factura libre'?s.desc:'(varios renglones)'):(s.desc+' · '+propName(s.prop)))+'</span></td>'+
         '<td>'+s.date+'</td>'+
-        '<td><span class="proof-link" onclick="viewReceipt(\''+s.id+'\')">Ver recibo</span><br><span class="proof-link" onclick="previewOne(\''+s.id+'\')">📄 Vista previa</span></td>'+
+        '<td><span class="proof-link" onclick="viewReceipt(\''+s.id+'\')">'+(s.customLines?'Ver detalle':'Ver recibo')+'</span><br><span class="proof-link" onclick="previewOne(\''+s.id+'\')">📄 Vista previa</span></td>'+
         '<td><b>'+money(s.amount)+'</b></td>'+
         '<td style="white-space:nowrap"><button class="btn sm ghost" onclick="editSubmission(\''+s.id+'\')">✏️ Editar</button> <button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
     }
@@ -1587,6 +1563,8 @@ async function previewOne(id){
       const dmgs=await Promise.all((i.pathsDamage||[]).map(signedUrl));
       dmgs.forEach((du,di)=>cards.push(pcard('Daño'+(dmgs.length>1?' '+(di+1):'')+(i.damage?': '+esc(i.damage):''),propName(i.prop),s.date,du)));
     }
+  } else if(s.customLines){
+    (s.customLines.lines||[]).forEach(function(l){rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>'+esc(l.desc)+'</td><td class="r">'+money(l.amount)+'</td></tr>';});
   } else {
     rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Reembolso - '+esc(s.desc)+' ('+esc(propName(s.prop))+')</td><td class="r">'+money(s.amount)+'</td></tr>';
     cards.push(pcard('Recibo: '+esc(s.desc),propName(s.prop),s.date,await signedUrl(s.receipt)));
@@ -1739,7 +1717,18 @@ async function viewService(id){const s=subs.find(x=>x.id===id);
     '</div>';
   }));
   openModal('Servicio de '+staffName(s.staff)+' · '+s.date,blocks.join(''));}
-async function viewReceipt(id){const s=subs.find(x=>x.id===id);const u=await signedUrl(s.receipt);
+async function viewReceipt(id){const s=subs.find(x=>x.id===id);
+  const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  if(s.customLines){
+    const cl=s.customLines;const lines=(cl.lines||[]);
+    const body='<div style="font-weight:700;margin-bottom:6px">Factura libre'+(s.desc&&s.desc!=='Factura libre'?': '+esc(s.desc):'')+'</div>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">'+lines.map(l=>'<tr><td style="padding:6px 0;border-bottom:1px solid var(--line)">'+esc(l.desc)+'</td><td style="padding:6px 0;border-bottom:1px solid var(--line);text-align:right">'+money(l.amount)+'</td></tr>').join('')+
+      '<tr><td style="padding:8px 0;font-weight:700">Total</td><td style="padding:8px 0;text-align:right;font-weight:700">'+money(s.amount)+'</td></tr></table>'+
+      (cl.notas?'<div class="note" style="margin-top:8px;font-size:12.5px"><b>Notas:</b> '+esc(cl.notas)+'</div>':'')+
+      '<div class="muted" style="font-size:12px;margin-top:8px">'+staffName(s.staff)+' · '+s.date+'</div>';
+    openModal('Factura libre',body);return;
+  }
+  const u=await signedUrl(s.receipt);
   openModal('Recibo · '+s.desc,(u?evTag(u,'width:100%;border-radius:12px'):'<div class="fakeimg receipt">Sin foto</div>')+
     '<div class="muted" style="font-size:13px;margin-top:6px">'+staffName(s.staff)+' · '+s.date+' · '+money(s.amount)+'</div>');}
 async function viewDamage(id,pid){const s=subs.find(x=>x.id===id);const i=s.items.find(x=>x.prop===pid);
