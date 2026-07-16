@@ -165,8 +165,7 @@ async function buildEmail(pro: any, wk: string, end: string, list: any[], itemsB
       expenses.push({ date: s.date, desc: s.expense_desc, prop: propName(s.property_id), amount: g });
     }
   }
-  const wh = pro?.withhold_tax !== false;   // Retención por persona (exento = primeros $500/año en PR)
-  const tax = wh ? servicesGross * 0.10 : 0;
+  const tax = servicesGross * 0.10;
   const servicesNet = servicesGross - tax;
   const totalPay = servicesNet + expensesTotal;
 
@@ -223,10 +222,8 @@ async function buildEmail(pro: any, wk: string, end: string, list: any[], itemsB
     ${expBlock}
     <table style="width:100%;font-family:Arial,sans-serif;font-size:14px;margin-top:16px;border-top:2px solid #12261F">
       <tr><td style="padding:6px 8px">Subtotal servicios (bruto)</td><td style="padding:6px 8px;text-align:right">${money(servicesGross)}</td></tr>
-      ${wh
-        ? `<tr><td style="padding:6px 8px;color:#C0492E">Taxes (-10% sobre servicios)</td><td style="padding:6px 8px;text-align:right;color:#C0492E">-${money(tax)}</td></tr>
-      <tr><td style="padding:6px 8px">Servicios netos</td><td style="padding:6px 8px;text-align:right">${money(servicesNet)}</td></tr>`
-        : (servicesGross > 0 ? `<tr><td style="padding:6px 8px;color:#3A5249">Servicios exentos de retención (primeros $500/año)</td><td style="padding:6px 8px;text-align:right">—</td></tr>` : "")}
+      <tr><td style="padding:6px 8px;color:#C0492E">Taxes (-10% sobre servicios)</td><td style="padding:6px 8px;text-align:right;color:#C0492E">-${money(tax)}</td></tr>
+      <tr><td style="padding:6px 8px">Servicios netos</td><td style="padding:6px 8px;text-align:right">${money(servicesNet)}</td></tr>
       ${expensesTotal > 0 ? `<tr><td style="padding:6px 8px">Gastos reembolsables (completo)</td><td style="padding:6px 8px;text-align:right">${money(expensesTotal)}</td></tr>` : ""}
       <tr><td style="padding:10px 8px;font-size:19px;font-weight:bold;border-top:1px solid #ccc">TOTAL A PAGAR</td><td style="padding:10px 8px;text-align:right;font-size:19px;font-weight:bold;border-top:1px solid #ccc">${money(totalPay)}</td></tr>
     </table>

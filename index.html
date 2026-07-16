@@ -414,7 +414,7 @@ async function loadAll(){
     sb.from('daily_reports').select('*').order('created_at',{ascending:false}),
   ]);
   properties=(propsR.data||[]).map(p=>({id:p.id,name:p.name}));
-  staff=(staffR.data||[]).map(s=>({id:s.id,name:s.name,address:s.address||'',phone:s.phone||'',taxid:s.tax_id||'',email:s.email||'',withhold:s.withhold_tax!==false}));
+  staff=(staffR.data||[]).map(s=>({id:s.id,name:s.name,address:s.address||'',phone:s.phone||'',taxid:s.tax_id||'',email:s.email||''}));
   rates={};
   (ratesR.data||[]).forEach(r=>{(rates[r.professional_id]=rates[r.professional_id]||{})[r.property_id]=Number(r.amount);});
   staff.forEach(s=>{rates[s.id]=rates[s.id]||{};});
@@ -630,13 +630,12 @@ function renderMyInvoices(){
   el.innerHTML=keys.map(wk=>{
     const list=groups[wk];let svc=0,exp=0;
     list.forEach(s=>{if(s.type==='service')s.items.forEach(i=>svc+=itemTotal(i));else {svc+=expServices(s);exp+=expMaterials(s);}});
-    const wh=staffWithhold(currentStaff);const tax=wh?svc*0.10:0,total=svc-tax+exp;const paid=list.every(s=>s.paid);const k=wk+'|'+currentStaff;
+    const tax=svc*0.10,total=svc-tax+exp;const paid=list.every(s=>s.paid);const k=wk+'|'+currentStaff;
     return '<div class="inv">'+
       '<div class="inv-head"><div><div class="who">'+weekLabel(wk)+'</div><div class="muted" style="font-size:12px;margin-top:2px">'+wk+' al '+weekEnd(wk)+'</div></div>'+
         '<span class="pill '+(paid?'paid':'approved')+'">'+(paid?'Pagada':'Por pagar')+'</span></div>'+
       '<div class="inv-line"><span>Servicios (bruto)</span><span>'+money(svc)+'</span></div>'+
-      (wh?'<div class="inv-line"><span style="color:var(--danger)">Taxes (−10%)</span><span style="color:var(--danger)">−'+money(tax)+'</span></div>'
-         :(svc>0?'<div class="inv-line"><span class="muted" style="font-size:12px">Sin retención (exento)</span><span class="muted">$0.00</span></div>':''))+
+      '<div class="inv-line"><span style="color:var(--danger)">Taxes (−10%)</span><span style="color:var(--danger)">−'+money(tax)+'</span></div>'+
       (exp>0?'<div class="inv-line"><span>Gastos (reembolso)</span><span>'+money(exp)+'</span></div>':'')+
       '<div class="inv-line tot"><span>Total a pagar</span><span>'+money(total)+'</span></div>'+
       '<button class="btn sm ghost block" style="margin-top:10px" onclick="printInvoice(\''+k+'\')">⬇️ Descargar factura</button>'+
@@ -1181,7 +1180,7 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
         else{expensesTotal+=amt;expenses.push({date:s.date,desc:l.desc,prop:'',amount:amt});}});
     } else { expensesTotal+=s.amount; expenses.push({date:s.date,desc:s.desc,prop:propName(s.prop),amount:s.amount}); }
   });
-  const wh=staffWithhold(sid);const tax=wh?servicesGross*0.10:0,servicesNet=servicesGross-tax,total=servicesNet+expensesTotal;
+  const tax=servicesGross*0.10,servicesNet=servicesGross-tax,total=servicesNet+expensesTotal;
   const propRows=Object.keys(byProp).map(pid=>{const pr=byProp[pid];
     return pr.lines.map(l=>'<tr><td>'+l.date+'</td><td>'+esc(pr.name)+(l.ex.length?' <span style="color:#3A5249;font-size:11px">('+esc(l.ex.join(', '))+')</span>':'')+'</td><td class="r">'+money(l.t)+'</td></tr>').join('')+
       '<tr><td></td><td style="text-align:right;font-weight:700">Subtotal '+esc(pr.name)+'</td><td class="r" style="font-weight:700">'+money(pr.subtotal)+'</td></tr>';
@@ -1230,9 +1229,8 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
 '<table><thead><tr><th style="width:110px">Fecha</th><th>Descripción</th><th class="r" style="width:110px">Monto</th></tr></thead><tbody>'+rows+'</tbody></table>'+
 '<div class="sub"><table>'+
 '<tr><td>Subtotal servicios (bruto)</td><td class="r">'+money(servicesGross)+'</td></tr>'+
-(wh?'<tr><td style="color:#C0492E">Taxes (−10% servicios)</td><td class="r" style="color:#C0492E">−'+money(tax)+'</td></tr>'+
-   '<tr><td>Servicios netos</td><td class="r">'+money(servicesNet)+'</td></tr>'
-  :(servicesGross>0?'<tr><td style="color:#3A5249">Servicios exentos de retención (primeros $500/año)</td><td class="r">—</td></tr>':''))+
+'<tr><td style="color:#C0492E">Taxes (−10% servicios)</td><td class="r" style="color:#C0492E">−'+money(tax)+'</td></tr>'+
+'<tr><td>Servicios netos</td><td class="r">'+money(servicesNet)+'</td></tr>'+
 (expensesTotal>0?'<tr><td>Gastos reembolsables (completo)</td><td class="r">'+money(expensesTotal)+'</td></tr>':'')+
 '<tr class="tot"><td>TOTAL A PAGAR</td><td class="r">'+money(total)+'</td></tr>'+
 '</table></div>'+
@@ -1577,13 +1575,11 @@ async function previewOne(id){
     rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Reembolso - '+esc(s.desc)+' ('+esc(propName(s.prop))+')</td><td class="r">'+money(s.amount)+'</td></tr>';
     cards.push(pcard('Recibo: '+esc(s.desc),propName(s.prop),s.date,await signedUrl(s.receipt)));
   }
-  const flWh=s.customLines?staffWithhold(s.staff):false;
-  const flSvc=s.customLines?expServices(s):0,flMat=s.customLines?expMaterials(s):0,flTax=flWh?flSvc*0.10:0;
+  const flSvc=s.customLines?expServices(s):0,flMat=s.customLines?expMaterials(s):0,flTax=flSvc*0.10;
   const total=s.customLines?(flSvc+flMat-flTax):subTotal(s);
   const breakdown=(s.customLines&&flSvc>0)?(
     '<p style="text-align:right;font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin:2px 0">Servicios (bruto): '+money(flSvc)+'</p>'+
-    (flWh?'<p style="text-align:right;font-family:Arial,sans-serif;font-size:13px;color:#C0492E;margin:2px 0">Retención −10% (servicios): −'+money(flTax)+'</p>'
-        :'<p style="text-align:right;font-family:Arial,sans-serif;font-size:12px;color:#3A5249;margin:2px 0">Servicios exentos de retención (primeros $500/año)</p>')+
+    '<p style="text-align:right;font-family:Arial,sans-serif;font-size:13px;color:#C0492E;margin:2px 0">Retención −10% (servicios): −'+money(flTax)+'</p>'+
     (flMat>0?'<p style="text-align:right;font-family:Arial,sans-serif;font-size:13px;color:#3A5249;margin:2px 0">Materiales (exento): '+money(flMat)+'</p>':'')
   ):'';
   const doc='<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=6"><title>Vista previa</title><style>'+
@@ -1630,15 +1626,10 @@ function renderProfileForm(){
     fieldRow('Teléfono',p.phone,"setProf('"+who+"','phone',this.value)")+
     fieldRow('Identificación fiscal (SSN/EIN)',p.taxid,"setProf('"+who+"','taxid',this.value)")+
     '</div>'+
-    fieldRow('Correo',p.email,"setProf('"+who+"','email',this.value)")+
-    '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:10px;border:1.5px solid var(--line);border-radius:10px;cursor:pointer">'+
-      '<input type="checkbox" '+(p.withhold?'checked':'')+' onchange="setProf(\''+who+'\',\'withhold\',this.checked)">'+
-      '<span><b>Retener 10% en servicios</b><br><span class="muted" style="font-size:12px">Desmárcalo si está exento este año (primeros $500 del año natural en PR).</span></span>'+
-    '</label>';
+    fieldRow('Correo',p.email,"setProf('"+who+"','email',this.value)");
 }
 const _profT={};
 function setProf(id,k,v){const p=staff.find(s=>s.id===id);if(!p)return;p[k]=v;
-  if(k==='withhold'){sb.from('professionals').update({withhold_tax:!!v}).eq('id',id).then(function(r){if(r.error)console.error(r.error);else toast('Retención '+(v?'activada':'desactivada — exento')); });return;}
   const col={name:'name',address:'address',phone:'phone',taxid:'tax_id',email:'email'}[k];if(!col)return;
   clearTimeout(_profT[id+k]);_profT[id+k]=setTimeout(async()=>{
     const {error}=await sb.from('professionals').update({[col]:v}).eq('id',id);if(error)console.error(error);
@@ -1727,8 +1718,6 @@ function subTotal(s){return s.type==='service'?(s.items||[]).reduce((a,i)=>a+ite
 // Factura libre: renglones marcados "servicio" llevan retención 10%; los demás son material (exento).
 function expServices(s){return (s.customLines&&s.customLines.lines)?s.customLines.lines.reduce((a,l)=>a+(l.svc?Number(l.amount||0):0),0):0;}
 function expMaterials(s){return s.customLines?(Number(s.amount||0)-expServices(s)):Number(s.amount||0);}
-// Retención por persona: en PR los primeros $500/año están exentos; el switch "Retener 10%" lo controla.
-function staffWithhold(id){const p=staff.find(s=>s.id===id);return p?p.withhold!==false:true;}
 async function viewService(id){const s=subs.find(x=>x.id===id);
   const blocks=await Promise.all(s.items.map(async i=>{
     const [b,a]=await Promise.all([signedUrl(i.pathBefore),signedUrl(i.pathAfter)]);
@@ -1748,11 +1737,10 @@ async function viewReceipt(id){const s=subs.find(x=>x.id===id);
   const esc=x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
   if(s.customLines){
     const cl=s.customLines;const lines=(cl.lines||[]);
-    const flWh=staffWithhold(s.staff);const flSvc=expServices(s),flMat=expMaterials(s),flTax=flWh?flSvc*0.10:0,flNet=flSvc+flMat-flTax;
+    const flSvc=expServices(s),flMat=expMaterials(s),flTax=flSvc*0.10,flNet=flSvc+flMat-flTax;
     const body='<div style="font-weight:700;margin-bottom:6px">Factura libre'+(s.desc&&s.desc!=='Factura libre'?': '+esc(s.desc):'')+'</div>'+
       '<table style="width:100%;border-collapse:collapse;font-size:13px">'+lines.map(l=>'<tr><td style="padding:6px 0;border-bottom:1px solid var(--line)">'+esc(l.desc)+(l.svc?' <span style="color:#0E7C7B;font-size:11px">(servicio)</span>':' <span class="muted" style="font-size:11px">(material)</span>')+'</td><td style="padding:6px 0;border-bottom:1px solid var(--line);text-align:right">'+money(l.amount)+'</td></tr>').join('')+
-      (flSvc>0&&flWh?'<tr><td style="padding:6px 0;color:var(--danger)">Retención −10% (servicios)</td><td style="padding:6px 0;text-align:right;color:var(--danger)">−'+money(flTax)+'</td></tr>':'')+
-      (flSvc>0&&!flWh?'<tr><td style="padding:6px 0;font-size:12px" class="muted">Servicios exentos de retención (primeros $500/año)</td><td style="padding:6px 0;text-align:right" class="muted">—</td></tr>':'')+
+      (flSvc>0?'<tr><td style="padding:6px 0;color:var(--danger)">Retención −10% (servicios)</td><td style="padding:6px 0;text-align:right;color:var(--danger)">−'+money(flTax)+'</td></tr>':'')+
       '<tr><td style="padding:8px 0;font-weight:700">Total'+(flSvc>0?' a pagar':'')+'</td><td style="padding:8px 0;text-align:right;font-weight:700">'+money(flNet)+'</td></tr></table>'+
       (cl.notas?'<div class="note" style="margin-top:8px;font-size:12.5px"><b>Notas:</b> '+esc(cl.notas)+'</div>':'')+
       '<div class="muted" style="font-size:12px;margin-top:8px">'+staffName(s.staff)+' · '+s.date+'</div>';
