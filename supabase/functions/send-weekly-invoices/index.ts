@@ -157,8 +157,10 @@ async function buildEmail(pro: any, wk: string, end: string, list: any[], itemsB
       // Factura libre: renglones "servicio" llevan retención 10%; los demás son material (exento).
       for (const l of s.custom_lines.lines) {
         const amt = Number(l.amount) || 0;
-        if (l.svc) { servicesGross += amt; svcExtra.push({ date: s.date, desc: l.desc, amount: amt }); }
-        else { expensesTotal += amt; expenses.push({ date: s.date, desc: l.desc, prop: "", amount: amt }); }
+        const ld = l.date || s.date;
+        const lp = l.prop ? propName(l.prop) : "";
+        if (l.svc) { servicesGross += amt; svcExtra.push({ date: ld, desc: l.desc, prop: lp, amount: amt }); }
+        else { expensesTotal += amt; expenses.push({ date: ld, desc: l.desc, prop: lp, amount: amt }); }
       }
     } else {
       const g = Number(s.total) || 0; expensesTotal += g;
@@ -181,7 +183,7 @@ async function buildEmail(pro: any, wk: string, end: string, list: any[], itemsB
   const svcExtraBlock = svcExtra.length
     ? `<h3 style="color:#0E7C7B;font-size:15px;margin:16px 0 6px">Otros servicios (con retención)</h3>` +
       `<table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px">` +
-      svcExtra.map((e: any) => `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(e.date)} - ${esc(e.desc)}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${money(e.amount)}</td></tr>`).join("") + `</table>`
+      svcExtra.map((e: any) => `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(e.date)} - ${esc(e.desc)}${e.prop ? ` (${esc(e.prop)})` : ""}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${money(e.amount)}</td></tr>`).join("") + `</table>`
     : "";
 
   const expBlock = expenses.length

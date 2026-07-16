@@ -195,7 +195,7 @@
         <div class="note" style="margin-bottom:10px">🧾 Factura libre (solo dueño) — campos abiertos, para cualquier propósito.<br><b>Emisor:</b> tu perfil · <b>Facturar a:</b> Stay Here PR. Va a la <b>bandeja de aprobación</b>.</div>
         <div class="field"><label>Fecha</label><input id="flFecha" type="date"></div>
         <div class="field"><label>Concepto (opcional)</label><input id="flConcepto" placeholder="Ej: Servicio especial"></div>
-        <label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">Renglones (descripción + monto) — marca <b>Servicio 10%</b> si lleva retención; sin marcar = reembolso de material (exento).</label>
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">Renglones: descripción, monto, <b>propiedad</b> y <b>fecha</b> por renglón. Marca <b>Servicio 10%</b> si lleva retención; sin marcar = reembolso de material (exento).</label>
         <div id="flLines"></div>
         <button class="btn ghost sm" style="width:100%" onclick="flAddLine()">➕ Añadir renglón</button>
         <div class="field" style="margin-top:10px"><label>Notas (opcional)</label><textarea id="flNotas" placeholder="Detalles adicionales"></textarea></div>
@@ -655,14 +655,23 @@ function renderMyInvoices(){
   }).join('');
 }
 /* ---------- FACTURA LIBRE (solo dueño) ---------- */
+function flPropOptions(sel){return '<option value="">(Sin propiedad)</option>'+properties.map(function(p){return '<option value="'+p.id+'"'+(sel===p.id?' selected':'')+'>'+String(p.name).replace(/</g,'&lt;')+'</option>';}).join('');}
 function flAddLine(){
   const el=document.getElementById('flLines');if(!el)return;
+  const d=((document.getElementById('flFecha')||{}).value)||todayISO();
+  const bx='padding:9px;border:1.5px solid var(--line);border-radius:8px';
   el.insertAdjacentHTML('beforeend',
-    '<div class="fl-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
-      '<input class="fl-desc" placeholder="Descripción" style="flex:1;padding:9px;border:1.5px solid var(--line);border-radius:8px">'+
-      '<span style="display:flex;align-items:center;gap:2px">$<input class="fl-amt" type="number" inputmode="decimal" step="0.01" placeholder="0.00" style="width:90px;padding:9px;border:1.5px solid var(--line);border-radius:8px"></span>'+
-      '<label title="Márcalo si es un servicio (se le retiene 10%). Si es reembolso de material, déjalo sin marcar (exento)." style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-soft);white-space:nowrap;cursor:pointer"><input type="checkbox" class="fl-svc"> Servicio 10%</label>'+
-      '<span onclick="this.closest(\'.fl-row\').remove()" style="cursor:pointer;color:var(--danger);font-weight:700">✕</span>'+
+    '<div class="fl-row" style="border:1.5px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">'+
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
+        '<input class="fl-desc" placeholder="Descripción" style="flex:1;'+bx+'">'+
+        '<span onclick="this.closest(\'.fl-row\').remove()" style="cursor:pointer;color:var(--danger);font-weight:700">✕</span>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+        '<span style="display:flex;align-items:center;gap:2px">$<input class="fl-amt" type="number" inputmode="decimal" step="0.01" placeholder="0.00" style="width:90px;'+bx+'"></span>'+
+        '<select class="fl-prop" style="flex:1;min-width:130px;'+bx+'">'+flPropOptions('')+'</select>'+
+        '<input class="fl-date" type="date" value="'+d+'" style="'+bx+'">'+
+        '<label title="Márcalo si es un servicio (se le retiene 10%). Si es reembolso de material, déjalo sin marcar (exento)." style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-soft);white-space:nowrap;cursor:pointer"><input type="checkbox" class="fl-svc"> Servicio 10%</label>'+
+      '</div>'+
     '</div>');
 }
 async function submitFreeInvoice(){
@@ -671,7 +680,7 @@ async function submitFreeInvoice(){
   const fecha=document.getElementById('flFecha').value||todayISO();
   const concepto=document.getElementById('flConcepto').value.trim();
   const notas=document.getElementById('flNotas').value.trim();
-  const rows=Array.prototype.slice.call(document.querySelectorAll('#flLines .fl-row')).map(function(r){return {desc:r.querySelector('.fl-desc').value.trim(),amount:parseFloat(r.querySelector('.fl-amt').value)||0,svc:!!r.querySelector('.fl-svc').checked};}).filter(function(l){return l.desc||l.amount;});
+  const rows=Array.prototype.slice.call(document.querySelectorAll('#flLines .fl-row')).map(function(r){return {desc:r.querySelector('.fl-desc').value.trim(),amount:parseFloat(r.querySelector('.fl-amt').value)||0,svc:!!r.querySelector('.fl-svc').checked,prop:r.querySelector('.fl-prop').value||null,date:r.querySelector('.fl-date').value||fecha};}).filter(function(l){return l.desc||l.amount;});
   const valid=rows.filter(function(l){return l.amount>0;});
   if(!valid.length){toast('Añade al menos un renglón con monto');return;}
   for(var i=0;i<valid.length;i++){ if(!valid[i].desc){toast('Cada renglón necesita descripción');return;} }
@@ -1229,8 +1238,8 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
         byProp[i.prop].lines.push({date:s.date,ex,t});byProp[i.prop].subtotal+=t;});
     } else if(s.customLines){
       (s.customLines.lines||[]).forEach(l=>{const amt=Number(l.amount||0);
-        if(l.svc){servicesGross+=amt;svcExtra.push({date:s.date,desc:l.desc,amount:amt});}
-        else{expensesTotal+=amt;expenses.push({date:s.date,desc:l.desc,prop:'',amount:amt});}});
+        if(l.svc){servicesGross+=amt;svcExtra.push({date:l.date||s.date,desc:l.desc,prop:l.prop?propName(l.prop):'',amount:amt});}
+        else{expensesTotal+=amt;expenses.push({date:l.date||s.date,desc:l.desc,prop:l.prop?propName(l.prop):'',amount:amt});}});
     } else { expensesTotal+=s.amount; expenses.push({date:s.date,desc:s.desc,prop:propName(s.prop),amount:s.amount}); }
   });
   const tax=servicesGross*0.10,servicesNet=servicesGross-tax,total=servicesNet+expensesTotal;
@@ -1238,7 +1247,7 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
     return pr.lines.map(l=>'<tr><td>'+l.date+'</td><td>'+esc(pr.name)+(l.ex.length?' <span style="color:#3A5249;font-size:11px">('+esc(l.ex.join(', '))+')</span>':'')+'</td><td class="r">'+money(l.t)+'</td></tr>').join('')+
       '<tr><td></td><td style="text-align:right;font-weight:700">Subtotal '+esc(pr.name)+'</td><td class="r" style="font-weight:700">'+money(pr.subtotal)+'</td></tr>';
   }).join('');
-  const svcExtraRows=svcExtra.map(e=>'<tr><td>'+e.date+'</td><td>Servicio — '+esc(e.desc)+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
+  const svcExtraRows=svcExtra.map(e=>'<tr><td>'+e.date+'</td><td>Servicio — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
   const expRows=expenses.map(e=>'<tr><td>'+e.date+'</td><td>Reembolso — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
   const rows=propRows+svcExtraRows+expRows;
   const doc=
@@ -1637,7 +1646,7 @@ async function previewOne(id){
       dmgs.forEach((du,di)=>cards.push(pcard('Daño'+(dmgs.length>1?' '+(di+1):'')+(i.damage?': '+esc(i.damage):''),propName(i.prop),s.date,du)));
     }
   } else if(s.customLines){
-    (s.customLines.lines||[]).forEach(function(l){rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>'+esc(l.desc)+(l.svc?' <span style="color:#0E7C7B;font-size:11px">(servicio)</span>':' <span style="color:#3A5249;font-size:11px">(material)</span>')+'</td><td class="r">'+money(l.amount)+'</td></tr>';});
+    (s.customLines.lines||[]).forEach(function(l){rowsHtml+='<tr><td>'+esc(l.date||s.date)+'</td><td>'+esc(l.desc)+(l.prop?' — '+esc(propName(l.prop)):'')+(l.svc?' <span style="color:#0E7C7B;font-size:11px">(servicio)</span>':' <span style="color:#3A5249;font-size:11px">(material)</span>')+'</td><td class="r">'+money(l.amount)+'</td></tr>';});
   } else {
     rowsHtml+='<tr><td>'+esc(s.date)+'</td><td>Reembolso - '+esc(s.desc)+' ('+esc(propName(s.prop))+')</td><td class="r">'+money(s.amount)+'</td></tr>';
     cards.push(pcard('Recibo: '+esc(s.desc),propName(s.prop),s.date,await signedUrl(s.receipt)));
@@ -1806,7 +1815,7 @@ async function viewReceipt(id){const s=subs.find(x=>x.id===id);
     const cl=s.customLines;const lines=(cl.lines||[]);
     const flSvc=expServices(s),flMat=expMaterials(s),flTax=flSvc*0.10,flNet=flSvc+flMat-flTax;
     const body='<div style="font-weight:700;margin-bottom:6px">Factura libre'+(s.desc&&s.desc!=='Factura libre'?': '+esc(s.desc):'')+'</div>'+
-      '<table style="width:100%;border-collapse:collapse;font-size:13px">'+lines.map(l=>'<tr><td style="padding:6px 0;border-bottom:1px solid var(--line)">'+esc(l.desc)+(l.svc?' <span style="color:#0E7C7B;font-size:11px">(servicio)</span>':' <span class="muted" style="font-size:11px">(material)</span>')+'</td><td style="padding:6px 0;border-bottom:1px solid var(--line);text-align:right">'+money(l.amount)+'</td></tr>').join('')+
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">'+lines.map(function(l){var meta=[];if(l.prop)meta.push(esc(propName(l.prop)));if(l.date)meta.push(esc(l.date));return '<tr><td style="padding:6px 0;border-bottom:1px solid var(--line)">'+esc(l.desc)+(l.svc?' <span style="color:#0E7C7B;font-size:11px">(servicio)</span>':' <span class="muted" style="font-size:11px">(material)</span>')+(meta.length?'<div class="muted" style="font-size:11px">'+meta.join(' · ')+'</div>':'')+'</td><td style="padding:6px 0;border-bottom:1px solid var(--line);text-align:right;vertical-align:top">'+money(l.amount)+'</td></tr>';}).join('')+
       (flSvc>0?'<tr><td style="padding:6px 0;color:var(--danger)">Retención −10% (servicios)</td><td style="padding:6px 0;text-align:right;color:var(--danger)">−'+money(flTax)+'</td></tr>':'')+
       '<tr><td style="padding:8px 0;font-weight:700">Total'+(flSvc>0?' a pagar':'')+'</td><td style="padding:8px 0;text-align:right;font-weight:700">'+money(flNet)+'</td></tr></table>'+
       (cl.notas?'<div class="note" style="margin-top:8px;font-size:12.5px"><b>Notas:</b> '+esc(cl.notas)+'</div>':'')+
