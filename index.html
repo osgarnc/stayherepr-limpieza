@@ -227,6 +227,7 @@
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
     <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
     <button id="tData" onclick="tabTo('data')">🗄️ Base de datos</button>
+    <button id="tTrash" onclick="tabTo('trash')">🗑️ Papelera <span id="trashCount"></span></button>
   </div>
   <div id="tabInbox" class="card" style="padding:18px">
     <div class="sectitle"><h2>Bandeja de aprobación</h2><span class="muted" id="inboxCount"></span></div>
@@ -380,6 +381,11 @@
     </div>
     <div style="overflow:auto"><table id="dataTable"></table></div>
   </div>
+  <div id="tabTrash" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>Papelera</h2><span class="muted" id="trashInfo"></span></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Envíos que enviaste a la Papelera. <b>Restaurar</b> los devuelve a su lista. <b>Eliminar definitivamente</b> sí es permanente.</p>
+    <div style="overflow:auto"><table id="trashTable"></table></div>
+  </div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -396,6 +402,7 @@ let distribution=[];   // {id,name,email,active}
 let users=[];          // profiles: {id,user(email),name,role,staffId,active}
 let rates={};          // rates[staffId][propId] = amount
 let subs=[];           // envíos normalizados (ver loadAll)
+let trash=[];          // envíos borrados (papelera, borrado suave)
 let reports=[];        // reportes diarios
 let currentStaff=null; // professional_id activo
 let session=null;      // usuario logueado
@@ -414,17 +421,19 @@ function can(what){
 }
 /* ---------- CARGA DE DATOS DESDE SUPABASE ---------- */
 async function loadAll(){
-  const [propsR, staffR, ratesR, subsR, itemsR, distR, compR, profR, repR] = await Promise.all([
+  const [propsR, staffR, ratesR, subsR, itemsR, distR, compR, profR, repR, trashR] = await Promise.all([
     sb.from('properties').select('*').order('name'),
     sb.from('professionals').select('*').order('name'),
     sb.from('rates').select('*'),
-    sb.from('submissions').select('*').order('date',{ascending:false}),
+    sb.from('submissions').select('*').is('deleted_at',null).order('date',{ascending:false}),
     sb.from('submission_items').select('*'),
     sb.from('distribution').select('*'),
     sb.from('company_settings').select('*').eq('id',1).maybeSingle(),
     sb.from('profiles').select('*'),
     sb.from('daily_reports').select('*').order('created_at',{ascending:false}),
+    sb.from('submissions').select('*').not('deleted_at','is',null).order('deleted_at',{ascending:false}),
   ]);
+  trash=(trashR.data||[]).map(s=>({id:s.id,type:s.type,staff:s.professional_id,date:s.date,desc:s.expense_desc||'',prop:s.property_id,amount:Number(s.total||0),customLines:s.custom_lines||null,deletedAt:s.deleted_at}));
   properties=(propsR.data||[]).map(p=>({id:p.id,name:p.name}));
   staff=(staffR.data||[]).map(s=>({id:s.id,name:s.name,address:s.address||'',phone:s.phone||'',taxid:s.tax_id||'',email:s.email||''}));
   rates={};
@@ -600,7 +609,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data'];
+const TABS=['inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -673,6 +682,42 @@ function flAddLine(){
         '<label title="Márcalo si es un servicio (se le retiene 10%). Si es reembolso de material, déjalo sin marcar (exento)." style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-soft);white-space:nowrap;cursor:pointer"><input type="checkbox" class="fl-svc"> Servicio 10%</label>'+
       '</div>'+
     '</div>');
+}
+// Editor de renglones de una factura libre existente (pre-llenado). Conserva todos los renglones.
+function efAddLine(l){
+  l=l||{};
+  const el=document.getElementById('efLines');if(!el)return;
+  const bx='padding:9px;border:1.5px solid var(--line);border-radius:8px';
+  const av=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  const d=l.date||todayISO();
+  el.insertAdjacentHTML('beforeend',
+    '<div class="ef-row" style="border:1.5px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">'+
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
+        '<input class="ef-desc" placeholder="Descripción" value="'+av(l.desc)+'" style="flex:1;'+bx+'">'+
+        '<span onclick="this.closest(\'.ef-row\').remove()" style="cursor:pointer;color:var(--danger);font-weight:700">✕</span>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+        '<span style="display:flex;align-items:center;gap:2px">$<input class="ef-amt" type="number" inputmode="decimal" step="0.01" placeholder="0.00" value="'+(l.amount!=null?l.amount:'')+'" style="width:90px;'+bx+'"></span>'+
+        '<select class="ef-prop" style="flex:1;min-width:130px;'+bx+'">'+flPropOptions(l.prop||'')+'</select>'+
+        '<input class="ef-date" type="date" value="'+av(d)+'" style="'+bx+'">'+
+        '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-soft);white-space:nowrap;cursor:pointer"><input type="checkbox" class="ef-svc" '+(l.svc?'checked':'')+'> Servicio 10%</label>'+
+      '</div>'+
+    '</div>');
+}
+async function saveEditFreeInvoice(id){
+  const s=subs.find(x=>x.id===id);if(!s)return;
+  const concepto=(document.getElementById('efConcepto').value||'').trim();
+  const notas=(document.getElementById('efNotas').value||'').trim();
+  const rows=Array.prototype.slice.call(document.querySelectorAll('#efLines .ef-row')).map(function(r){return {desc:r.querySelector('.ef-desc').value.trim(),amount:parseFloat(r.querySelector('.ef-amt').value)||0,svc:!!r.querySelector('.ef-svc').checked,prop:r.querySelector('.ef-prop').value||null,date:r.querySelector('.ef-date').value||s.date};}).filter(function(l){return l.desc||l.amount;});
+  const valid=rows.filter(function(l){return l.amount>0;});
+  if(!valid.length){toast('Añade al menos un renglón con monto');return;}
+  for(var i=0;i<valid.length;i++){ if(!valid[i].desc){toast('Cada renglón necesita descripción');return;} }
+  const total=valid.reduce(function(a,l){return a+l.amount;},0);
+  toast('Guardando…');
+  const {error}=await sb.from('submissions').update({expense_desc:concepto||'Factura libre',custom_lines:{lines:valid,notas:notas||null},total:total}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo guardar');return;}
+  const ov=document.querySelector('.overlay');if(ov)ov.remove();
+  await loadAll();renderOffice();toast('✓ Factura libre actualizada ('+valid.length+' renglón(es), '+money(total)+')');
 }
 async function submitFreeInvoice(){
   if(_sending)return;
@@ -831,7 +876,32 @@ async function submitAll(){
     toast('✉️ Enviado a la administradora');
   } finally { _sending=false; }
 }
-function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();}
+function renderOffice(){renderStats();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();}
+/* ---------- PAPELERA (borrado suave) ---------- */
+function renderTrash(){
+  const el=document.getElementById('trashTable');if(!el)return;
+  const cEl=document.getElementById('trashCount');if(cEl)cEl.textContent=trash.length?'('+trash.length+')':'';
+  const iEl=document.getElementById('trashInfo');if(iEl)iEl.textContent=trash.length+' en papelera';
+  const rows=trash.map(s=>{
+    const isFree=!!s.customLines;
+    const tipo=s.type==='service'?'Servicio':(isFree?'Factura libre':'Gasto');
+    const detalle=s.type==='service'?'':(isFree?(s.desc&&s.desc!=='Factura libre'?s.desc:'(varios renglones)'):(s.desc+(s.prop?' · '+propName(s.prop):'')));
+    const when=s.deletedAt?String(s.deletedAt).slice(0,10):'';
+    return '<tr>'+
+      '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
+      '<td><b>'+tipo+'</b>'+(detalle?'<br><span class="muted" style="font-size:13px">'+detalle+'</span>':'')+'</td>'+
+      '<td>'+s.date+'</td>'+
+      '<td><b>'+money(s.amount)+'</b></td>'+
+      '<td class="muted" style="font-size:12px">Borrado '+when+'</td>'+
+      '<td style="text-align:right;white-space:nowrap">'+
+        '<button class="btn sm ok" onclick="restoreSubmission(\''+s.id+'\')">♻️ Restaurar</button> '+
+        '<button class="btn sm dgr" onclick="purgeSubmission(\''+s.id+'\')">Eliminar def.</button>'+
+      '</td>'+
+    '</tr>';
+  }).join('');
+  el.innerHTML='<tr><th>Persona</th><th>Tipo</th><th>Fecha</th><th>Monto</th><th>Papelera</th><th></th></tr>'+
+    (rows||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">Papelera vacía</td></tr>');
+}
 /* ---------- GASTOS Y REEMBOLSOS (back office) ---------- */
 let expenseView='all';
 function setExpenseView(v){expenseView=v;
@@ -1076,6 +1146,18 @@ async function editSubmission(id){
     '<button class="btn block" style="margin-top:12px" onclick="saveEditService(\''+s.id+'\')">Guardar cambios</button>'+
     '<button class="btn block dgr" style="margin-top:8px" onclick="deleteSubmission(\''+s.id+'\')">🗑️ Eliminar todo el servicio</button>';
     openModal('Editar servicio · '+staffName(s.staff)+' · '+s.date,html);
+  } else if(s.customLines){
+    const html='<div class="note" style="margin-bottom:10px;font-size:12.5px">🧾 Factura libre — edita/añade renglones. Se conservan todos (con propiedad y fecha).</div>'+
+      '<div class="field"><label>Concepto</label><input id="efConcepto" value="'+String(s.desc||'').replace(/"/g,'&quot;')+'"></div>'+
+      '<label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">Renglones</label>'+
+      '<div id="efLines"></div>'+
+      '<button class="btn ghost sm" style="width:100%" onclick="efAddLine()">➕ Añadir renglón</button>'+
+      '<div class="field" style="margin-top:10px"><label>Notas</label><textarea id="efNotas">'+String((s.customLines.notas)||'').replace(/</g,'&lt;')+'</textarea></div>'+
+      '<button class="btn block" style="margin-top:12px" onclick="saveEditFreeInvoice(\''+s.id+'\')">Guardar cambios</button>'+
+      '<button class="btn block dgr" style="margin-top:8px" onclick="deleteSubmission(\''+s.id+'\')">🗑️ Eliminar esta factura</button>';
+    openModal('Editar factura libre · '+staffName(s.staff)+' · '+s.date,html);
+    (s.customLines.lines||[]).forEach(function(l){efAddLine(l);});
+    if(!(s.customLines.lines||[]).length)efAddLine();
   } else {
     const rcpt=await signedUrl(s.receipt);
     const html='<div class="field"><label>Fecha</label><input id="edExpDate" type="date" value="'+s.date+'"></div>'+
@@ -1139,11 +1221,24 @@ async function saveEditExpense(id){
 }
 async function deleteSubmission(id){
   const s=subs.find(x=>x.id===id); if(!s)return;
-  if(!confirm('¿Eliminar por completo este '+(s.type==='service'?'servicio':'gasto')+'? No se puede deshacer.'))return;
-  const {error}=await sb.from('submissions').delete().eq('id',id);
-  if(error){console.error(error);toast('No se pudo eliminar (¿falta el permiso? corre el SQL de abajo)');return;}
+  if(!confirm('¿Enviar este '+(s.type==='service'?'servicio':'gasto')+' a la Papelera? Podrás restaurarlo desde la pestaña 🗑️ Papelera.'))return;
+  const {error}=await sb.from('submissions').update({deleted_at:new Date().toISOString()}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo mover a Papelera (¿corriste el SQL de papelera?)');return;}
   const ov=document.querySelector('.overlay');if(ov)ov.remove();
-  await loadAll();renderOffice();toast('🗑️ Eliminado');
+  await loadAll();renderOffice();toast('🗑️ Movido a la Papelera');
+}
+async function restoreSubmission(id){
+  const {error}=await sb.from('submissions').update({deleted_at:null}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo restaurar');return;}
+  await loadAll();renderOffice();toast('♻️ Restaurado — está de nuevo en su lista');
+}
+async function purgeSubmission(id){
+  const t=trash.find(x=>x.id===id);
+  if(!confirm('¿Eliminar DEFINITIVAMENTE este envío? Esto SÍ es permanente y no se puede recuperar.'))return;
+  if(t&&t.type==='service'){await sb.from('submission_items').delete().eq('submission_id',id);}
+  const {error}=await sb.from('submissions').delete().eq('id',id);
+  if(error){console.error(error);toast('No se pudo eliminar definitivamente');return;}
+  await loadAll();renderOffice();toast('Eliminado definitivamente');
 }
 async function deleteServiceItem(itemId,subId){
   const s=subs.find(x=>x.id===subId); if(!s)return;
