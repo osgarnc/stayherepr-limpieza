@@ -2102,7 +2102,7 @@ function opsChip(reason){
 }
 async function opsLoadProps(){
   const c=opsC();
-  const {data,error}=await c.from('ops_properties').select('id,name,is_active,daily_discount,floor_price,discount_window_days,base_price').order('name');
+  const {data,error}=await c.from('ops_properties').select('id,name,is_active,daily_discount,floor_price,discount_window_days,base_price,daily_rate,weekend_adjustment_rate').order('name');
   if(error){toast('Ops: '+error.message);return;}
   opsProps=data;
   // precio "full" TÍPICO (mediana de las próximas noches) de cada propiedad, desde ops_night_base.
@@ -2119,8 +2119,8 @@ async function opsLoadProps(){
     '<td><input type="number" class="ops-daily" style="width:80px;padding:6px;border:1.5px solid var(--line);border-radius:6px" value="'+p.daily_discount+'"></td>'+
     '<td><input type="number" class="ops-floor" style="width:80px;padding:6px;border:1.5px solid var(--line);border-radius:6px" value="'+p.floor_price+'"></td>'+
     '<td><input type="number" class="ops-window" style="width:70px;padding:6px;border:1.5px solid var(--line);border-radius:6px" value="'+p.discount_window_days+'"></td>'+
-    '<td class="muted">'+opsMoney(full[p.id]!==undefined?full[p.id]:p.base_price)+'</td>'+
-    '<td class="muted">'+opsMoney(maxp[p.id]!==undefined?maxp[p.id]:p.base_price)+'</td>'+
+    '<td class="muted">'+opsMoney(p.daily_rate!=null?p.daily_rate:(full[p.id]!==undefined?full[p.id]:p.base_price))+'</td>'+
+    '<td class="muted">'+opsMoney(p.daily_rate!=null?(p.daily_rate*(1+(Number(p.weekend_adjustment_rate)||0))):(maxp[p.id]!==undefined?maxp[p.id]:p.base_price))+'</td>'+
     '<td><button class="btn ghost sm" onclick="opsSaveProp(this,\''+p.id+'\')">Guardar</button></td></tr>').join('');
   document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>$/día</th><th>Piso $</th><th>Ventana</th><th>Full price</th><th>Max price</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
   const sel=document.getElementById('opsLogProp');
