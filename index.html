@@ -259,6 +259,10 @@
       <button class="btn coral sm" onclick="sendAllNow()">✉️ Enviar facturas ahora por correo</button>
     </div>
     <p class="muted" style="font-size:13.5px;margin-top:-4px">📤 Envío automático bisemanal: <b id="invSchedule">—</b> <span style="font-weight:400">(se configura en Perfiles y ajustes)</span>.</p>
+    <div class="tabs" style="margin-bottom:12px">
+      <button id="invTabPending" class="on" onclick="setInvoiceView('pending')">💸 Por pagar <span id="invCountPending"></span></button>
+      <button id="invTabPaid" onclick="setInvoiceView('paid')">✅ Pagadas (archivadas) <span id="invCountPaid"></span></button>
+    </div>
     <div id="invoiceList"></div>
   </div>
   <div id="tabRejected" class="card hide" style="padding:18px">
@@ -1388,15 +1392,26 @@ async function deleteItemDamage(itemId,subId){
   await loadAll();editSubmission(subId);toast('🗑️ Daño eliminado');
 }
 function hourLabel(h){h=Number(h);return h===0?'12 am':h<12?h+' am':h===12?'12 pm':(h-12)+' pm';}
+let invoiceView='pending';
+function setInvoiceView(v){invoiceView=v;
+  const p=document.getElementById('invTabPending'),d=document.getElementById('invTabPaid');
+  if(p)p.classList.toggle('on',v==='pending');if(d)d.classList.toggle('on',v==='paid');
+  renderInvoices();}
 function renderInvoices(){
   const sch=document.getElementById('invSchedule');
   if(sch)sch.textContent=(DOW[company.send_dow??0]||'Domingo')+' a las '+hourLabel(company.send_hour??9)+' (PR)';
   const appr=subs.filter(s=>s.status==='approved');
-  const groups={};
-  appr.forEach(s=>{const k=weekKey(s.date)+'|'+s.staff;(groups[k]=groups[k]||[]).push(s);});
+  const allGroups={};
+  appr.forEach(s=>{const k=weekKey(s.date)+'|'+s.staff;(allGroups[k]=allGroups[k]||[]).push(s);});
+  const isPaid=k=>allGroups[k].every(s=>s.paid);
+  const allKeys=Object.keys(allGroups);
+  let nP=0,nD=0;allKeys.forEach(k=>{if(isPaid(k))nD++;else nP++;});
+  const cP=document.getElementById('invCountPending'),cD=document.getElementById('invCountPaid');
+  if(cP)cP.textContent='('+nP+')';if(cD)cD.textContent='('+nD+')';
+  const groups={};allKeys.forEach(k=>{if((invoiceView==='paid')===isPaid(k))groups[k]=allGroups[k];});
   const keys=Object.keys(groups).sort().reverse();
   const el=document.getElementById('invoiceList');
-  if(!keys.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Aún no hay renglones aprobados.</p>';return;}
+  if(!keys.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">'+(invoiceView==='paid'?'Aún no hay facturas pagadas.':'No hay facturas por pagar 🎉')+'</p>';return;}
   el.innerHTML=keys.map(k=>{
     const parts=k.split('|');const wk=parts[0],sid=parts[1];const list=groups[k];
     let svc=0,exp=0;
