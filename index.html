@@ -2105,11 +2105,14 @@ async function opsLoadProps(){
   const {data,error}=await c.from('ops_properties').select('id,name,is_active,daily_discount,floor_price,discount_window_days,base_price').order('name');
   if(error){toast('Ops: '+error.message);return;}
   opsProps=data;
-  // precio "full" (base real) de la próxima noche de cada propiedad, desde ops_night_base
+  // precio "full" TÍPICO (mediana de las próximas noches) de cada propiedad, desde ops_night_base.
+  // La mediana ignora noches sueltas altas/bajas y refleja la tarifa habitual (fds suelen ser más altos).
   const today=new Date().toISOString().slice(0,10);
-  const nb=await c.from('ops_night_base').select('property_id,night_date,base_price').gte('night_date',today).order('night_date');
+  const nb=await c.from('ops_night_base').select('property_id,base_price').gte('night_date',today);
+  const byProp={};
+  (nb.data||[]).forEach(r=>{ (byProp[r.property_id]=byProp[r.property_id]||[]).push(Number(r.base_price)); });
   const full={};
-  (nb.data||[]).forEach(r=>{ if(full[r.property_id]===undefined) full[r.property_id]=r.base_price; });
+  Object.keys(byProp).forEach(id=>{ const a=byProp[id].sort((x,y)=>x-y); full[id]=a[Math.floor(a.length/2)]; });
   const rows=data.map(p=>'<tr>'+
     '<td>'+opsEsc(p.name)+'</td>'+
     '<td style="text-align:center"><input type="checkbox" class="ops-active" '+(p.is_active?'checked':'')+'></td>'+
@@ -2118,7 +2121,7 @@ async function opsLoadProps(){
     '<td><input type="number" class="ops-window" style="width:70px;padding:6px;border:1.5px solid var(--line);border-radius:6px" value="'+p.discount_window_days+'"></td>'+
     '<td class="muted">'+opsMoney(full[p.id]!==undefined?full[p.id]:p.base_price)+'</td>'+
     '<td><button class="btn ghost sm" onclick="opsSaveProp(this,\''+p.id+'\')">Guardar</button></td></tr>').join('');
-  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>$/día</th><th>Piso $</th><th>Ventana</th><th>Full (próx.)</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>$/día</th><th>Piso $</th><th>Ventana</th><th>Full (típico)</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
   const sel=document.getElementById('opsLogProp');
   sel.innerHTML='<option value="">Todas</option>'+data.map(p=>'<option value="'+p.id+'">'+opsEsc(p.name)+'</option>').join('');
 }
