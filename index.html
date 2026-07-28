@@ -2097,8 +2097,9 @@ function opsTab(w){
 function opsMoney(n){return (n==null)?'—':'$'+Number(n).toFixed(0);}
 function opsEsc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function opsChip(reason){
-  const C={discounted:['#e0f2fe','#075985'],floored:['#fef3c7','#92400e']}[reason]||['#eef1f4','#6b7885'];
-  return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+C[0]+';color:'+C[1]+'">'+reason+'</span>';
+  const M={discounted:['#e0f2fe','#075985','descuento'],floored:['#fef3c7','#92400e','piso'],no_discount:['#eef1f4','#475569','✓ Hostfully'],fixed:['#ede9fe','#5b21b6','precio día']};
+  const c=M[reason]||['#eef1f4','#6b7885',reason];
+  return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+c[0]+';color:'+c[1]+'" title="'+reason+'">'+c[2]+'</span>';
 }
 async function opsLoadProps(){
   const c=opsC();
@@ -2164,7 +2165,7 @@ async function opsLoadLog(){
   if(error){toast('Ops: '+error.message);return;}
   const names=Object.fromEntries(opsProps.map(p=>[p.id,p.name]));
   let saved=0;
-  const rows=data.map(r=>{saved+=Number(r.discount_amount)||0;return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(r.base_price)+'</td><td>'+(Number(r.discount_pct)||0).toFixed(0)+'%</td><td>'+opsMoney(r.discount_amount)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsChip(r.reason)+'</td></tr>';}).join('');
+  const rows=data.map(r=>{if(r.reason!=='no_discount')saved+=Number(r.discount_amount)||0;return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(r.base_price)+'</td><td>'+(Number(r.discount_pct)||0).toFixed(0)+'%</td><td>'+opsMoney(r.discount_amount)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsChip(r.reason)+'</td></tr>';}).join('');
   tb.innerHTML='<thead><tr><th>Fecha</th><th>Propiedad</th><th>d+</th><th>Full</th><th>% desc</th><th>Monto</th><th>Aplicado</th><th>Motivo</th></tr></thead><tbody>'+rows+'</tbody>';
   sum.textContent=data.length+' noches · última corrida '+new Date(last[0].created_at).toLocaleString()+' · ahorro $'+saved.toFixed(0);
 }
