@@ -410,7 +410,17 @@
   <div id="tabOperaciones" class="hide">
     <div id="opsPanel">
       <div class="sectitle"><h2>🏨 Precios dinámicos</h2>
-        <span id="opsSafeBadge"></span>
+        <span style="display:flex;align-items:center;gap:10px"><span id="opsSafeBadge"></span><button class="btn" onclick="opsRecalc()">🔄 Recalcular y aplicar</button></span>
+      </div>
+      <div id="opsModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+        <div class="card" style="max-width:600px;width:100%;max-height:82vh;overflow:auto">
+          <div class="sectitle"><h2 id="opsModalTitle">Revisar cambios</h2></div>
+          <div id="opsModalBody"></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;position:sticky;bottom:0;background:var(--card);padding:12px 0 2px;border-top:1px solid var(--line)">
+            <button class="btn ghost" onclick="opsCloseModal()">Cancelar</button>
+            <button class="btn" id="opsApplyBtn" onclick="opsApply()">Aplicar</button>
+          </div>
+        </div>
       </div>
       <div class="tabs" style="margin-bottom:12px">
         <button id="opsTabProps" class="on" onclick="opsTab('props')">Propiedades</button>
@@ -2084,6 +2094,35 @@ sb.auth.onAuthStateChange(async (event)=>{
 /* ===================== TAB OPERACIONES (precios dinámicos, MISMA base y sesión de la app) ===================== */
 let opsProps=[];
 function opsC(){ return window.sb; } // usa el cliente y la sesión de la app (dueño). RLS: is_owner()
+let opsPreviewChanges=[];
+async function opsRecalc(){
+  toast('Calculando…');
+  const {data,error}=await opsC().functions.invoke('dynamic-pricing',{body:{apply:false}});
+  if(error){toast('Error al calcular: '+error.message);return;}
+  if(!data||data.ok===false){toast('Error: '+((data&&data.error)||'desconocido'));return;}
+  opsPreviewChanges=data.changes||[];
+  const body=document.getElementById('opsModalBody');
+  const applyBtn=document.getElementById('opsApplyBtn');
+  if(!opsPreviewChanges.length){
+    body.innerHTML='<p class="muted">No hay cambios que aplicar ahora. Tus precios ya están donde deben (o Hostfully ya los tiene más bajos que nuestro glide).</p>';
+    applyBtn.style.display='none';
+  }else{
+    applyBtn.style.display=''; applyBtn.disabled=false;
+    applyBtn.textContent='Aplicar '+opsPreviewChanges.length+' cambios';
+    const rows=opsPreviewChanges.map(c=>'<tr><td>'+opsEsc(String(c.property).trim())+'</td><td>'+c.date+'</td><td class="muted">'+opsMoney(c.from)+'</td><td class="muted">→</td><td><b>'+opsMoney(c.to)+'</b></td></tr>').join('');
+    body.innerHTML='<p class="muted" style="font-size:13px;margin-top:0">Se escribirán estos <b>'+opsPreviewChanges.length+'</b> precios en Hostfully (solo bajan):</p><div style="overflow:auto"><table><thead><tr><th>Propiedad</th><th>Noche</th><th>Actual</th><th></th><th>Nuevo</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
+  document.getElementById('opsModal').classList.remove('hide');
+}
+function opsCloseModal(){document.getElementById('opsModal').classList.add('hide');}
+async function opsApply(){
+  const btn=document.getElementById('opsApplyBtn'); btn.disabled=true; btn.textContent='Aplicando…';
+  const {data,error}=await opsC().functions.invoke('dynamic-pricing',{body:{apply:true}});
+  if(error){toast('Error al aplicar: '+error.message); btn.disabled=false; btn.textContent='Aplicar'; return;}
+  const n=(data&&data.summary&&data.summary.nights_written)||0;
+  toast('✅ Aplicado: '+n+' precios escritos en Hostfully');
+  opsCloseModal(); opsLoadLog();
+}
 async function opsInit(){
   await Promise.all([opsLoadProps(), opsLoadSettings()]);
   opsTab('props');
@@ -2164,9 +2203,18 @@ async function opsLoadLog(){
   const {data,error}=await q;
   if(error){toast('Ops: '+error.message);return;}
   const names=Object.fromEntries(opsProps.map(p=>[p.id,p.name]));
+  const floorBy=Object.fromEntries(opsProps.map(p=>[p.id,Number(p.floor_price)]));
+  const winBy=Object.fromEntries(opsProps.map(p=>[p.id,Number(p.discount_window_days)||14]));
+  // "Nuestro" = precio que pondría nuestra lógica (glide desde el full al piso según los días).
+  const glideOf=(full,floor,win,days)=>{const frac=Math.min(1,Math.max(0,(win-days)/win));return Math.round(Math.max(floor,full-(full-floor)*frac));};
   let saved=0;
-  const rows=data.map(r=>{if(r.reason!=='no_discount')saved+=Number(r.discount_amount)||0;return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(r.base_price)+'</td><td>'+(Number(r.discount_pct)||0).toFixed(0)+'%</td><td>'+opsMoney(r.discount_amount)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsChip(r.reason)+'</td></tr>';}).join('');
-  tb.innerHTML='<thead><tr><th>Fecha</th><th>Propiedad</th><th>d+</th><th>Full</th><th>% desc</th><th>Monto</th><th>Aplicado</th><th>Motivo</th></tr></thead><tbody>'+rows+'</tbody>';
+  const rows=data.map(r=>{
+    if(r.reason!=='no_discount')saved+=Number(r.discount_amount)||0;
+    const full=Number(r.base_price);
+    const nuestro=(r.reason==='fixed')?Number(r.applied_price):glideOf(full,floorBy[r.property_id]||0,winBy[r.property_id],r.days_until_checkin);
+    return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(full)+'</td><td>'+opsMoney(nuestro)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsChip(r.reason)+'</td></tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Propiedad</th><th>d+</th><th>Full</th><th>Nuestro</th><th>Aplicado</th><th>Motivo</th></tr></thead><tbody>'+rows+'</tbody>';
   sum.textContent=data.length+' noches · última corrida '+new Date(last[0].created_at).toLocaleString()+' · ahorro $'+saved.toFixed(0);
 }
 async function opsLoadSettings(){
