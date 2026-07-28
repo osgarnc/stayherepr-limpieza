@@ -2096,6 +2096,10 @@ function opsTab(w){
 }
 function opsMoney(n){return (n==null)?'—':'$'+Number(n).toFixed(0);}
 function opsEsc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function opsChip(reason){
+  const C={discounted:['#e0f2fe','#075985'],floored:['#fef3c7','#92400e']}[reason]||['#eef1f4','#6b7885'];
+  return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+C[0]+';color:'+C[1]+'">'+reason+'</span>';
+}
 async function opsLoadProps(){
   const c=opsC();
   const {data,error}=await c.from('ops_properties').select('id,name,is_active,daily_discount,floor_price,discount_window_days,base_price').order('name');
@@ -2133,7 +2137,7 @@ async function opsLoadLog(){
   if(error){toast('Ops: '+error.message);return;}
   const names=Object.fromEntries(opsProps.map(p=>[p.id,p.name]));
   let saved=0;
-  const rows=data.map(r=>{saved+=Number(r.discount_amount)||0;return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(r.base_price)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsMoney(r.discount_amount)+'</td><td>'+r.reason+'</td><td class="muted">'+(r.safe_mode?'seguro':'real')+'</td></tr>';}).join('');
+  const rows=data.map(r=>{saved+=Number(r.discount_amount)||0;return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(r.base_price)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsMoney(r.discount_amount)+'</td><td>'+opsChip(r.reason)+'</td><td class="muted">'+(r.safe_mode?'seguro':'real')+'</td></tr>';}).join('');
   tb.innerHTML='<thead><tr><th>Fecha</th><th>Propiedad</th><th>d+</th><th>Base</th><th>Aplicado</th><th>Desc $</th><th>Motivo</th><th>Modo</th></tr></thead><tbody>'+rows+'</tbody>';
   sum.textContent=data.length+' noches · última corrida '+new Date(last[0].created_at).toLocaleString()+' · ahorro $'+saved.toFixed(0);
 }
