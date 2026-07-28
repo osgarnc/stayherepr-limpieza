@@ -2145,8 +2145,9 @@ async function opsLoadLog(){
   const {data,error}=await q;
   if(error){toast('Ops: '+error.message);return;}
   const names=Object.fromEntries(opsProps.map(p=>[p.id,p.name]));
+  const fullByProp=Object.fromEntries(opsProps.map(p=>[p.id,p.daily_rate]));
   let saved=0;
-  const rows=data.map(r=>{saved+=Number(r.discount_amount)||0;return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(r.base_price)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsMoney(r.discount_amount)+'</td><td>'+opsChip(r.reason)+'</td><td class="muted">'+(r.safe_mode?'seguro':'real')+'</td></tr>';}).join('');
+  const rows=data.map(r=>{saved+=Number(r.discount_amount)||0;return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(fullByProp[r.property_id])+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsMoney(r.discount_amount)+'</td><td>'+opsChip(r.reason)+'</td><td class="muted">'+(r.safe_mode?'seguro':'real')+'</td></tr>';}).join('');
   tb.innerHTML='<thead><tr><th>Fecha</th><th>Propiedad</th><th>d+</th><th>Full</th><th>Aplicado</th><th>Desc $</th><th>Motivo</th><th>Modo</th></tr></thead><tbody>'+rows+'</tbody>';
   sum.textContent=data.length+' noches · última corrida '+new Date(last[0].created_at).toLocaleString()+' · ahorro $'+saved.toFixed(0);
 }
