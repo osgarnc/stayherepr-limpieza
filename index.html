@@ -226,6 +226,7 @@
     <button id="tReports" onclick="tabTo('reports')">📋 Reportes</button>
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
+    <button id="tOperaciones" onclick="tabTo('operaciones');opsInit()">🏨 Operaciones</button>
     <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
     <button id="tData" onclick="tabTo('data')">🗄️ Base de datos</button>
     <button id="tTrash" onclick="tabTo('trash')">🗑️ Papelera <span id="trashCount"></span></button>
@@ -406,6 +407,41 @@
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Envíos que enviaste a la Papelera. <b>Restaurar</b> los devuelve a su lista. <b>Eliminar definitivamente</b> sí es permanente.</p>
     <div style="overflow:auto"><table id="trashTable"></table></div>
   </div>
+  <div id="tabOperaciones" class="hide">
+    <div id="opsPanel">
+      <div class="sectitle"><h2>🏨 Precios dinámicos</h2>
+        <span id="opsSafeBadge"></span>
+      </div>
+      <div class="tabs" style="margin-bottom:12px">
+        <button id="opsTabProps" class="on" onclick="opsTab('props')">Propiedades</button>
+        <button id="opsTabLog" onclick="opsTab('log')">Bitácora</button>
+        <button id="opsTabSet" onclick="opsTab('set')">Ajustes</button>
+      </div>
+      <div id="opsViewProps" class="card" style="padding:14px">
+        <p class="muted" style="font-size:13px;margin-top:0">Descuento por día en $, piso y ventana (días antes del check-in) por propiedad. <b>Guardar</b> aplica el cambio de una vez.</p>
+        <div style="overflow:auto"><table id="opsPropsTable"></table></div>
+      </div>
+      <div id="opsViewLog" class="card hide" style="padding:14px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <select id="opsLogProp" onchange="opsLoadLog()" style="padding:8px;border:1.5px solid var(--line);border-radius:8px"><option value="">Todas</option></select>
+          <button class="btn ghost sm" onclick="opsLoadLog()">Actualizar</button>
+          <span id="opsLogSummary" class="muted" style="font-size:13px"></span>
+        </div>
+        <div style="overflow:auto"><table id="opsLogTable"></table></div>
+      </div>
+      <div id="opsViewSet" class="card hide" style="padding:14px;max-width:560px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid var(--line)">
+          <div><b>Modo seguro (dry-run)</b><p class="muted" style="font-size:13px;margin:4px 0 0">Activado: el cron calcula y registra pero <b>NO</b> escribe en Hostfully. Apagarlo hace que escriba precios reales.</p></div>
+          <label style="display:flex;align-items:center;gap:8px;flex:none"><input type="checkbox" id="opsSafe"> <span class="muted" style="font-size:13px">seguro</span></label>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 0">
+          <div><b>Horizonte (días)</b><p class="muted" style="font-size:13px;margin:4px 0 0">Cuántos días adelante evalúa el cron.</p></div>
+          <input type="number" id="opsHorizon" min="1" max="365" style="width:90px;padding:8px;border:1.5px solid var(--line);border-radius:8px">
+        </div>
+        <button class="btn" style="margin-top:12px" onclick="opsSaveSettings()">Guardar ajustes</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -562,6 +598,7 @@ function applySession(){
   document.getElementById('mCleaner').style.display=isCleaner?'none':'';
   document.getElementById('modeSwitch').style.display=isCleaner?'none':'flex';
   document.getElementById('tUsers').style.display=can('users')?'':'none';
+  document.getElementById('tOperaciones').style.display=(session.role==='owner')?'':'none';
   document.getElementById('segNueva').style.display=(session.role==='owner')?'':'none';
   currentStaff=session.staffId;
   document.getElementById('cleanerName').textContent=session.name;
@@ -629,7 +666,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -2043,4 +2080,85 @@ sb.auth.onAuthStateChange(async (event)=>{
     }
   }catch(e){console.error('restore session',e);}
 })();
+
+/* ===================== TAB OPERACIONES (precios dinámicos, MISMA base y sesión de la app) ===================== */
+let opsProps=[];
+function opsC(){ return window.sb; } // usa el cliente y la sesión de la app (dueño). RLS: is_owner()
+async function opsInit(){
+  await Promise.all([opsLoadProps(), opsLoadSettings()]);
+  opsTab('props');
+}
+function opsTab(w){
+  const V={props:'opsViewProps',log:'opsViewLog',set:'opsViewSet'}, B={props:'opsTabProps',log:'opsTabLog',set:'opsTabSet'};
+  Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
+  Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===w));
+  if(w==='log')opsLoadLog();
+}
+function opsMoney(n){return (n==null)?'—':'$'+Number(n).toFixed(0);}
+function opsEsc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function opsLoadProps(){
+  const c=opsC();
+  const {data,error}=await c.from('ops_properties').select('id,name,is_active,daily_discount,floor_price,discount_window_days,base_price').order('name');
+  if(error){toast('Ops: '+error.message);return;}
+  opsProps=data;
+  const rows=data.map(p=>'<tr>'+
+    '<td>'+opsEsc(p.name)+'</td>'+
+    '<td style="text-align:center"><input type="checkbox" class="ops-active" '+(p.is_active?'checked':'')+'></td>'+
+    '<td><input type="number" class="ops-daily" style="width:80px;padding:6px;border:1.5px solid var(--line);border-radius:6px" value="'+p.daily_discount+'"></td>'+
+    '<td><input type="number" class="ops-floor" style="width:80px;padding:6px;border:1.5px solid var(--line);border-radius:6px" value="'+p.floor_price+'"></td>'+
+    '<td><input type="number" class="ops-window" style="width:70px;padding:6px;border:1.5px solid var(--line);border-radius:6px" value="'+p.discount_window_days+'"></td>'+
+    '<td class="muted">'+opsMoney(p.base_price)+'</td>'+
+    '<td><button class="btn ghost sm" onclick="opsSaveProp(this,\''+p.id+'\')">Guardar</button></td></tr>').join('');
+  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>$/día</th><th>Piso $</th><th>Ventana</th><th>Base</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+  const sel=document.getElementById('opsLogProp');
+  sel.innerHTML='<option value="">Todas</option>'+data.map(p=>'<option value="'+p.id+'">'+opsEsc(p.name)+'</option>').join('');
+}
+async function opsSaveProp(btn,id){
+  const c=opsC();
+  const tr=btn.closest('tr');
+  const patch={is_active:tr.querySelector('.ops-active').checked,daily_discount:Number(tr.querySelector('.ops-daily').value),floor_price:Number(tr.querySelector('.ops-floor').value),discount_window_days:Number(tr.querySelector('.ops-window').value)};
+  const {error}=await c.from('ops_properties').update(patch).eq('id',id);
+  if(error){toast('Ops: '+error.message);return;}
+  toast('✅ Guardado');
+}
+async function opsLoadLog(){
+  const c=opsC();
+  const propId=document.getElementById('opsLogProp').value;
+  const {data:last}=await c.from('ops_price_log').select('run_id,created_at').order('created_at',{ascending:false}).limit(1);
+  const tb=document.getElementById('opsLogTable'); const sum=document.getElementById('opsLogSummary');
+  if(!last||!last.length){tb.innerHTML='';sum.textContent='Sin corridas todavía.';return;}
+  let q=c.from('ops_price_log').select('property_id,night_date,days_until_checkin,base_price,applied_price,discount_amount,reason,safe_mode').eq('run_id',last[0].run_id).order('night_date').limit(1000);
+  if(propId)q=q.eq('property_id',propId);
+  const {data,error}=await q;
+  if(error){toast('Ops: '+error.message);return;}
+  const names=Object.fromEntries(opsProps.map(p=>[p.id,p.name]));
+  let saved=0;
+  const rows=data.map(r=>{saved+=Number(r.discount_amount)||0;return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(r.base_price)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsMoney(r.discount_amount)+'</td><td>'+r.reason+'</td><td class="muted">'+(r.safe_mode?'seguro':'real')+'</td></tr>';}).join('');
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Propiedad</th><th>d+</th><th>Base</th><th>Aplicado</th><th>Desc $</th><th>Motivo</th><th>Modo</th></tr></thead><tbody>'+rows+'</tbody>';
+  sum.textContent=data.length+' noches · última corrida '+new Date(last[0].created_at).toLocaleString()+' · ahorro $'+saved.toFixed(0);
+}
+async function opsLoadSettings(){
+  const c=opsC();
+  const {data,error}=await c.from('ops_app_settings').select('key,value');
+  if(error){toast('Ops: '+error.message);return;}
+  const m=Object.fromEntries(data.map(r=>[r.key,r.value]));
+  const safe=(m.safe_mode||'true')!=='false';
+  document.getElementById('opsSafe').checked=safe;
+  document.getElementById('opsHorizon').value=m.pricing_horizon_days||'30';
+  opsPaintBadge(safe);
+}
+function opsPaintBadge(safe){
+  const b=document.getElementById('opsSafeBadge'); if(!b)return;
+  b.textContent=safe?'MODO SEGURO':'PRECIOS REALES';
+  b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(safe?'background:#fef3c7;color:#92400e':'background:#dcfce7;color:#166534');
+}
+async function opsSaveSettings(){
+  const c=opsC();
+  const safe=document.getElementById('opsSafe').checked;
+  if(!safe&&!confirm('Vas a DESACTIVAR el modo seguro: el cron empezará a escribir precios REALES en Hostfully. ¿Seguro?')){document.getElementById('opsSafe').checked=true;return;}
+  const rows=[{key:'safe_mode',value:safe?'true':'false'},{key:'pricing_horizon_days',value:String(Number(document.getElementById('opsHorizon').value)||30)}];
+  const {error}=await c.from('ops_app_settings').upsert(rows,{onConflict:'key'});
+  if(error){toast('Ops: '+error.message);return;}
+  opsPaintBadge(safe); toast('✅ Ajustes guardados');
+}
 </script>
