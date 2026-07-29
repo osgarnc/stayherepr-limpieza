@@ -2388,7 +2388,7 @@ function msgPropName(m){
 function msgLoad(){ msgLoadMode(); document.getElementById('msgViewLog').classList.contains('hide')?msgLoadPending():msgLoadLog(); }
 async function msgLoadPending(){
   const c=msgC();
-  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,channel,property_id,hostfully_property_uid,language,category,confidence,would_auto_reply,reason,body,auto_reply_body').eq('status','pending').eq('direction','inbound').order('created_at',{ascending:false}).limit(300);
+  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,channel,property_id,hostfully_property_uid,language,category,confidence,would_auto_reply,reason,body,auto_reply_body,discount_eligible,night_rate').eq('status','pending').eq('direction','inbound').order('created_at',{ascending:false}).limit(300);
   if(error){toast('Mensajes: '+error.message);return;}
   document.getElementById('msgPendCount').textContent=data.length?('('+data.length+')'):'';
   window._msgDrafts={}; window._msgInfo={};
@@ -2408,7 +2408,9 @@ async function msgLoadPending(){
     '<td style="max-width:280px;vertical-align:top">'+opsEsc(m.body)+'</td>'+
     '<td style="vertical-align:top">'+msgCatChip(m.category)+' <span class="muted" style="font-size:12px">'+(m.confidence!=null?Math.round(m.confidence*100)+'%':'—')+'</span></td>'+
     '<td style="vertical-align:top">'+draft+'</td>'+
-    '<td style="vertical-align:top;white-space:nowrap"><button class="btn sm" onclick="msgReply(\''+m.id+'\')">✍️ Responder</button><br><button class="btn ghost sm" style="margin-top:6px" onclick="msgMarkHandled(this,\''+m.id+'\')">Marcar atendido</button></td>'+
+    '<td style="vertical-align:top;white-space:nowrap"><button class="btn sm" onclick="msgReply(\''+m.id+'\')">✍️ Responder</button>'+
+    (m.discount_eligible?'<br><button class="btn sm" style="margin-top:6px;background:#166534;border-color:#166534" onclick="msgApproveDiscount(this,\''+m.id+'\')">💵 Aprobar 30%'+(m.night_rate?' (~$'+Math.round(m.night_rate*0.30)+')':'')+'</button>':'')+
+    '<br><button class="btn ghost sm" style="margin-top:6px" onclick="msgMarkHandled(this,\''+m.id+'\')">Marcar atendido</button></td>'+
     '</tr>';
   }).join('');
   tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Propiedad</th><th>Mensaje</th><th>Categoría</th><th>Respuesta sugerida (borrador)</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
@@ -2443,6 +2445,17 @@ async function msgMarkHandled(btn,id){
   const {error}=await msgC().from('ops_messages').update({status:'handled',handled_at:new Date().toISOString()}).eq('id',id);
   if(error){toast('Mensajes: '+error.message);btn.disabled=false;return;}
   toast('✅ Atendido'); msgLoadPending();
+}
+async function msgApproveDiscount(btn,id){
+  if(!confirm('¿Aprobar el 30% de descuento de la renta de esta noche para este huésped?\n\nSe registra el descuento y se le avisa al huésped con un mensaje fijo. El crédito real lo aplicas tú en la plataforma después de la estadía.')) return;
+  btn.disabled=true; const orig=btn.textContent; btn.textContent='Aprobando…';
+  const {data,error}=await msgC().functions.invoke('ops-approve-discount',{body:{messageId:id}});
+  if(error||(data&&data.ok===false)){
+    toast('Descuento: '+((error&&error.message)||(data&&data.error)||'error desconocido'));
+    btn.disabled=false; btn.textContent=orig; return;
+  }
+  toast(data&&data.alreadyDone?'Ya estaba aprobado':('✅ 30% aprobado'+(data&&data.amount?' (~$'+data.amount+')':'')+(data&&data.notified?' y avisado al huésped':'')));
+  btn.textContent='✅ Aprobado'; btn.style.background='#6b7885'; btn.style.borderColor='#6b7885';
 }
 async function msgLoadLog(){
   const c=msgC();
