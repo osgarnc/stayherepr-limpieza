@@ -2325,7 +2325,7 @@ const MSG_CAT={wifi:['#e0f2fe','#075985','wifi'],directions:['#e0f2fe','#075985'
 function msgCatChip(cat){const c=MSG_CAT[cat]||['#eef1f4','#6b7885',cat||'—'];return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+c[0]+';color:'+c[1]+'">'+c[2]+'</span>';}
 function msgWouldChip(would){return would?'<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:#dcfce7;color:#166534">respondería</span>':'<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:#fef3c7;color:#92400e">escala a ti</span>';}
 function msgFmtDate(s){return s?new Date(s).toLocaleString():'—';}
-async function msgInit(){ await msgLoadMode(); msgTab('pending'); }
+async function msgInit(){ await Promise.all([msgLoadMode(), msgLoadProps()]); msgTab('pending'); }
 function msgTab(w){
   const V={pending:'msgViewPending',log:'msgViewLog'},B={pending:'msgTabPending',log:'msgTabLog'};
   Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
@@ -2339,10 +2339,21 @@ async function msgLoadMode(){
   b.textContent=on?'AUTO-RESPUESTA ON':'SOLO REVISIÓN';
   b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(on?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e');
 }
+async function msgLoadProps(){
+  const {data,error}=await msgC().from('ops_properties').select('id,name');
+  window._msgProps={};
+  if(!error)(data||[]).forEach(p=>{window._msgProps[p.id]=p.name;});
+}
+function msgPropName(m){
+  const n=(window._msgProps||{})[m.property_id];
+  if(n) return '<b>'+opsEsc(n)+'</b>';
+  if(m.hostfully_property_uid) return '<span class="muted" style="font-size:12px" title="'+opsEsc(m.hostfully_property_uid)+'">'+opsEsc(m.hostfully_property_uid.slice(0,8))+'…</span>';
+  return '<span class="muted">—</span>';
+}
 function msgLoad(){ msgLoadMode(); document.getElementById('msgViewLog').classList.contains('hide')?msgLoadPending():msgLoadLog(); }
 async function msgLoadPending(){
   const c=msgC();
-  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,channel,language,category,confidence,would_auto_reply,reason,body,auto_reply_body').eq('status','pending').eq('direction','inbound').order('created_at',{ascending:false}).limit(300);
+  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,channel,property_id,hostfully_property_uid,language,category,confidence,would_auto_reply,reason,body,auto_reply_body').eq('status','pending').eq('direction','inbound').order('created_at',{ascending:false}).limit(300);
   if(error){toast('Mensajes: '+error.message);return;}
   document.getElementById('msgPendCount').textContent=data.length?('('+data.length+')'):'';
   window._msgDrafts={};
@@ -2357,13 +2368,14 @@ async function msgLoadPending(){
     return '<tr>'+
     '<td class="muted" style="white-space:nowrap;vertical-align:top">'+msgFmtDate(m.received_at||m.created_at)+'</td>'+
     '<td style="vertical-align:top">'+opsEsc(m.guest_name||'—')+(m.channel?'<br><span class="muted" style="font-size:12px">'+opsEsc(m.channel)+'</span>':'')+'</td>'+
+    '<td style="vertical-align:top;font-size:13px">'+msgPropName(m)+'</td>'+
     '<td style="max-width:280px;vertical-align:top">'+opsEsc(m.body)+'</td>'+
     '<td style="vertical-align:top">'+msgCatChip(m.category)+' <span class="muted" style="font-size:12px">'+(m.confidence!=null?Math.round(m.confidence*100)+'%':'—')+'</span></td>'+
     '<td style="vertical-align:top">'+draft+'</td>'+
     '<td style="vertical-align:top"><button class="btn ghost sm" onclick="msgMarkHandled(this,\''+m.id+'\')">Marcar atendido</button></td>'+
     '</tr>';
   }).join('');
-  tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Mensaje</th><th>Categoría</th><th>Respuesta sugerida (borrador)</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Propiedad</th><th>Mensaje</th><th>Categoría</th><th>Respuesta sugerida (borrador)</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
 }
 function msgCopy(id){
   const t=(window._msgDrafts||{})[id]; if(!t)return;
@@ -2377,7 +2389,7 @@ async function msgMarkHandled(btn,id){
 }
 async function msgLoadLog(){
   const c=msgC();
-  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,direction,category,action,status,body').order('created_at',{ascending:false}).limit(300);
+  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,property_id,hostfully_property_uid,direction,category,action,status,body').order('created_at',{ascending:false}).limit(300);
   if(error){toast('Mensajes: '+error.message);return;}
   const tb=document.getElementById('msgLogTable');
   if(!data.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay mensajes registrados.</td></tr></tbody>';return;}
@@ -2385,11 +2397,12 @@ async function msgLoadLog(){
   const rows=data.map(m=>'<tr>'+
     '<td class="muted" style="white-space:nowrap">'+msgFmtDate(m.received_at||m.created_at)+'</td>'+
     '<td>'+opsEsc(m.guest_name||'—')+'</td>'+
+    '<td style="font-size:13px">'+msgPropName(m)+'</td>'+
     '<td style="max-width:320px">'+opsEsc(m.body)+'</td>'+
     '<td>'+msgCatChip(m.category)+'</td>'+
     '<td>'+(ACT[m.action]||m.action||'—')+'</td>'+
     '<td>'+(m.status==='pending'?'<span class="muted">pendiente</span>':'atendido')+'</td>'+
     '</tr>').join('');
-  tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Mensaje</th><th>Categoría</th><th>Acción</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody>';
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Propiedad</th><th>Mensaje</th><th>Categoría</th><th>Acción</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody>';
 }
 </script>
