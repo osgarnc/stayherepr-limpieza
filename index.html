@@ -2375,12 +2375,12 @@ async function msgToggleAuto(id,el){
   toast(on?'✅ Auto-envío ACTIVADO para esta propiedad':'Auto-envío apagado'); msgLoadMode();
 }
 async function msgLoadProps(){
-  const {data,error}=await msgC().from('ops_properties').select('id,name');
-  window._msgProps={};
-  if(!error)(data||[]).forEach(p=>{window._msgProps[p.id]=p.name;});
+  const {data,error}=await msgC().from('ops_properties').select('id,name,hostfully_uid');
+  window._msgProps={}; window._msgPropsByUid={};
+  if(!error)(data||[]).forEach(p=>{window._msgProps[p.id]=p.name; if(p.hostfully_uid)window._msgPropsByUid[p.hostfully_uid]=p.name;});
 }
 function msgPropName(m){
-  const n=(window._msgProps||{})[m.property_id];
+  const n=(window._msgProps||{})[m.property_id]||(window._msgPropsByUid||{})[m.hostfully_property_uid];
   if(n) return '<b>'+opsEsc(n)+'</b>';
   if(m.hostfully_property_uid) return '<span class="muted" style="font-size:12px" title="'+opsEsc(m.hostfully_property_uid)+'">'+opsEsc(m.hostfully_property_uid.slice(0,8))+'…</span>';
   return '<span class="muted">—</span>';
