@@ -227,6 +227,7 @@
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
     <button id="tOperaciones" onclick="tabTo('operaciones');opsInit()">🏨 Operaciones</button>
+    <button id="tMensajes" onclick="tabTo('mensajes');msgInit()">💬 Mensajes</button>
     <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
     <button id="tData" onclick="tabTo('data')">🗄️ Base de datos</button>
     <button id="tTrash" onclick="tabTo('trash')">🗑️ Papelera <span id="trashCount"></span></button>
@@ -456,6 +457,22 @@
       </div>
     </div>
   </div>
+  <div id="tabMensajes" class="hide">
+    <div class="sectitle"><h2>💬 Mensajes</h2>
+      <span style="display:flex;align-items:center;gap:10px"><span id="msgModeBadge"></span><button class="btn ghost sm" onclick="msgLoad()">Actualizar</button></span>
+    </div>
+    <p class="muted" style="font-size:13px;margin-top:0">El sistema clasifica cada mensaje entrante del huésped y muestra qué <b>haría</b>. En esta etapa <b>no responde solo</b>: tú revisas y respondes desde Hostfully. Cuando le tomes confianza, se activa la auto-respuesta.</p>
+    <div class="tabs" style="margin-bottom:12px">
+      <button id="msgTabPending" class="on" onclick="msgTab('pending')">Pendientes <span id="msgPendCount"></span></button>
+      <button id="msgTabLog" onclick="msgTab('log')">Historial</button>
+    </div>
+    <div id="msgViewPending" class="card" style="padding:14px">
+      <div style="overflow:auto"><table id="msgPendTable"></table></div>
+    </div>
+    <div id="msgViewLog" class="card hide" style="padding:14px">
+      <div style="overflow:auto"><table id="msgLogTable"></table></div>
+    </div>
+  </div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -613,6 +630,7 @@ function applySession(){
   document.getElementById('modeSwitch').style.display=isCleaner?'none':'flex';
   document.getElementById('tUsers').style.display=can('users')?'':'none';
   document.getElementById('tOperaciones').style.display=(session.role==='owner')?'':'none';
+  document.getElementById('tMensajes').style.display=(session.role==='owner')?'':'none';
   document.getElementById('segNueva').style.display=(session.role==='owner')?'':'none';
   currentStaff=session.staffId;
   document.getElementById('cleanerName').textContent=session.name;
@@ -680,7 +698,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','mensajes'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -2255,5 +2273,67 @@ async function opsSaveSettings(){
   const {error}=await c.from('ops_app_settings').upsert(rows,{onConflict:'key'});
   if(error){toast('Ops: '+error.message);return;}
   opsPaintBadge(safe); toast('✅ Ajustes guardados');
+}
+
+/* ---------- Mensajes (Fase 2 — bandeja de mensajería) ---------- */
+function msgC(){ return window.sb; } // cliente/sesión de la app (dueño). RLS: is_owner()
+const MSG_CAT={wifi:['#e0f2fe','#075985','wifi'],directions:['#e0f2fe','#075985','dirección'],checkin_checkout:['#e0f2fe','#075985','check-in/out'],parking:['#e0f2fe','#075985','parking'],house_rules:['#e0f2fe','#075985','reglas'],access_code:['#fef3c7','#92400e','código acceso'],other:['#fee2e2','#991b1b','otro']};
+function msgCatChip(cat){const c=MSG_CAT[cat]||['#eef1f4','#6b7885',cat||'—'];return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+c[0]+';color:'+c[1]+'">'+c[2]+'</span>';}
+function msgWouldChip(would){return would?'<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:#dcfce7;color:#166534">respondería</span>':'<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:#fef3c7;color:#92400e">escala a ti</span>';}
+function msgFmtDate(s){return s?new Date(s).toLocaleString():'—';}
+async function msgInit(){ await msgLoadMode(); msgTab('pending'); }
+function msgTab(w){
+  const V={pending:'msgViewPending',log:'msgViewLog'},B={pending:'msgTabPending',log:'msgTabLog'};
+  Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
+  Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===w));
+  (w==='log')?msgLoadLog():msgLoadPending();
+}
+async function msgLoadMode(){
+  const {data}=await msgC().from('ops_app_settings').select('key,value').eq('key','msg_auto_reply_enabled');
+  const on=((data&&data[0]&&data[0].value)||'false').toLowerCase()==='true';
+  const b=document.getElementById('msgModeBadge'); if(!b)return;
+  b.textContent=on?'AUTO-RESPUESTA ON':'SOLO REVISIÓN';
+  b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(on?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e');
+}
+function msgLoad(){ msgLoadMode(); document.getElementById('msgViewLog').classList.contains('hide')?msgLoadPending():msgLoadLog(); }
+async function msgLoadPending(){
+  const c=msgC();
+  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,channel,language,category,confidence,would_auto_reply,reason,body').eq('status','pending').eq('direction','inbound').order('created_at',{ascending:false}).limit(300);
+  if(error){toast('Mensajes: '+error.message);return;}
+  document.getElementById('msgPendCount').textContent=data.length?('('+data.length+')'):'';
+  const tb=document.getElementById('msgPendTable');
+  if(!data.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Sin mensajes pendientes. 🎉</td></tr></tbody>';return;}
+  const rows=data.map(m=>'<tr>'+
+    '<td class="muted" style="white-space:nowrap">'+msgFmtDate(m.received_at||m.created_at)+'</td>'+
+    '<td>'+opsEsc(m.guest_name||'—')+(m.channel?'<br><span class="muted" style="font-size:12px">'+opsEsc(m.channel)+'</span>':'')+'</td>'+
+    '<td style="max-width:340px">'+opsEsc(m.body)+'</td>'+
+    '<td>'+msgCatChip(m.category)+' <span class="muted" style="font-size:12px">'+(m.confidence!=null?Math.round(m.confidence*100)+'%':'—')+'</span></td>'+
+    '<td>'+msgWouldChip(m.would_auto_reply)+'</td>'+
+    '<td><button class="btn ghost sm" onclick="msgMarkHandled(this,\''+m.id+'\')">Marcar atendido</button></td>'+
+    '</tr>').join('');
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Mensaje</th><th>Categoría</th><th>El sistema…</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+}
+async function msgMarkHandled(btn,id){
+  btn.disabled=true;
+  const {error}=await msgC().from('ops_messages').update({status:'handled',handled_at:new Date().toISOString()}).eq('id',id);
+  if(error){toast('Mensajes: '+error.message);btn.disabled=false;return;}
+  toast('✅ Atendido'); msgLoadPending();
+}
+async function msgLoadLog(){
+  const c=msgC();
+  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,direction,category,action,status,body').order('created_at',{ascending:false}).limit(300);
+  if(error){toast('Mensajes: '+error.message);return;}
+  const tb=document.getElementById('msgLogTable');
+  if(!data.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay mensajes registrados.</td></tr></tbody>';return;}
+  const ACT={escalated:'escaló',auto_replied:'auto-respondió',ignored:'ignorado'};
+  const rows=data.map(m=>'<tr>'+
+    '<td class="muted" style="white-space:nowrap">'+msgFmtDate(m.received_at||m.created_at)+'</td>'+
+    '<td>'+opsEsc(m.guest_name||'—')+'</td>'+
+    '<td style="max-width:320px">'+opsEsc(m.body)+'</td>'+
+    '<td>'+msgCatChip(m.category)+'</td>'+
+    '<td>'+(ACT[m.action]||m.action||'—')+'</td>'+
+    '<td>'+(m.status==='pending'?'<span class="muted">pendiente</span>':'atendido')+'</td>'+
+    '</tr>').join('');
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Mensaje</th><th>Categoría</th><th>Acción</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody>';
 }
 </script>
