@@ -228,6 +228,7 @@
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
     <button id="tOperaciones" onclick="tabTo('operaciones');opsInit()">🏨 Precios Dinámicos</button>
     <button id="tMensajes" onclick="tabTo('mensajes');msgInit()">💬 Mensajes</button>
+    <button id="tLlamadas" onclick="tabTo('llamadas');callInit()">📞 Llamadas</button>
     <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
     <button id="tData" onclick="tabTo('data')">🗄️ Base de datos</button>
     <button id="tTrash" onclick="tabTo('trash')">🗑️ Papelera <span id="trashCount"></span></button>
@@ -510,6 +511,20 @@
       <div style="overflow:auto"><table id="msgAutoTable"></table></div>
     </div>
   </div>
+
+  <div id="tabLlamadas" class="hide">
+    <div class="sectitle"><h2>📞 Llamadas</h2>
+      <span style="display:flex;align-items:center;gap:10px"><span id="callModeBadge"></span><button class="btn ghost sm" onclick="callLoad()">Actualizar</button></span>
+    </div>
+    <p class="muted" style="font-size:13px;margin-top:0">El recepcionista de voz contesta en inglés, da información general y <b>escala a ti</b> lo demás (español, dinero, reservas específicas, quejas). Si no contestas la transferencia, el huésped deja un <b>voicemail</b> que llega a tu Telegram para responder. Con el interruptor <b>apagado</b>, el agente no usa IA: transfiere directo (modo pasivo).</p>
+    <div class="card" style="padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <label style="display:inline-flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" id="callEnabledToggle" onchange="callToggleEnabled(this)"> <b>Agente de voz activo</b></label>
+      <span class="muted" style="font-size:12px">Apagado = modo pasivo (transfiere directo, sin IA).</span>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="overflow:auto"><table id="callTable"></table></div>
+    </div>
+  </div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -668,6 +683,7 @@ function applySession(){
   document.getElementById('tUsers').style.display=can('users')?'':'none';
   document.getElementById('tOperaciones').style.display=(session.role==='owner')?'':'none';
   document.getElementById('tMensajes').style.display=(session.role==='owner')?'':'none';
+  document.getElementById('tLlamadas').style.display=(session.role==='owner')?'':'none';
   document.getElementById('segNueva').style.display=(session.role==='owner')?'':'none';
   currentStaff=session.staffId;
   document.getElementById('cleanerName').textContent=session.name;
@@ -735,7 +751,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','mensajes'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','mensajes','llamadas'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -2474,5 +2490,49 @@ async function msgLoadLog(){
     '<td>'+(m.status==='pending'?'<span class="muted">pendiente</span>':'atendido')+'</td>'+
     '</tr>').join('');
   tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Propiedad</th><th>Mensaje</th><th>Categoría</th><th>Acción</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody>';
+}
+
+/* ---------- Llamadas (Fase 4 — voice agent) ---------- */
+function callC(){ return window.sb; } // cliente/sesión de la app (dueño). RLS: is_owner()
+const CALL_OUTCOME={answered_info:['#dcfce7','#166534','contestada'],bridged:['#e0f2fe','#075985','transferida'],voicemail:['#fef3c7','#92400e','voicemail'],error:['#fee2e2','#991b1b','error'],in_progress:['#eef1f4','#6b7885','en curso']};
+function callOutcomeChip(o){const c=CALL_OUTCOME[o]||['#eef1f4','#6b7885',o||'—'];return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+c[0]+';color:'+c[1]+'">'+c[2]+'</span>';}
+function callLang(l){return l==='es'?'🇪🇸 español':l==='en'?'🇺🇸 inglés':(l?opsEsc(l):'—');}
+async function callInit(){ await callLoad(); }
+async function callLoadMode(){
+  const {data,error}=await callC().from('ops_app_settings').select('value').eq('key','voice_enabled').maybeSingle();
+  const on=!error&&data&&String(data.value).toLowerCase()==='true';
+  const t=document.getElementById('callEnabledToggle'); if(t)t.checked=on;
+  const b=document.getElementById('callModeBadge'); if(!b)return;
+  b.textContent=on?'AGENTE ACTIVO':'MODO PASIVO';
+  b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(on?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e');
+}
+async function callToggleEnabled(el){
+  const on=el.checked;
+  if(on&&!confirm('¿Activar el agente de voz?\n\nContestará las llamadas en inglés, dará info general y escalará a ti lo demás. Apagado, transfiere directo sin IA.')){ el.checked=false; return; }
+  const {error}=await callC().from('ops_app_settings').upsert({key:'voice_enabled',value:on?'true':'false'},{onConflict:'key'});
+  if(error){toast('Error: '+error.message); el.checked=!on; return; }
+  toast(on?'✅ Agente de voz ACTIVADO':'Agente en modo pasivo'); callLoadMode();
+}
+async function callLoad(){
+  callLoadMode();
+  const {data,error}=await callC().from('ops_calls').select('id,created_at,from_number,guest_name,language_detected,category,confidence,outcome,voicemail_transcription,recording_url,matched_lead_uid,status').order('created_at',{ascending:false}).limit(300);
+  const tb=document.getElementById('callTable');
+  if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste la migración <code>ops_calls</code>? ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
+  if(!data.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay llamadas registradas.</td></tr></tbody>';return;}
+  const rows=data.map(cr=>{
+    const vm=cr.voicemail_transcription
+      ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px;font-size:13px;max-width:320px;white-space:pre-wrap">'+opsEsc(cr.voicemail_transcription)+'</div>'+(cr.recording_url?'<a class="btn ghost sm" style="margin-top:6px;display:inline-block" href="'+opsEsc(cr.recording_url)+'" target="_blank" rel="noopener">▶️ Grabación</a>':'')
+      : '<span class="muted">—</span>';
+    const who=(cr.guest_name?'<b>'+opsEsc(cr.guest_name)+'</b><br>':'')+'<span class="muted" style="font-size:12px">'+opsEsc(cr.from_number||'—')+'</span>'+(cr.matched_lead_uid?' <span title="reserva identificada">🔗</span>':'');
+    return '<tr>'+
+      '<td class="muted" style="white-space:nowrap;vertical-align:top">'+msgFmtDate(cr.created_at)+'</td>'+
+      '<td style="vertical-align:top">'+who+'</td>'+
+      '<td style="vertical-align:top;font-size:13px">'+callLang(cr.language_detected)+'</td>'+
+      '<td style="vertical-align:top">'+callOutcomeChip(cr.outcome)+(cr.category?'<br><span class="muted" style="font-size:12px">'+opsEsc(cr.category)+'</span>':'')+'</td>'+
+      '<td style="vertical-align:top">'+vm+'</td>'+
+      '<td style="vertical-align:top">'+(cr.status==='pending'?'<span class="muted">pendiente</span>':'atendido')+'</td>'+
+      '</tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Quién llamó</th><th>Idioma</th><th>Desenlace</th><th>Voicemail</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody>';
 }
 </script>
