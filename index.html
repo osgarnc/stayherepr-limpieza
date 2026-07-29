@@ -264,11 +264,19 @@
       <button id="invTabPending" class="on" onclick="setInvoiceView('pending')">💸 Por pagar <span id="invCountPending"></span></button>
       <button id="invTabPaid" onclick="setInvoiceView('paid')">✅ Pagadas (archivadas) <span id="invCountPaid"></span></button>
     </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input id="invSearch" oninput="renderInvoices()" placeholder="🔎 Buscar por persona, fecha o detalle…" style="flex:1;padding:9px 12px;border:1.5px solid var(--line);border-radius:10px">
+      <button class="btn ghost sm" onclick="document.getElementById('invSearch').value='';renderInvoices()">Limpiar</button>
+    </div>
     <div id="invoiceList"></div>
   </div>
   <div id="tabRejected" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Servicios y gastos rechazados</h2><span class="muted" id="rejectedCount"></span></div>
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Aquí quedan los que rechazaste en la Bandeja. Puedes regresarlos a la Bandeja para revisarlos o editarlos.</p>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input id="rejSearch" oninput="renderRejected()" placeholder="🔎 Buscar por persona, fecha o detalle…" style="flex:1;padding:9px 12px;border:1.5px solid var(--line);border-radius:10px">
+      <button class="btn ghost sm" onclick="document.getElementById('rejSearch').value='';renderRejected()">Limpiar</button>
+    </div>
     <div style="overflow:auto"><table id="rejectedTable"></table></div>
   </div>
   <div id="tabDamage" class="card hide" style="padding:18px">
@@ -276,6 +284,10 @@
     <div class="tabs" style="margin-bottom:12px">
       <button id="dmgTabPending" class="on" onclick="setDamageView('pending')">⏳ Pendientes <span id="dmgCountPending"></span></button>
       <button id="dmgTabDone" onclick="setDamageView('done')">✅ Resueltos <span id="dmgCountDone"></span></button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input id="dmgSearch" oninput="renderDamage()" placeholder="🔎 Buscar por persona, fecha, propiedad o descripción…" style="flex:1;padding:9px 12px;border:1.5px solid var(--line);border-radius:10px">
+      <button class="btn ghost sm" onclick="document.getElementById('dmgSearch').value='';renderDamage()">Limpiar</button>
     </div>
     <div style="overflow:auto"><table id="damageTable"></table></div>
   </div>
@@ -285,6 +297,10 @@
     <div class="tabs" style="margin-bottom:12px">
       <button id="chgTabPending" class="on" onclick="setChargeView('pending')">⏳ Pendientes <span id="chgCountPending"></span></button>
       <button id="chgTabDone" onclick="setChargeView('done')">✅ Resueltos <span id="chgCountDone"></span></button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input id="chgSearch" oninput="renderCharges()" placeholder="🔎 Buscar por persona, fecha, propiedad o cargo…" style="flex:1;padding:9px 12px;border:1.5px solid var(--line);border-radius:10px">
+      <button class="btn ghost sm" onclick="document.getElementById('chgSearch').value='';renderCharges()">Limpiar</button>
     </div>
     <div style="overflow:auto"><table id="chargesTable"></table></div>
   </div>
@@ -1123,7 +1139,9 @@ function renderCharges(){
   let nP=0,nD=0;all.forEach(c=>{if(c.status==='pending')nP++;else nD++;});
   const cP=document.getElementById('chgCountPending'),cD=document.getElementById('chgCountDone');
   if(cP)cP.textContent='('+nP+')';if(cD)cD.textContent='('+nD+')';
-  const list=all.filter(c=>chargeView==='pending'?c.status==='pending':c.status!=='pending');
+  const q=searchQ('chgSearch');
+  const list=all.filter(c=>(chargeView==='pending'?c.status==='pending':c.status!=='pending')
+    &&(!q||(staffName(c.staff)+' '+c.date+' '+propName(c.prop)+' '+c.label).toLowerCase().indexOf(q)>-1));
   const rows=list.map(c=>'<tr>'+
     '<td><span class="avatar">'+initials(staffName(c.staff))+'</span>'+staffName(c.staff)+'</td>'+
     '<td>'+c.date+'</td>'+
@@ -1191,8 +1209,9 @@ async function setReportNote(id,val){
   const r=reports.find(x=>x.id===id);if(r)r.pendingNote=val;
 }
 function renderRejected(){
-  const rej=subs.filter(s=>s.status==='rejected');
-  document.getElementById('rejectedCount').textContent=rej.length+' rechazado(s)';
+  const q=searchQ('rejSearch');
+  const rej=subs.filter(s=>s.status==='rejected'&&(!q||subSearchText(s).indexOf(q)>-1));
+  document.getElementById('rejectedCount').textContent=rej.length+' rechazado(s)'+(q?' · filtro: "'+q+'"':'');
   const rows=rej.map(s=>{
     const isSvc=s.type==='service';
     const detalle=isSvc?s.items.map(i=>propName(i.prop)+(i.damage?' ⚠️':'')).join(', '):(s.customLines?('🧾 Factura libre'+(s.desc&&s.desc!=='Factura libre'?': '+s.desc:'')):(s.desc+' · '+propName(s.prop)));
@@ -1438,7 +1457,9 @@ function renderInvoices(){
   let nP=0,nD=0;allKeys.forEach(k=>{if(isPaid(k))nD++;else nP++;});
   const cP=document.getElementById('invCountPending'),cD=document.getElementById('invCountPaid');
   if(cP)cP.textContent='('+nP+')';if(cD)cD.textContent='('+nD+')';
-  const groups={};allKeys.forEach(k=>{if((invoiceView==='paid')===isPaid(k))groups[k]=allGroups[k];});
+  const q=searchQ('invSearch');
+  const grpText=k=>{const parts=k.split('|');const wk=parts[0],sid=parts[1];return (staffName(sid)+' '+weekLabel(wk)+' '+wk+' '+weekEnd(wk)+' '+allGroups[k].map(subSearchText).join(' ')).toLowerCase();};
+  const groups={};allKeys.forEach(k=>{if((invoiceView==='paid')===isPaid(k)&&(!q||grpText(k).indexOf(q)>-1))groups[k]=allGroups[k];});
   const keys=Object.keys(groups).sort().reverse();
   const el=document.getElementById('invoiceList');
   if(!keys.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">'+(invoiceView==='paid'?'Aún no hay facturas pagadas.':'No hay facturas por pagar 🎉')+'</p>';return;}
@@ -1691,11 +1712,13 @@ function setDamageView(v){damageView=v;
   document.getElementById('dmgTabDone').classList.toggle('on',v==='done');
   renderDamage();}
 function renderDamage(){
+  const q=searchQ('dmgSearch');
   const rows=[];let nPending=0,nDone=0;
   subs.filter(s=>s.type==='service').forEach(s=>s.items.filter(i=>i.damage).forEach(i=>{
     const isPending=(i.damageStatus||'pending')==='pending';
     if(isPending)nPending++;else nDone++;
     if(damageView==='pending'?!isPending:isPending)return; // mostrar solo los de la sub-pestaña activa
+    if(q&&(staffName(s.staff)+' '+s.date+' '+propName(i.prop)+' '+(i.damage||'')).toLowerCase().indexOf(q)<0)return;
     const n=(i.pathsDamage||[]).length;
     rows.push('<tr>'+
       '<td>'+propName(i.prop)+'</td>'+
@@ -2062,6 +2085,15 @@ function imgOr(url,fake){return url?evTag(url,'width:100%;height:150px;object-fi
 function extrasLabel(i){const p=[];if((i.earlyCheckin||0)>0)p.push('Early Check-in '+money(i.earlyCheckin));if((i.lateCheckout||0)>0)p.push('Late Check-out '+money(i.lateCheckout));if((i.extraGuest||0)>0)p.push('Extra huésped '+money(i.extraGuest));if((i.laundry||0)>0)p.push('Lavandería '+money(i.laundry));return p;}
 function itemTotal(i){return (i.rate||0)+(i.earlyCheckin||0)+(i.lateCheckout||0)+(i.extraGuest||0)+(i.laundry||0);}
 function subTotal(s){return s.type==='service'?(s.items||[]).reduce((a,i)=>a+itemTotal(i),0):Number(s.amount||0);}
+// Texto buscable de un envío (persona · fecha · detalle) para los filtros de búsqueda.
+function subSearchText(s){
+  const isSvc=s.type==='service';
+  const detalle=isSvc?(s.items||[]).map(i=>propName(i.prop)+' '+extrasLabel(i).join(' ')+' '+(i.damage||'')).join(' ')
+    :(s.customLines?('factura libre '+(s.desc||'')+' '+((s.customLines.lines||[]).map(l=>(l.desc||'')+' '+(l.prop?propName(l.prop):'')).join(' ')))
+      :(s.desc+' '+(s.prop?propName(s.prop):'')));
+  return (staffName(s.staff)+' '+s.date+' '+detalle).toLowerCase();
+}
+function searchQ(id){const e=document.getElementById(id);return (e?e.value:'').trim().toLowerCase();}
 // Factura libre: renglones marcados "servicio" llevan retención 10%; los demás son material (exento).
 function expServices(s){return (s.customLines&&s.customLines.lines)?s.customLines.lines.reduce((a,l)=>a+(l.svc?Number(l.amount||0):0),0):0;}
 function expMaterials(s){return s.customLines?(Number(s.amount||0)-expServices(s)):Number(s.amount||0);}
@@ -2310,20 +2342,32 @@ async function msgLoadMode(){
 function msgLoad(){ msgLoadMode(); document.getElementById('msgViewLog').classList.contains('hide')?msgLoadPending():msgLoadLog(); }
 async function msgLoadPending(){
   const c=msgC();
-  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,channel,language,category,confidence,would_auto_reply,reason,body').eq('status','pending').eq('direction','inbound').order('created_at',{ascending:false}).limit(300);
+  const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,channel,language,category,confidence,would_auto_reply,reason,body,auto_reply_body').eq('status','pending').eq('direction','inbound').order('created_at',{ascending:false}).limit(300);
   if(error){toast('Mensajes: '+error.message);return;}
   document.getElementById('msgPendCount').textContent=data.length?('('+data.length+')'):'';
+  window._msgDrafts={};
   const tb=document.getElementById('msgPendTable');
   if(!data.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Sin mensajes pendientes. 🎉</td></tr></tbody>';return;}
-  const rows=data.map(m=>'<tr>'+
-    '<td class="muted" style="white-space:nowrap">'+msgFmtDate(m.received_at||m.created_at)+'</td>'+
-    '<td>'+opsEsc(m.guest_name||'—')+(m.channel?'<br><span class="muted" style="font-size:12px">'+opsEsc(m.channel)+'</span>':'')+'</td>'+
-    '<td style="max-width:340px">'+opsEsc(m.body)+'</td>'+
-    '<td>'+msgCatChip(m.category)+' <span class="muted" style="font-size:12px">'+(m.confidence!=null?Math.round(m.confidence*100)+'%':'—')+'</span></td>'+
-    '<td>'+msgWouldChip(m.would_auto_reply)+'</td>'+
-    '<td><button class="btn ghost sm" onclick="msgMarkHandled(this,\''+m.id+'\')">Marcar atendido</button></td>'+
-    '</tr>').join('');
-  tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Mensaje</th><th>Categoría</th><th>El sistema…</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+  const rows=data.map(m=>{
+    if(m.auto_reply_body) window._msgDrafts[m.id]=m.auto_reply_body;
+    const draft=m.auto_reply_body
+      ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px;font-size:13px;max-width:320px;white-space:pre-wrap">'+opsEsc(m.auto_reply_body)+'</div>'+
+        '<button class="btn ghost sm" style="margin-top:6px" onclick="msgCopy(\''+m.id+'\')">📋 Copiar</button>'
+      : '<span class="muted" title="'+opsEsc(m.reason||'')+'">— escala a ti</span>';
+    return '<tr>'+
+    '<td class="muted" style="white-space:nowrap;vertical-align:top">'+msgFmtDate(m.received_at||m.created_at)+'</td>'+
+    '<td style="vertical-align:top">'+opsEsc(m.guest_name||'—')+(m.channel?'<br><span class="muted" style="font-size:12px">'+opsEsc(m.channel)+'</span>':'')+'</td>'+
+    '<td style="max-width:280px;vertical-align:top">'+opsEsc(m.body)+'</td>'+
+    '<td style="vertical-align:top">'+msgCatChip(m.category)+' <span class="muted" style="font-size:12px">'+(m.confidence!=null?Math.round(m.confidence*100)+'%':'—')+'</span></td>'+
+    '<td style="vertical-align:top">'+draft+'</td>'+
+    '<td style="vertical-align:top"><button class="btn ghost sm" onclick="msgMarkHandled(this,\''+m.id+'\')">Marcar atendido</button></td>'+
+    '</tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Mensaje</th><th>Categoría</th><th>Respuesta sugerida (borrador)</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+}
+function msgCopy(id){
+  const t=(window._msgDrafts||{})[id]; if(!t)return;
+  navigator.clipboard.writeText(t).then(()=>toast('📋 Borrador copiado')).catch(()=>toast('No se pudo copiar'));
 }
 async function msgMarkHandled(btn,id){
   btn.disabled=true;
