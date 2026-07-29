@@ -487,6 +487,7 @@
         <p class="muted" style="font-size:12px;margin:6px 0 0">Se enviará al huésped por Hostfully. Revisa/edita antes de enviar. <b>Nunca menciones descuentos aquí sin querer.</b></p>
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
           <button class="btn ghost" onclick="msgCloseReply()">Cancelar</button>
+          <button class="btn ghost" id="msgPolishBtn" onclick="msgPolish()">✨ Pulir</button>
           <button class="btn" id="msgSendBtn" onclick="msgSend()">Enviar a huésped</button>
         </div>
       </div>
@@ -2455,6 +2456,16 @@ async function msgSend(){
   btn.disabled=false; btn.textContent='Enviar a huésped';
   if(error||(data&&data.ok===false)){ toast('Error al enviar: '+((error&&error.message)||(data&&data.error)||'desconocido')); return; }
   toast('✅ Enviado al huésped'); msgCloseReply(); msgLoadPending();
+}
+async function msgPolish(){
+  const id=_msgReplyId; if(!id)return;
+  const body=document.getElementById('msgReplyText').value.trim();
+  if(!body){ toast('Escribe algo primero'); return; }
+  const btn=document.getElementById('msgPolishBtn'); btn.disabled=true; const orig=btn.textContent; btn.textContent='Puliendo…';
+  const {data,error}=await msgC().functions.invoke('ops-send-message',{body:{messageId:id,body,polishOnly:true}});
+  btn.disabled=false; btn.textContent=orig;
+  if(error||(data&&data.ok===false)){ toast('Pulir: '+((error&&error.message)||(data&&data.error)||'error')); return; }
+  if(data&&data.polished){ document.getElementById('msgReplyText').value=data.polished; toast('✨ Pulido — revísalo y envía'); }
 }
 async function msgMarkHandled(btn,id){
   btn.disabled=true;
