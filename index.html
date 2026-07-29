@@ -297,6 +297,10 @@
       <button id="expTabApproved" onclick="setExpenseView('approved')">✅ Aprobados <span id="expCountApproved"></span></button>
       <button id="expTabRejected" onclick="setExpenseView('rejected')">🚫 Rechazados <span id="expCountRejected"></span></button>
     </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input id="expSearch" oninput="renderExpenses()" placeholder="🔎 Buscar por persona, fecha (2026-07) o detalle…" style="flex:1;padding:9px 12px;border:1.5px solid var(--line);border-radius:10px">
+      <button class="btn ghost sm" onclick="document.getElementById('expSearch').value='';renderExpenses()">Limpiar</button>
+    </div>
     <div style="overflow:auto"><table id="expensesTable"></table></div>
   </div>
   <div id="tabReports" class="card hide" style="padding:18px">
@@ -1068,10 +1072,18 @@ function renderExpenses(){
   all.forEach(s=>{if(s.status==='pending')nP++;else if(s.status==='approved')nAp++;else if(s.status==='rejected')nR++;});
   const set=function(id,n){const e=document.getElementById(id);if(e)e.textContent='('+n+')';};
   set('expCountAll',nA);set('expCountPending',nP);set('expCountApproved',nAp);set('expCountRejected',nR);
-  const list=all.filter(s=>expenseView==='all'?true:s.status===expenseView)
+  const qEl=document.getElementById('expSearch');const q=(qEl?qEl.value:'').trim().toLowerCase();
+  const matchQ=function(s){
+    if(!q)return true;
+    const isFree=!!s.customLines;
+    const detalle=isFree?(s.desc&&s.desc!=='Factura libre'?s.desc:'')+' '+((s.customLines.lines||[]).map(function(l){return (l.desc||'')+' '+(l.prop?propName(l.prop):'');}).join(' ')):(s.desc+' '+(s.prop?propName(s.prop):''));
+    const hay=(staffName(s.staff)+' '+s.date+' '+(isFree?'factura libre':'reembolso')+' '+detalle).toLowerCase();
+    return hay.indexOf(q)>-1;
+  };
+  const list=all.filter(s=>(expenseView==='all'?true:s.status===expenseView)&&matchQ(s))
     .sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
   const total=list.reduce((a,s)=>a+Number(s.amount||0),0);
-  const tEl=document.getElementById('expTotal');if(tEl)tEl.textContent=list.length+' gasto(s) · Total '+money(total);
+  const tEl=document.getElementById('expTotal');if(tEl)tEl.textContent=list.length+' gasto(s) · Total '+money(total)+(q?' · filtro: "'+q+'"':'');
   const statusPill=function(s){
     if(s.status==='approved')return '<span class="pill '+(s.paid?'paid':'approved')+'">'+(s.paid?'Pagada':'Aprobado')+'</span>';
     if(s.status==='rejected')return '<span class="pill rejected">Rechazado</span>';
@@ -1090,7 +1102,7 @@ function renderExpenses(){
       '<td>'+statusPill(s)+'</td>'+
     '</tr>';
   }).join('');
-  const vacio={all:'Aún no hay gastos registrados',pending:'Sin gastos pendientes 🎉',approved:'Aún no hay gastos aprobados',rejected:'Sin gastos rechazados'}[expenseView];
+  const vacio=q?('Sin resultados para "'+q+'"'):{all:'Aún no hay gastos registrados',pending:'Sin gastos pendientes 🎉',approved:'Aún no hay gastos aprobados',rejected:'Sin gastos rechazados'}[expenseView];
   el.innerHTML='<tr><th>Persona</th><th>Fecha</th><th>Detalle</th><th>Evidencia</th><th>Monto</th><th>Estado</th></tr>'+
     (rows||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">'+vacio+'</td></tr>');
 }
