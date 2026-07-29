@@ -497,12 +497,17 @@
     <div class="tabs" style="margin-bottom:12px">
       <button id="msgTabPending" class="on" onclick="msgTab('pending')">Pendientes <span id="msgPendCount"></span></button>
       <button id="msgTabLog" onclick="msgTab('log')">Historial</button>
+      <button id="msgTabAuto" onclick="msgTab('auto')">⚙️ Auto-envío</button>
     </div>
     <div id="msgViewPending" class="card" style="padding:14px">
       <div style="overflow:auto"><table id="msgPendTable"></table></div>
     </div>
     <div id="msgViewLog" class="card hide" style="padding:14px">
       <div style="overflow:auto"><table id="msgLogTable"></table></div>
+    </div>
+    <div id="msgViewAuto" class="card hide" style="padding:14px">
+      <p class="muted" style="font-size:13px;margin-top:0">Enciende el <b>auto-envío</b> por propiedad. Con ON, el bot <b>responde solo</b> (sin tu revisión) los mensajes de <b>info</b> (wifi, dirección, check-in, parking, reglas) y de <b>luz/agua</b>. Todo lo de <b>dinero, quejas o dudoso siempre escala</b> a ti. Empieza por las propiedades que ya te den confianza.</p>
+      <div style="overflow:auto"><table id="msgAutoTable"></table></div>
     </div>
   </div>
 </div>
@@ -2339,17 +2344,35 @@ function msgWouldChip(would){return would?'<span style="display:inline-block;pad
 function msgFmtDate(s){return s?new Date(s).toLocaleString():'—';}
 async function msgInit(){ await Promise.all([msgLoadMode(), msgLoadProps()]); msgTab('pending'); }
 function msgTab(w){
-  const V={pending:'msgViewPending',log:'msgViewLog'},B={pending:'msgTabPending',log:'msgTabLog'};
+  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto'};
   Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
   Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===w));
-  (w==='log')?msgLoadLog():msgLoadPending();
+  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():msgLoadPending();
 }
 async function msgLoadMode(){
-  const {data}=await msgC().from('ops_app_settings').select('key,value').eq('key','msg_auto_reply_enabled');
-  const on=((data&&data[0]&&data[0].value)||'false').toLowerCase()==='true';
+  const {data,error}=await msgC().from('ops_properties').select('id').eq('msg_auto_reply',true);
+  const n=error?0:(data||[]).length;
   const b=document.getElementById('msgModeBadge'); if(!b)return;
-  b.textContent=on?'AUTO-RESPUESTA ON':'SOLO REVISIÓN';
-  b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(on?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e');
+  b.textContent=n>0?('AUTO-ENVÍO: '+n+' propiedad'+(n>1?'es':'')):'SOLO REVISIÓN';
+  b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(n>0?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e');
+}
+async function msgLoadAuto(){
+  const {data,error}=await msgC().from('ops_properties').select('id,name,msg_auto_reply,is_active').order('name');
+  const tb=document.getElementById('msgAutoTable');
+  if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste la migración que agrega la columna <code>msg_auto_reply</code>? ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
+  const rows=(data||[]).map(p=>'<tr>'+
+    '<td>'+opsEsc(p.name)+(p.is_active?'':' <span class="muted" style="font-size:12px">(inactiva)</span>')+'</td>'+
+    '<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" '+(p.msg_auto_reply?'checked':'')+' onchange="msgToggleAuto(\''+p.id+'\',this)"> <span style="font-size:12px;font-weight:700;color:'+(p.msg_auto_reply?'#166534':'#92400e')+'">'+(p.msg_auto_reply?'ON':'OFF')+'</span></label></td>'+
+    '</tr>').join('');
+  tb.innerHTML='<thead><tr><th>Propiedad</th><th style="text-align:center">Auto-envío</th></tr></thead><tbody>'+rows+'</tbody>';
+}
+async function msgToggleAuto(id,el){
+  const on=el.checked;
+  if(on&&!confirm('¿Activar AUTO-ENVÍO para esta propiedad?\n\nEl bot responderá SOLO (sin tu revisión) los mensajes de info, luz y agua de esta propiedad. Lo de dinero, quejas o dudoso SIEMPRE escala a ti.')){ el.checked=false; return; }
+  const {error}=await msgC().from('ops_properties').update({msg_auto_reply:on}).eq('id',id);
+  if(error){toast('Error: '+error.message); el.checked=!on; return; }
+  const s=el.parentNode.querySelector('span'); s.textContent=on?'ON':'OFF'; s.style.color=on?'#166534':'#92400e';
+  toast(on?'✅ Auto-envío ACTIVADO para esta propiedad':'Auto-envío apagado'); msgLoadMode();
 }
 async function msgLoadProps(){
   const {data,error}=await msgC().from('ops_properties').select('id,name');
