@@ -997,6 +997,7 @@ async function submitAll(){
         const dmgPaths=[];
         if(s.damageOn){for(let k=0;k<(s.damageFiles||[]).length;k++){const dp=await upload(base+'_dano'+(k+1)+extOf(s.damageFiles[k]),s.damageFiles[k]);if(dp)dmgPaths.push(dp);}}
         const {error:ie}=await sb.from('submission_items').insert({submission_id:sub.id,property_id:pid,
+          rate_applied:(rates[currentStaff]||{})[pid]||0,
           photo_before:pb,photo_after:pa,damage_note:(s.damageOn?s.damage.trim():'')||null,damage_photo:dmgPaths[0]||null,damage_photos:dmgPaths,
           early_checkin:s.earlyCheckin?(company.fee_early_checkin||0.01):0,
           late_checkout:s.lateCheckout?(company.fee_late_checkout||0.01):0,
