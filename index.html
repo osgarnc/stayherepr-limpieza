@@ -478,6 +478,18 @@
     </div>
   </div>
   <div id="tabMensajes" class="hide">
+    <div id="msgReplyModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+      <div class="card" style="max-width:640px;width:100%;max-height:85vh;overflow:auto">
+        <div class="sectitle"><h2>Responder al huésped</h2></div>
+        <div id="msgReplyContext" class="muted" style="font-size:13px;margin-bottom:8px"></div>
+        <textarea id="msgReplyText" style="width:100%;min-height:180px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px" placeholder="Escribe o edita la respuesta…"></textarea>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">Se enviará al huésped por Hostfully. Revisa/edita antes de enviar. <b>Nunca menciones descuentos aquí sin querer.</b></p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+          <button class="btn ghost" onclick="msgCloseReply()">Cancelar</button>
+          <button class="btn" id="msgSendBtn" onclick="msgSend()">Enviar a huésped</button>
+        </div>
+      </div>
+    </div>
     <div class="sectitle"><h2>💬 Mensajes</h2>
       <span style="display:flex;align-items:center;gap:10px"><span id="msgModeBadge"></span><button class="btn ghost sm" onclick="msgLoad()">Actualizar</button></span>
     </div>
@@ -2356,11 +2368,12 @@ async function msgLoadPending(){
   const {data,error}=await c.from('ops_messages').select('id,created_at,received_at,guest_name,channel,property_id,hostfully_property_uid,language,category,confidence,would_auto_reply,reason,body,auto_reply_body').eq('status','pending').eq('direction','inbound').order('created_at',{ascending:false}).limit(300);
   if(error){toast('Mensajes: '+error.message);return;}
   document.getElementById('msgPendCount').textContent=data.length?('('+data.length+')'):'';
-  window._msgDrafts={};
+  window._msgDrafts={}; window._msgInfo={};
   const tb=document.getElementById('msgPendTable');
   if(!data.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Sin mensajes pendientes. 🎉</td></tr></tbody>';return;}
   const rows=data.map(m=>{
     if(m.auto_reply_body) window._msgDrafts[m.id]=m.auto_reply_body;
+    window._msgInfo[m.id]={g:m.guest_name||'—',b:m.body||'',p:(window._msgProps||{})[m.property_id]||''};
     const draft=m.auto_reply_body
       ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px;font-size:13px;max-width:320px;white-space:pre-wrap">'+opsEsc(m.auto_reply_body)+'</div>'+
         '<button class="btn ghost sm" style="margin-top:6px" onclick="msgCopy(\''+m.id+'\')">📋 Copiar</button>'
@@ -2372,7 +2385,7 @@ async function msgLoadPending(){
     '<td style="max-width:280px;vertical-align:top">'+opsEsc(m.body)+'</td>'+
     '<td style="vertical-align:top">'+msgCatChip(m.category)+' <span class="muted" style="font-size:12px">'+(m.confidence!=null?Math.round(m.confidence*100)+'%':'—')+'</span></td>'+
     '<td style="vertical-align:top">'+draft+'</td>'+
-    '<td style="vertical-align:top"><button class="btn ghost sm" onclick="msgMarkHandled(this,\''+m.id+'\')">Marcar atendido</button></td>'+
+    '<td style="vertical-align:top;white-space:nowrap"><button class="btn sm" onclick="msgReply(\''+m.id+'\')">✍️ Responder</button><br><button class="btn ghost sm" style="margin-top:6px" onclick="msgMarkHandled(this,\''+m.id+'\')">Marcar atendido</button></td>'+
     '</tr>';
   }).join('');
   tb.innerHTML='<thead><tr><th>Fecha</th><th>Huésped</th><th>Propiedad</th><th>Mensaje</th><th>Categoría</th><th>Respuesta sugerida (borrador)</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
@@ -2380,6 +2393,27 @@ async function msgLoadPending(){
 function msgCopy(id){
   const t=(window._msgDrafts||{})[id]; if(!t)return;
   navigator.clipboard.writeText(t).then(()=>toast('📋 Borrador copiado')).catch(()=>toast('No se pudo copiar'));
+}
+let _msgReplyId=null;
+function msgReply(id){
+  _msgReplyId=id;
+  document.getElementById('msgReplyText').value=(window._msgDrafts||{})[id]||'';
+  const i=(window._msgInfo||{})[id]||{};
+  document.getElementById('msgReplyContext').innerHTML='<b>Para:</b> '+opsEsc(i.g||'—')+(i.p?' · '+opsEsc(i.p):'')+(i.b?'<br><span style="color:var(--muted)">«'+opsEsc(i.b.slice(0,200))+'»</span>':'');
+  document.getElementById('msgReplyModal').classList.remove('hide');
+  document.getElementById('msgReplyText').focus();
+}
+function msgCloseReply(){ document.getElementById('msgReplyModal').classList.add('hide'); _msgReplyId=null; }
+async function msgSend(){
+  const id=_msgReplyId; if(!id)return;
+  const body=document.getElementById('msgReplyText').value.trim();
+  if(!body){ toast('Escribe una respuesta'); return; }
+  if(!confirm('¿Enviar esta respuesta al huésped por Hostfully? Se entrega de inmediato.')) return;
+  const btn=document.getElementById('msgSendBtn'); btn.disabled=true; btn.textContent='Enviando…';
+  const {data,error}=await msgC().functions.invoke('ops-send-message',{body:{messageId:id,body}});
+  btn.disabled=false; btn.textContent='Enviar a huésped';
+  if(error||(data&&data.ok===false)){ toast('Error al enviar: '+((error&&error.message)||(data&&data.error)||'desconocido')); return; }
+  toast('✅ Enviado al huésped'); msgCloseReply(); msgLoadPending();
 }
 async function msgMarkHandled(btn,id){
   btn.disabled=true;
