@@ -755,18 +755,21 @@ async function renderMyEarlyLate(){
     .not('paid_at','is',null).order('paid_at',{ascending:false});
   if(error){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar (¿corriste el SQL <code>fase-cleaner-earlylate.sql</code>?).</p>';return;}
   if(!(data||[]).length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Aún no tienes early/late pagados. Aparecerán aquí cuando apruebes uno y el huésped pague.</p>';return;}
-  const svc=k=>k==='early_checkin'?'🔑 Early check-in':'🕗 Late check-out';
+  const svc=k=>k==='early_checkin'?['🔑 Early check-in','#ede9fe','#5b21b6']:['🕗 Late check-out','#ede9fe','#5b21b6'];
   const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   const fmt=d=>{try{return new Date(d).toLocaleString('es-PR',{dateStyle:'medium',timeStyle:'short'});}catch(e){return d;}};
-  el.innerHTML='<div style="overflow:auto"><table>'+
-    '<tr><th>Propiedad</th><th>Servicio</th><th>Cuándo</th><th>Huésped</th></tr>'+
-    data.map(e=>'<tr>'+
-      '<td><b>'+esc(e.property_name||'—')+'</b></td>'+
-      '<td>'+svc(e.kind)+'</td>'+
-      '<td>'+esc(e.event_at?fmt(e.event_at):(e.event_time_label||'—'))+'</td>'+
-      '<td class="muted" style="font-size:13px">'+esc(e.guest_name||'—')+'</td>'+
-    '</tr>').join('')+
-    '</table></div>';
+  el.innerHTML=data.map(e=>{const c=svc(e.kind);const cuando=e.event_at?fmt(e.event_at):(e.event_time_label||'');
+    return '<div style="border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:8px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
+        '<b style="font-size:14px">'+esc(e.property_name||'—')+'</b>'+
+        '<span style="font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:'+c[1]+';color:'+c[2]+';white-space:nowrap">'+c[0]+'</span>'+
+      '</div>'+
+      '<div class="muted" style="font-size:12.5px;margin-top:5px;line-height:1.5">'+
+        (cuando?'📅 '+esc(cuando)+'<br>':'')+
+        '👤 '+esc(e.guest_name||'—')+
+      '</div>'+
+    '</div>';
+  }).join('');
 }
 /* ---------- REPORTE DIARIO (personal) ---------- */
 let drFiles=[];
