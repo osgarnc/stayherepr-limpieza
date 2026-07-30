@@ -2274,6 +2274,25 @@ function opsTab(w){
 }
 function opsMoney(n){return (n==null)?'—':'$'+Number(n).toFixed(0);}
 function opsEsc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// Convierte un cuerpo con HTML/entidades (mensajes automáticos de Hostfully) a texto plano
+// legible. Usa DOMParser (no ejecuta scripts ni carga recursos). Colapsa espacios.
+function msgStrip(s){
+  if(s==null) return '';
+  s=String(s);
+  if(s.indexOf('<')===-1 && s.indexOf('&')===-1) return s;
+  // Inserta un espacio en saltos y cierres de bloque para que las palabras no se peguen.
+  const spaced=s.replace(/<br\s*\/?>/gi,' ').replace(/<\/(p|div|li|tr|h[1-6])>/gi,'$& ');
+  try{ const doc=new DOMParser().parseFromString(spaced,'text/html'); return (doc.body.textContent||'').replace(/\s+/g,' ').trim(); }
+  catch(e){ return spaced.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim(); }
+}
+// Celda de "Mensaje" para el Historial: texto plano, truncado, con etiqueta si es un
+// mensaje saliente automático de Hostfully (para que no parezca un error de código).
+function msgBodyCell(m){
+  const txt=msgStrip(m.body), MAX=240;
+  const shown=txt.length>MAX?txt.slice(0,MAX)+'…':txt;
+  const head=(m.direction==='outbound')?'<div style="font-size:11px;font-weight:600;color:#8a94a3;margin-bottom:3px">📤 Enviado por Hostfully</div>':'';
+  return head+'<span>'+opsEsc(shown)+'</span>';
+}
 function opsChip(reason){
   const M={discounted:['#e0f2fe','#075985','descuento'],floored:['#fef3c7','#92400e','piso'],no_discount:['#eef1f4','#475569','✓ Hostfully'],fixed:['#ede9fe','#5b21b6','precio día']};
   const c=M[reason]||['#eef1f4','#6b7885',reason];
@@ -2524,7 +2543,7 @@ async function msgLoadPending(){
   if(!data.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Sin mensajes pendientes. 🎉</td></tr></tbody>';return;}
   const rows=data.map(m=>{
     if(m.auto_reply_body) window._msgDrafts[m.id]=m.auto_reply_body;
-    window._msgInfo[m.id]={g:m.guest_name||'—',b:m.body||'',p:(window._msgProps||{})[m.property_id]||''};
+    window._msgInfo[m.id]={g:m.guest_name||'—',b:msgStrip(m.body)||'',p:(window._msgProps||{})[m.property_id]||''};
     const draft=m.auto_reply_body
       ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px;font-size:13px;max-width:320px;white-space:pre-wrap">'+opsEsc(m.auto_reply_body)+'</div>'+
         '<button class="btn ghost sm" style="margin-top:6px" onclick="msgCopy(\''+m.id+'\')">📋 Copiar</button>'
@@ -2533,7 +2552,7 @@ async function msgLoadPending(){
     '<td class="muted" style="white-space:nowrap;vertical-align:top">'+msgFmtDate(m.received_at||m.created_at)+'</td>'+
     '<td style="vertical-align:top">'+opsEsc(m.guest_name||'—')+(m.channel?'<br><span class="muted" style="font-size:12px">'+opsEsc(m.channel)+'</span>':'')+'</td>'+
     '<td style="vertical-align:top;font-size:13px">'+msgPropName(m)+'</td>'+
-    '<td style="max-width:280px;vertical-align:top">'+opsEsc(m.body)+'</td>'+
+    '<td style="max-width:280px;vertical-align:top">'+opsEsc(msgStrip(m.body))+'</td>'+
     '<td style="vertical-align:top">'+msgCatChip(m.category)+' <span class="muted" style="font-size:12px">'+(m.confidence!=null?Math.round(m.confidence*100)+'%':'—')+'</span></td>'+
     '<td style="vertical-align:top">'+draft+'</td>'+
     '<td style="vertical-align:top;white-space:nowrap"><button class="btn sm" onclick="msgReply(\''+m.id+'\')">✍️ Responder</button>'+
@@ -2606,7 +2625,7 @@ async function msgLoadLog(){
     '<td class="muted" style="white-space:nowrap">'+msgFmtDate(m.received_at||m.created_at)+'</td>'+
     '<td>'+opsEsc(m.guest_name||'—')+'</td>'+
     '<td style="font-size:13px">'+msgPropName(m)+'</td>'+
-    '<td style="max-width:320px">'+opsEsc(m.body)+'</td>'+
+    '<td style="max-width:320px">'+msgBodyCell(m)+'</td>'+
     '<td>'+msgCatChip(m.category)+'</td>'+
     '<td>'+(ACT[m.action]||m.action||'—')+'</td>'+
     '<td>'+(m.status==='pending'?'<span class="muted">pendiente</span>':'atendido')+'</td>'+
