@@ -492,6 +492,17 @@
         </div>
       </div>
     </div>
+    <div id="clPropsModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+      <div class="card" style="max-width:520px;width:100%;max-height:85vh;overflow:auto">
+        <div class="sectitle"><h2 id="clPropsTitle">Propiedades</h2></div>
+        <p class="muted" style="font-size:12px;margin-top:0">Marca las propiedades cuyas solicitudes de late check-out / early check-in debe aprobar este cleaner. Solo recibirá notificaciones de las propiedades marcadas.</p>
+        <div id="clPropsList" style="display:flex;flex-direction:column;gap:2px;margin:8px 0"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+          <button class="btn ghost" onclick="msgCloseCleanerProps()">Cancelar</button>
+          <button class="btn" id="clPropsSaveBtn" onclick="msgSaveCleanerProps()">Guardar</button>
+        </div>
+      </div>
+    </div>
     <div class="sectitle"><h2>💬 Mensajes</h2>
       <span style="display:flex;align-items:center;gap:10px"><span id="msgModeBadge"></span><button class="btn ghost sm" onclick="msgLoad()">Actualizar</button></span>
     </div>
@@ -2380,17 +2391,44 @@ function msgTab(w){
 }
 async function msgLoadCleaners(){
   const tb=document.getElementById('msgCleanersTable');
-  const {data,error}=await msgC().from('ops_cleaners').select('id,name,telegram_chat_id,phone,active').order('name');
-  if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste la migración <code>ops_cleaners</code>? ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
+  const {data,error}=await msgC().from('ops_cleaners').select('id,name,telegram_chat_id,phone,active,property_ids').order('name');
+  if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste las migraciones <code>ops_cleaners</code> / <code>property_ids</code>? ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
+  window._cleaners={}; for(const c of (data||[])) window._cleaners[c.id]=c;
   if(!(data||[]).length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay cleaners. Agrega uno arriba.</td></tr></tbody>';return;}
-  const rows=data.map(c=>'<tr>'+
+  const rows=data.map(c=>{
+    const n=(c.property_ids||[]).length;
+    return '<tr>'+
     '<td>'+opsEsc(c.name)+'</td>'+
     '<td class="muted" style="font-size:12px">'+opsEsc(c.telegram_chat_id)+'</td>'+
-    '<td class="muted" style="font-size:12px">'+opsEsc(c.phone||'—')+'</td>'+
+    '<td style="text-align:center"><button class="btn ghost sm" onclick="msgCleanerProps(\''+c.id+'\')">'+(n?('🏠 '+n):'⚠️ 0')+' propiedad'+(n===1?'':'es')+'</button></td>'+
     '<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" '+(c.active?'checked':'')+' onchange="msgToggleCleaner(\''+c.id+'\',this)"> <span style="font-size:12px;font-weight:700;color:'+(c.active?'#166534':'#92400e')+'">'+(c.active?'Activo':'Inactivo')+'</span></label></td>'+
     '<td style="text-align:right"><button class="btn ghost sm" onclick="msgDeleteCleaner(\''+c.id+'\',\''+opsEsc(c.name).replace(/\x27/g,"")+'\')">Borrar</button></td>'+
-    '</tr>').join('');
-  tb.innerHTML='<thead><tr><th>Nombre</th><th>Telegram ID</th><th>Tel</th><th style="text-align:center">Estado</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+    '</tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Nombre</th><th>Telegram ID</th><th style="text-align:center">Propiedades</th><th style="text-align:center">Estado</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+}
+let _clPropsId=null;
+async function msgCleanerProps(id){
+  _clPropsId=id;
+  const c=(window._cleaners||{})[id]; if(!c)return;
+  // asegura la lista de propiedades cargada
+  if(!window._msgProps||!Object.keys(window._msgProps).length){ await msgLoadProps(); }
+  const assigned=new Set(c.property_ids||[]);
+  const props=Object.entries(window._msgProps||{}).sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
+  const boxes=props.map(([pid,pname])=>'<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer"><input type="checkbox" class="clPropChk" value="'+pid+'" '+(assigned.has(pid)?'checked':'')+'> '+opsEsc(pname)+'</label>').join('');
+  document.getElementById('clPropsTitle').textContent='Propiedades de '+c.name;
+  document.getElementById('clPropsList').innerHTML=boxes||'<p class="muted">Carga las propiedades primero.</p>';
+  document.getElementById('clPropsModal').classList.remove('hide');
+}
+function msgCloseCleanerProps(){ document.getElementById('clPropsModal').classList.add('hide'); _clPropsId=null; }
+async function msgSaveCleanerProps(){
+  const id=_clPropsId; if(!id)return;
+  const ids=[...document.querySelectorAll('.clPropChk:checked')].map(x=>x.value);
+  const btn=document.getElementById('clPropsSaveBtn'); btn.disabled=true;
+  const {error}=await msgC().from('ops_cleaners').update({property_ids:ids}).eq('id',id);
+  btn.disabled=false;
+  if(error){ toast('Propiedades: '+error.message); return; }
+  toast('✅ Propiedades asignadas ('+ids.length+')'); msgCloseCleanerProps(); msgLoadCleaners();
 }
 async function msgAddCleaner(){
   const name=document.getElementById('clName').value.trim();
