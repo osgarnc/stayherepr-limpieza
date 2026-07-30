@@ -500,6 +500,7 @@
       <button id="msgTabPending" class="on" onclick="msgTab('pending')">Pendientes <span id="msgPendCount"></span></button>
       <button id="msgTabLog" onclick="msgTab('log')">Historial</button>
       <button id="msgTabAuto" onclick="msgTab('auto')">⚙️ Auto-envío</button>
+      <button id="msgTabCleaners" onclick="msgTab('cleaners')">🧹 Cleaners</button>
     </div>
     <div id="msgViewPending" class="card" style="padding:14px">
       <div style="overflow:auto"><table id="msgPendTable"></table></div>
@@ -510,6 +511,16 @@
     <div id="msgViewAuto" class="card hide" style="padding:14px">
       <p class="muted" style="font-size:13px;margin-top:0">Enciende el <b>auto-envío</b> por propiedad. Con ON, el bot <b>responde solo</b> (sin tu revisión) los mensajes de <b>info</b> (wifi, dirección, check-in, parking, reglas) y de <b>luz/agua</b>. Todo lo de <b>dinero, quejas o dudoso siempre escala</b> a ti. Empieza por las propiedades que ya te den confianza.</p>
       <div style="overflow:auto"><table id="msgAutoTable"></table></div>
+    </div>
+    <div id="msgViewCleaners" class="card hide" style="padding:14px">
+      <p class="muted" style="font-size:13px;margin-top:0">Cleaners que reciben las solicitudes de <b>late check-out / early check-in</b> por Telegram para aprobar. Solo se les envía a los que estén <b>Activos</b>. <br>Para el <b>Telegram ID</b>: el cleaner le escribe cualquier mensaje al bot y este le responde su ID; pégalo aquí.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px">
+        <input id="clName" placeholder="Nombre" style="flex:1;min-width:120px;padding:8px;border:1.5px solid var(--line);border-radius:8px">
+        <input id="clChat" placeholder="Telegram ID (ej. 8572998489)" style="flex:1;min-width:150px;padding:8px;border:1.5px solid var(--line);border-radius:8px">
+        <input id="clPhone" placeholder="Tel (opcional)" style="width:130px;padding:8px;border:1.5px solid var(--line);border-radius:8px">
+        <button class="btn" id="clAddBtn" onclick="msgAddCleaner()">+ Agregar</button>
+      </div>
+      <div style="overflow:auto"><table id="msgCleanersTable"></table></div>
     </div>
   </div>
 
@@ -2362,10 +2373,49 @@ function msgWouldChip(would){return would?'<span style="display:inline-block;pad
 function msgFmtDate(s){return s?new Date(s).toLocaleString():'—';}
 async function msgInit(){ await Promise.all([msgLoadMode(), msgLoadProps()]); msgTab('pending'); }
 function msgTab(w){
-  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto'};
+  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto',cleaners:'msgViewCleaners'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto',cleaners:'msgTabCleaners'};
   Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
   Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===w));
-  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():msgLoadPending();
+  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():(w==='cleaners')?msgLoadCleaners():msgLoadPending();
+}
+async function msgLoadCleaners(){
+  const tb=document.getElementById('msgCleanersTable');
+  const {data,error}=await msgC().from('ops_cleaners').select('id,name,telegram_chat_id,phone,active').order('name');
+  if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste la migración <code>ops_cleaners</code>? ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
+  if(!(data||[]).length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay cleaners. Agrega uno arriba.</td></tr></tbody>';return;}
+  const rows=data.map(c=>'<tr>'+
+    '<td>'+opsEsc(c.name)+'</td>'+
+    '<td class="muted" style="font-size:12px">'+opsEsc(c.telegram_chat_id)+'</td>'+
+    '<td class="muted" style="font-size:12px">'+opsEsc(c.phone||'—')+'</td>'+
+    '<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" '+(c.active?'checked':'')+' onchange="msgToggleCleaner(\''+c.id+'\',this)"> <span style="font-size:12px;font-weight:700;color:'+(c.active?'#166534':'#92400e')+'">'+(c.active?'Activo':'Inactivo')+'</span></label></td>'+
+    '<td style="text-align:right"><button class="btn ghost sm" onclick="msgDeleteCleaner(\''+c.id+'\',\''+opsEsc(c.name).replace(/\x27/g,"")+'\')">Borrar</button></td>'+
+    '</tr>').join('');
+  tb.innerHTML='<thead><tr><th>Nombre</th><th>Telegram ID</th><th>Tel</th><th style="text-align:center">Estado</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+}
+async function msgAddCleaner(){
+  const name=document.getElementById('clName').value.trim();
+  const chat=document.getElementById('clChat').value.trim();
+  const phone=document.getElementById('clPhone').value.trim();
+  if(!name||!chat){ toast('Nombre y Telegram ID son requeridos'); return; }
+  if(!/^-?\d{5,}$/.test(chat)){ toast('El Telegram ID debe ser numérico (ej. 8572998489)'); return; }
+  const btn=document.getElementById('clAddBtn'); btn.disabled=true;
+  const {error}=await msgC().from('ops_cleaners').insert({name,telegram_chat_id:chat,phone:phone||null,active:true});
+  btn.disabled=false;
+  if(error){ toast('Cleaners: '+(error.message.includes('duplicate')?'ese Telegram ID ya existe':error.message)); return; }
+  document.getElementById('clName').value='';document.getElementById('clChat').value='';document.getElementById('clPhone').value='';
+  toast('✅ Cleaner agregado'); msgLoadCleaners();
+}
+async function msgToggleCleaner(id,el){
+  const active=el.checked;
+  const {error}=await msgC().from('ops_cleaners').update({active}).eq('id',id);
+  if(error){ toast('Cleaners: '+error.message); el.checked=!active; return; }
+  toast(active?'✅ Activo':'Inactivo'); msgLoadCleaners();
+}
+async function msgDeleteCleaner(id,name){
+  if(!confirm('¿Borrar al cleaner '+name+'? Dejará de recibir solicitudes.')) return;
+  const {error}=await msgC().from('ops_cleaners').delete().eq('id',id);
+  if(error){ toast('Cleaners: '+error.message); return; }
+  toast('Borrado'); msgLoadCleaners();
 }
 async function msgLoadMode(){
   const {data,error}=await msgC().from('ops_properties').select('id').eq('msg_auto_reply',true);
