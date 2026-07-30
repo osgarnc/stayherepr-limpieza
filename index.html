@@ -512,6 +512,7 @@
       <button id="msgTabLog" onclick="msgTab('log')">Historial</button>
       <button id="msgTabAuto" onclick="msgTab('auto')">⚙️ Auto-envío</button>
       <button id="msgTabCleaners" onclick="msgTab('cleaners')">🧹 Cleaners</button>
+      <button id="msgTabUpsell" onclick="msgTab('upsell')">💰 Early/Late</button>
     </div>
     <div id="msgViewPending" class="card" style="padding:14px">
       <div style="overflow:auto"><table id="msgPendTable"></table></div>
@@ -532,6 +533,10 @@
         <button class="btn" id="clAddBtn" onclick="msgAddCleaner()">+ Agregar</button>
       </div>
       <div style="overflow:auto"><table id="msgCleanersTable"></table></div>
+    </div>
+    <div id="msgViewUpsell" class="card hide" style="padding:14px">
+      <p class="muted" style="font-size:13px;margin-top:0">Early check-in y late check-out <b>pagados</b> (confirmados en Host Co). Muestra quién lo aprobó y cuándo se pagó. Al pagar se le avisa al cleaner, y se le recuerda el día del evento (12:01am) y 1 hora antes.</p>
+      <div style="overflow:auto"><table id="msgUpsellTable"></table></div>
     </div>
   </div>
 
@@ -2384,10 +2389,27 @@ function msgWouldChip(would){return would?'<span style="display:inline-block;pad
 function msgFmtDate(s){return s?new Date(s).toLocaleString():'—';}
 async function msgInit(){ await Promise.all([msgLoadMode(), msgLoadProps()]); msgTab('pending'); }
 function msgTab(w){
-  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto',cleaners:'msgViewCleaners'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto',cleaners:'msgTabCleaners'};
+  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto',cleaners:'msgViewCleaners',upsell:'msgViewUpsell'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto',cleaners:'msgTabCleaners',upsell:'msgTabUpsell'};
   Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
   Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===w));
-  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():(w==='cleaners')?msgLoadCleaners():msgLoadPending();
+  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():(w==='cleaners')?msgLoadCleaners():(w==='upsell')?msgLoadUpsell():msgLoadPending();
+}
+async function msgLoadUpsell(){
+  const tb=document.getElementById('msgUpsellTable');
+  const {data,error}=await msgC().from('ops_upsell_events')
+    .select('kind,property_name,guest_name,event_at,event_time_label,approved_by_name,paid_at,source').order('paid_at',{ascending:false});
+  if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste la migración <code>ops_upsell_events</code>? ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
+  if(!(data||[]).length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay early/late pagados. Aparecerán aquí en cuanto un huésped pague en Host Co.</td></tr></tbody>';return;}
+  const svc=k=>k==='early_checkin'?'🔑 Early check-in':'🕗 Late check-out';
+  const rows=data.map(e=>'<tr>'+
+    '<td>'+opsEsc(e.property_name||'—')+'</td>'+
+    '<td>'+opsEsc(e.guest_name||'—')+'</td>'+
+    '<td>'+svc(e.kind)+'</td>'+
+    '<td>'+opsEsc(e.event_at?new Date(e.event_at).toLocaleString('es-PR',{dateStyle:'medium',timeStyle:'short'}):(e.event_time_label||'—'))+'</td>'+
+    '<td>'+opsEsc(e.approved_by_name||(e.source==='direct'?'Pago directo':'—'))+'</td>'+
+    '<td class="muted" style="font-size:12px">'+opsEsc(msgFmtDate(e.paid_at))+'</td>'+
+    '</tr>').join('');
+  tb.innerHTML='<thead><tr><th>Propiedad</th><th>Huésped</th><th>Servicio</th><th>Fecha/hora evento</th><th>Aprobó</th><th>Pagado</th></tr></thead><tbody>'+rows+'</tbody>';
 }
 async function msgLoadCleaners(){
   const tb=document.getElementById('msgCleanersTable');
