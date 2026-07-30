@@ -2483,6 +2483,12 @@ async function msgAddCleaner(){
   if(error){ toast('Cleaners: '+(error.message.includes('duplicate')?'ese Telegram ID ya existe':error.message)); return; }
   document.getElementById('clName').value='';document.getElementById('clChat').value='';document.getElementById('clPhone').value='';
   toast('✅ Cleaner agregado'); msgLoadCleaners();
+  // Mensaje de bienvenida automático por Telegram (requiere que ya le haya escrito al bot).
+  try{
+    const {data,error:werr}=await msgC().functions.invoke('ops-cleaner-welcome',{body:{chatId:chat}});
+    if(werr||!(data&&data.ok)) toast('⚠️ No pude enviar la bienvenida (¿ya le escribió al bot?)');
+    else toast('👋 Bienvenida enviada por Telegram');
+  }catch(_e){ toast('⚠️ No pude enviar la bienvenida'); }
 }
 async function msgToggleCleaner(id,el){
   const active=el.checked;
