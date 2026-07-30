@@ -171,7 +171,7 @@
       <div class="seg">
         <button id="segRegistrar" class="on" onclick="segTo('registrar')">📋 Registrar</button>
         <button id="segFacturas" onclick="segTo('facturas')">🧾 Facturas</button>
-        <button id="segReporte" onclick="segTo('reporte')">📝 Reporte</button>
+        <button id="segReporte" onclick="segTo('reporte')">📝 Desahogo</button>
         <button id="segEarly" onclick="segTo('early')">🕐 Early/Late</button>
         <button id="segNueva" onclick="segTo('nueva')" style="display:none">🧾 Libre</button>
       </div>
@@ -753,13 +753,16 @@ async function renderMyEarlyLate(){
   el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Cargando…</p>';
   const {data,error}=await sb.from('ops_upsell_events')
     .select('kind,property_name,guest_name,event_at,event_time_label,paid_at')
-    .not('paid_at','is',null).order('paid_at',{ascending:false});
+    .not('paid_at','is',null).order('event_at',{ascending:true,nullsFirst:false});
   if(error){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar (¿corriste el SQL <code>fase-cleaner-earlylate.sql</code>?).</p>';return;}
-  if(!(data||[]).length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Aún no tienes early/late pagados. Aparecerán aquí cuando apruebes uno y el huésped pague.</p>';return;}
+  // Solo presentes y futuros: oculta los cuya fecha de evento ya pasó (desde el inicio de hoy).
+  const startToday=new Date();startToday.setHours(0,0,0,0);
+  const rowsData=(data||[]).filter(e=>!e.event_at||new Date(e.event_at)>=startToday);
+  if(!rowsData.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No tienes early/late próximos. Aparecerán aquí los presentes y futuros.</p>';return;}
   const svc=k=>k==='early_checkin'?['🔑 Early check-in','#ede9fe','#5b21b6']:['🕗 Late check-out','#ede9fe','#5b21b6'];
   const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   const fmt=d=>{try{return new Date(d).toLocaleString('es-PR',{dateStyle:'medium',timeStyle:'short'});}catch(e){return d;}};
-  el.innerHTML=data.map(e=>{const c=svc(e.kind);const cuando=e.event_at?fmt(e.event_at):(e.event_time_label||'');
+  el.innerHTML=rowsData.map(e=>{const c=svc(e.kind);const cuando=e.event_at?fmt(e.event_at):(e.event_time_label||'');
     return '<div style="border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:8px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
         '<b style="font-size:14px">'+esc(e.property_name||'—')+'</b>'+
