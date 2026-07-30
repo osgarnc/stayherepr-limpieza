@@ -49,8 +49,9 @@
   .phone-head .who{font-size:13px;opacity:.85}
   .phone-head h2{margin:2px 0 0;color:#fff;font-size:22px}
   .phone-body{padding:18px 18px 24px}
-  .seg{display:flex;background:var(--sand);border-radius:12px;padding:4px;margin-bottom:18px}
-  .seg button{flex:1;background:transparent;padding:10px;border-radius:9px;font-weight:700;font-size:14px;color:var(--ink-soft)}
+  .seg{display:flex;gap:2px;background:var(--sand);border-radius:12px;padding:4px;margin-bottom:18px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .seg::-webkit-scrollbar{display:none}
+  .seg button{flex:0 0 auto;white-space:nowrap;background:transparent;padding:10px 13px;border-radius:9px;font-weight:700;font-size:13.5px;color:var(--ink-soft)}
   .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
   .prop-card{border:1.5px solid var(--line);border-radius:14px;margin-bottom:12px;overflow:hidden}
   .prop-card.on{border-color:var(--sea)}
