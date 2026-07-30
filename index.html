@@ -171,6 +171,7 @@
         <button id="segRegistrar" class="on" onclick="segTo('registrar')">📋 Registrar</button>
         <button id="segFacturas" onclick="segTo('facturas')">🧾 Facturas</button>
         <button id="segReporte" onclick="segTo('reporte')">📝 Reporte</button>
+        <button id="segEarly" onclick="segTo('early')">🕐 Early/Late</button>
         <button id="segNueva" onclick="segTo('nueva')" style="display:none">🧾 Libre</button>
       </div>
       <div id="paneRegistrar">
@@ -183,6 +184,10 @@
         <button class="btn block" onclick="submitAll()">Enviar</button>
       </div>
       <div id="paneFacturas" class="hide"><div id="myInvoices"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver tus facturas.</p></div></div>
+      <div id="paneEarly" class="hide">
+        <p class="muted" style="font-size:13px;margin:2px 0 10px">Early check-in / Late check-out <b>aprobados y pagados</b> que tú aprobaste. Te ayuda a planificar la limpieza.</p>
+        <div id="myEarlyList"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver tus early/late.</p></div>
+      </div>
       <div id="paneReporte" class="hide">
         <div class="note" style="margin-bottom:12px">📝 Reporta a administración cualquier cosa que deba atender (fotos + descripción).</div>
         <div class="field"><label>¿Qué debe atender administración?</label><textarea id="drDesc" placeholder="Describe lo que viste…" style="min-height:70px"></textarea></div>
@@ -732,13 +737,36 @@ function setMode(m,force){
   }
 }
 function segTo(s){
-  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte',nueva:'paneNueva'};
-  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte',nueva:'segNueva'};
+  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte',early:'paneEarly',nueva:'paneNueva'};
+  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte',early:'segEarly',nueva:'segNueva'};
   Object.keys(P).forEach(k=>{const el=document.getElementById(P[k]);if(el)el.classList.toggle('hide',k!==s);});
   Object.keys(B).forEach(k=>{const el=document.getElementById(B[k]);if(el)el.classList.toggle('on',k===s);});
   if(s==='facturas')renderMyInvoices();
   if(s==='reporte'){renderReportPhotos();renderMyReports();}
+  if(s==='early')renderMyEarlyLate();
   if(s==='nueva'){const f=document.getElementById('flFecha');if(f&&!f.value)f.value=todayISO();if(!document.getElementById('flLines').children.length){flAddLine();}}
+}
+/* ---------- EARLY/LATE DE LA LIMPIADORA (personal) ---------- */
+async function renderMyEarlyLate(){
+  const el=document.getElementById('myEarlyList');if(!el)return;
+  el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Cargando…</p>';
+  const {data,error}=await sb.from('ops_upsell_events')
+    .select('kind,property_name,guest_name,event_at,event_time_label,paid_at')
+    .not('paid_at','is',null).order('paid_at',{ascending:false});
+  if(error){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar (¿corriste el SQL <code>fase-cleaner-earlylate.sql</code>?).</p>';return;}
+  if(!(data||[]).length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Aún no tienes early/late pagados. Aparecerán aquí cuando apruebes uno y el huésped pague.</p>';return;}
+  const svc=k=>k==='early_checkin'?'🔑 Early check-in':'🕗 Late check-out';
+  const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const fmt=d=>{try{return new Date(d).toLocaleString('es-PR',{dateStyle:'medium',timeStyle:'short'});}catch(e){return d;}};
+  el.innerHTML='<div style="overflow:auto"><table>'+
+    '<tr><th>Propiedad</th><th>Servicio</th><th>Cuándo</th><th>Huésped</th></tr>'+
+    data.map(e=>'<tr>'+
+      '<td><b>'+esc(e.property_name||'—')+'</b></td>'+
+      '<td>'+svc(e.kind)+'</td>'+
+      '<td>'+esc(e.event_at?fmt(e.event_at):(e.event_time_label||'—'))+'</td>'+
+      '<td class="muted" style="font-size:13px">'+esc(e.guest_name||'—')+'</td>'+
+    '</tr>').join('')+
+    '</table></div>';
 }
 /* ---------- REPORTE DIARIO (personal) ---------- */
 let drFiles=[];
