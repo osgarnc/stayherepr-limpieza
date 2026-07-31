@@ -2404,7 +2404,7 @@ function opsChip(reason){
 }
 async function opsLoadProps(){
   const c=opsC();
-  const {data,error}=await c.from('ops_properties').select('id,name,is_active,floor_price,discount_window_days,base_price,daily_rate,weekend_adjustment_rate,pricing_mode,fixed_price').order('name');
+  const {data,error}=await c.from('ops_properties').select('id,name,is_active,floor_price,discount_window_days,base_price,daily_rate,weekend_adjustment_rate,pricing_mode,fixed_price,price_day5,price_day3,price_dayof').order('name');
   if(error){toast('Ops: '+error.message);return;}
   opsProps=data;
   // Full price = dailyRate de Hostfully; Max = dailyRate*(1+weekendAdjustment). Fallback: mediana/máx de ops_night_base.
@@ -2422,13 +2422,15 @@ async function opsLoadProps(){
     '<td style="text-align:center"><input type="checkbox" class="ops-active" '+(p.is_active?'checked':'')+'></td>'+
     '<td><select class="ops-mode" onchange="opsToggleFixed(this)" style="padding:6px;border:1.5px solid var(--line);border-radius:6px"><option value="auto"'+(!isFixed?' selected':'')+'>Automático</option><option value="fixed"'+(isFixed?' selected':'')+'>Precio día</option></select></td>'+
     '<td><input type="number" class="ops-fixed" '+inp+' placeholder="—" value="'+(p.fixed_price!=null?p.fixed_price:'')+'" '+(isFixed?'':'disabled')+'></td>'+
-    '<td><input type="number" class="ops-floor" '+inp+' value="'+p.floor_price+'"></td>'+
+    '<td><input type="number" class="ops-p5" '+inp+' placeholder="—" value="'+(p.price_day5!=null?p.price_day5:'')+'"></td>'+
+    '<td><input type="number" class="ops-p3" '+inp+' placeholder="—" value="'+(p.price_day3!=null?p.price_day3:'')+'"></td>'+
+    '<td><input type="number" class="ops-p0" '+inp+' placeholder="—" value="'+(p.price_dayof!=null?p.price_dayof:'')+'"></td>'+
     '<td><input type="number" class="ops-window" '+inp+' value="'+p.discount_window_days+'"></td>'+
     '<td class="muted">'+opsMoney(p.daily_rate!=null?p.daily_rate:(full[p.id]!==undefined?full[p.id]:p.base_price))+'</td>'+
     '<td class="muted">'+opsMoney(p.daily_rate!=null?(p.daily_rate*(1+(Number(p.weekend_adjustment_rate)||0))):(maxp[p.id]!==undefined?maxp[p.id]:p.base_price))+'</td>'+
     '<td><button class="btn ghost sm" onclick="opsSaveProp(this,\''+p.id+'\')">Guardar</button></td></tr>';
   }).join('');
-  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>Modo</th><th>Precio día</th><th>Piso $</th><th>Ventana</th><th>Full price</th><th>Max price</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>Modo</th><th>Precio día</th><th>5d</th><th>3d</th><th>Día</th><th>Ventana</th><th>Full price</th><th>Max price</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
   const sel=document.getElementById('opsLogProp');
   sel.innerHTML='<option value="">Todas</option>'+data.map(p=>'<option value="'+p.id+'">'+opsEsc(p.name)+'</option>').join('');
 }
@@ -2443,11 +2445,14 @@ async function opsSaveProp(btn,id){
   const mode=tr.querySelector('.ops-mode').value;
   const fxVal=tr.querySelector('.ops-fixed').value;
   if(mode==='fixed' && fxVal===''){ toast('Escribe el precio día'); return; }
+  const num=(sel)=>{const v=tr.querySelector(sel).value;return v===''?null:Number(v);};
   const patch={
     is_active:tr.querySelector('.ops-active').checked,
     pricing_mode:mode,
     fixed_price:(mode==='fixed')?Number(fxVal):null,
-    floor_price:Number(tr.querySelector('.ops-floor').value),
+    price_day5:num('.ops-p5'),
+    price_day3:num('.ops-p3'),
+    price_dayof:num('.ops-p0'),
     discount_window_days:Number(tr.querySelector('.ops-window').value)
   };
   const {error}=await c.from('ops_properties').update(patch).eq('id',id);
@@ -2465,15 +2470,22 @@ async function opsLoadLog(){
   const {data,error}=await q;
   if(error){toast('Ops: '+error.message);return;}
   const names=Object.fromEntries(opsProps.map(p=>[p.id,p.name]));
-  const floorBy=Object.fromEntries(opsProps.map(p=>[p.id,Number(p.floor_price)]));
+  const p5By=Object.fromEntries(opsProps.map(p=>[p.id,p.price_day5!=null?Number(p.price_day5):null]));
+  const p3By=Object.fromEntries(opsProps.map(p=>[p.id,p.price_day3!=null?Number(p.price_day3):null]));
+  const p0By=Object.fromEntries(opsProps.map(p=>[p.id,p.price_dayof!=null?Number(p.price_dayof):null]));
   const winBy=Object.fromEntries(opsProps.map(p=>[p.id,Number(p.discount_window_days)||14]));
-  // "Nuestro" = precio que pondría nuestra lógica (glide desde el full al piso según los días).
-  const glideOf=(full,floor,win,days)=>{const frac=Math.min(1,Math.max(0,(win-days)/win));return Math.round(Math.max(floor,full-(full-floor)*frac));};
+  // "Nuestro" = precio que pondría nuestra lógica (escalonado: glide→5d, luego 3d, luego día).
+  const targetOf=(full,p5,p3,p0,win,days)=>{
+    if(p5==null||p3==null||p0==null) return full;
+    let v; if(days<=0)v=p0; else if(days<=3)v=p3; else if(days<=5)v=p5;
+    else {const d=win-5; const f=d>0?Math.min(1,Math.max(0,(win-days)/d)):1; v=full-(full-p5)*f;}
+    return Math.round(Math.min(full,v));
+  };
   let saved=0;
   const rows=data.map(r=>{
     if(r.reason!=='no_discount')saved+=Number(r.discount_amount)||0;
     const full=Number(r.base_price);
-    const nuestro=(r.reason==='fixed')?Number(r.applied_price):glideOf(full,floorBy[r.property_id]||0,winBy[r.property_id],r.days_until_checkin);
+    const nuestro=(r.reason==='fixed')?Number(r.applied_price):targetOf(full,p5By[r.property_id],p3By[r.property_id],p0By[r.property_id],winBy[r.property_id],r.days_until_checkin);
     return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(full)+'</td><td>'+opsMoney(nuestro)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsChip(r.reason)+'</td></tr>';
   }).join('');
   tb.innerHTML='<thead><tr><th>Fecha</th><th>Propiedad</th><th>d+</th><th>Full</th><th>Nuestro</th><th>Aplicado</th><th>Motivo</th></tr></thead><tbody>'+rows+'</tbody>';
