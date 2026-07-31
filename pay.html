@@ -145,21 +145,41 @@
   function renderForm(info){
     var kind = info.kind;
     var tl = t().timeLabel[kind] || t().timeLabel.late_checkout;
+    var cur = info.currency || 'usd';
+    var tiers = (info.tiers && info.tiers.length) ? info.tiers : null;
+
+    var priceHtml, controlHtml;
+    if(tiers){
+      // Early/Late por hora: el huésped elige un tramo (label + precio); el precio se actualiza.
+      var opts = tiers.map(function(tr,i){ return '<option value="'+i+'">'+esc(tr.label)+' — '+money(tr.amountCents,cur)+'</option>'; }).join('');
+      priceHtml = '<div class="price"><b id="px">'+money(tiers[0].amountCents,cur)+'</b><span>'+esc(t().each)+'</span></div>';
+      controlHtml = '<div class="row"><label for="tsel">'+esc(tl)+'</label>'+
+        '<select id="tsel" style="width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;font-size:16px;background:#fff;-webkit-appearance:none;appearance:none">'+opts+'</select></div>';
+    } else {
+      priceHtml = '<div class="price"><b id="px">'+money(info.amountCents,cur)+'</b><span>'+esc(t().each)+'</span></div>';
+      controlHtml = '<div class="row"><label for="tm">'+esc(tl)+'</label>'+
+        '<input type="text" id="tm" placeholder="'+esc(t().timePh)+'" value="'+esc(info.requestedTime||"")+'" /></div>';
+    }
     body.innerHTML =
       '<h1>'+esc(t().title[kind]||info.service)+'</h1>'+
       '<p class="prop">'+esc(info.propertyName||"")+'</p>'+
-      '<div class="price"><b>'+money(info.amountCents,info.currency)+'</b><span>'+esc(t().each)+'</span></div>'+
+      priceHtml+
       '<div class="hold">'+t().hold+'</div>'+
-      '<div class="row"><label for="tm">'+esc(tl)+'</label>'+
-        '<input type="text" id="tm" placeholder="'+esc(t().timePh)+'" value="'+esc(info.requestedTime||"")+'" /></div>'+
+      controlHtml+
       '<button id="pay">'+esc(t().pay)+'</button>'+
       '<div class="err" id="err" style="display:none"></div>'+
       '<p class="secure">'+esc(t().secure)+'</p>';
+    if(tiers){
+      var selEl=document.getElementById("tsel"), px=document.getElementById("px");
+      selEl.onchange=function(){ px.textContent=money(tiers[+selEl.value].amountCents,cur); };
+    }
     var btn=document.getElementById("pay"), err=document.getElementById("err");
     btn.onclick=function(){
       btn.disabled=true; err.style.display="none";
-      var time=(document.getElementById("tm").value||"").trim();
-      api({token:token,time:time}).then(function(res){
+      var payload={token:token};
+      if(tiers){ payload.minutes=tiers[+document.getElementById("tsel").value].minutes; }
+      else { payload.time=(document.getElementById("tm").value||"").trim(); }
+      api(payload).then(function(res){
         if(res.ok && res.j && res.j.url){ location.href=res.j.url; return; }
         btn.disabled=false;
         err.textContent = (res.status===409? t().already : t().genErr);
