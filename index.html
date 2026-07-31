@@ -2415,29 +2415,29 @@ async function opsLoadProps(){
   const full={}, maxp={};
   Object.keys(byProp).forEach(id=>{ const a=byProp[id].sort((x,y)=>x-y); full[id]=a[Math.floor(a.length/2)]; maxp[id]=a[a.length-1]; });
   const inp='style="width:78px;padding:6px;border:1.5px solid var(--line);border-radius:6px"';
+  const sty=(hidden)=>'style="width:78px;padding:6px;border:1.5px solid var(--line);border-radius:6px'+(hidden?';display:none':'')+'"';
   const rows=data.map(p=>{
     const isFixed=p.pricing_mode==='fixed';
     return '<tr>'+
     '<td>'+opsEsc(p.name)+'</td>'+
     '<td style="text-align:center"><input type="checkbox" class="ops-active" '+(p.is_active?'checked':'')+'></td>'+
     '<td><select class="ops-mode" onchange="opsToggleFixed(this)" style="padding:6px;border:1.5px solid var(--line);border-radius:6px"><option value="auto"'+(!isFixed?' selected':'')+'>Automático</option><option value="fixed"'+(isFixed?' selected':'')+'>Precio día</option></select></td>'+
-    '<td><input type="number" class="ops-fixed" '+inp+' placeholder="—" value="'+(p.fixed_price!=null?p.fixed_price:'')+'" '+(isFixed?'':'disabled')+'></td>'+
-    '<td><input type="number" class="ops-p5" '+inp+' placeholder="—" value="'+(p.price_day5!=null?p.price_day5:'')+'"></td>'+
-    '<td><input type="number" class="ops-p3" '+inp+' placeholder="—" value="'+(p.price_day3!=null?p.price_day3:'')+'"></td>'+
-    '<td><input type="number" class="ops-p0" '+inp+' placeholder="—" value="'+(p.price_dayof!=null?p.price_dayof:'')+'"></td>'+
+    '<td><input type="number" class="ops-p5" '+sty(isFixed)+' placeholder="—" value="'+(p.price_day5!=null?p.price_day5:'')+'"><input type="number" class="ops-fixed" '+sty(!isFixed)+' placeholder="fijo" value="'+(p.fixed_price!=null?p.fixed_price:'')+'"></td>'+
+    '<td><input type="number" class="ops-p3" '+sty(isFixed)+' placeholder="—" value="'+(p.price_day3!=null?p.price_day3:'')+'"></td>'+
+    '<td><input type="number" class="ops-p0" '+sty(isFixed)+' placeholder="—" value="'+(p.price_dayof!=null?p.price_dayof:'')+'"></td>'+
     '<td><input type="number" class="ops-window" '+inp+' value="'+p.discount_window_days+'"></td>'+
     '<td class="muted">'+opsMoney(p.daily_rate!=null?p.daily_rate:(full[p.id]!==undefined?full[p.id]:p.base_price))+'</td>'+
     '<td class="muted">'+opsMoney(p.daily_rate!=null?(p.daily_rate*(1+(Number(p.weekend_adjustment_rate)||0))):(maxp[p.id]!==undefined?maxp[p.id]:p.base_price))+'</td>'+
     '<td><button class="btn ghost sm" onclick="opsSaveProp(this,\''+p.id+'\')">Guardar</button></td></tr>';
   }).join('');
-  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>Modo</th><th>Precio día</th><th>5d</th><th>3d</th><th>Día</th><th>Ventana</th><th>Full price</th><th>Max price</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>Modo</th><th>5d</th><th>3d</th><th>Día</th><th>Ventana</th><th>Full price</th><th>Max price</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
   const sel=document.getElementById('opsLogProp');
   sel.innerHTML='<option value="">Todas</option>'+data.map(p=>'<option value="'+p.id+'">'+opsEsc(p.name)+'</option>').join('');
 }
 function opsToggleFixed(selEl){
-  const fx=selEl.closest('tr').querySelector('.ops-fixed');
-  fx.disabled = selEl.value!=='fixed';
-  if(!fx.disabled && !fx.value) fx.focus();
+  const tr=selEl.closest('tr'), fixed=selEl.value==='fixed';
+  ['.ops-p5','.ops-p3','.ops-p0'].forEach(s=>{const el=tr.querySelector(s); if(el)el.style.display=fixed?'none':'';});
+  const f=tr.querySelector('.ops-fixed'); if(f){ f.style.display=fixed?'':'none'; if(fixed&&!f.value)f.focus(); }
 }
 async function opsSaveProp(btn,id){
   const c=opsC();
