@@ -506,7 +506,7 @@
         <button id="opsTabSet" onclick="opsTab('set')">Ajustes</button>
       </div>
       <div id="opsViewProps" class="card" style="padding:14px">
-        <p class="muted" style="font-size:13px;margin-top:0">Precios por propiedad: baja con glide del full hasta <b>5d</b>, luego <b>3d</b>, y el <b>Desespero</b> (día de la última noche, el más bajo). Vacío = esa propiedad no se toca. Nunca sube sobre lo que Hostfully ya tiene. Oprime <b>Guardar</b> en cada fila.</p>
+        <p class="muted" style="font-size:13px;margin-top:0">Precios por propiedad: baja con glide del full hasta <b>5d</b>, luego <b>3d</b>, y el <b>Desespero</b> (día de la última noche, el más bajo). Vacío = esa propiedad no se toca. Nunca sube sobre lo que Hostfully ya tiene, <b>salvo</b> viernes/sábado y festivos de PR/EEUU, que llevan un <b>+10%</b> (premium) sobre el precio de esa noche. Oprime <b>Guardar</b> en cada fila.</p>
         <div style="overflow:auto"><table id="opsPropsTable"></table></div>
       </div>
       <div id="opsViewLog" class="card hide" style="padding:14px">
@@ -2398,7 +2398,7 @@ function msgBodyCell(m){
   return head+'<span>'+opsEsc(shown)+'</span>';
 }
 function opsChip(reason){
-  const M={discounted:['#e0f2fe','#075985','descuento'],floored:['#fef3c7','#92400e','piso'],no_discount:['#eef1f4','#475569','✓ Hostfully'],fixed:['#ede9fe','#5b21b6','precio día']};
+  const M={discounted:['#e0f2fe','#075985','descuento'],floored:['#fef3c7','#92400e','piso'],no_discount:['#eef1f4','#475569','✓ Hostfully'],fixed:['#ede9fe','#5b21b6','precio día'],premium:['#ffe4e6','#9f1239','▲ finde/festivo']};
   const c=M[reason]||['#eef1f4','#6b7885',reason];
   return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+c[0]+';color:'+c[1]+'" title="'+reason+'">'+c[2]+'</span>';
 }
@@ -2483,9 +2483,9 @@ async function opsLoadLog(){
   };
   let saved=0;
   const rows=data.map(r=>{
-    if(r.reason!=='no_discount')saved+=Number(r.discount_amount)||0;
+    if(r.reason!=='no_discount'&&r.reason!=='premium')saved+=Number(r.discount_amount)||0;
     const full=Number(r.base_price);
-    const nuestro=(r.reason==='fixed')?Number(r.applied_price):targetOf(full,p5By[r.property_id],p3By[r.property_id],p0By[r.property_id],winBy[r.property_id],r.days_until_checkin);
+    const nuestro=(r.reason==='fixed'||r.reason==='premium')?Number(r.applied_price):targetOf(full,p5By[r.property_id],p3By[r.property_id],p0By[r.property_id],winBy[r.property_id],r.days_until_checkin);
     return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(full)+'</td><td>'+opsMoney(nuestro)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsChip(r.reason)+'</td></tr>';
   }).join('');
   tb.innerHTML='<thead><tr><th>Fecha</th><th>Propiedad</th><th>d+</th><th>Full</th><th>Nuestro</th><th>Aplicado</th><th>Motivo</th></tr></thead><tbody>'+rows+'</tbody>';
