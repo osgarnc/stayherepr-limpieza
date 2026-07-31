@@ -233,6 +233,7 @@
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
     <button id="tOperaciones" onclick="tabTo('operaciones');opsInit()">🏨 Precios Dinámicos</button>
+    <button id="tTienda" onclick="tabTo('tienda');tiendaInit()">🛒 Tienda</button>
     <button id="tMensajes" onclick="tabTo('mensajes');msgInit()">💬 Mensajes</button>
     <button id="tLlamadas" onclick="tabTo('llamadas');callInit()">📞 Llamadas</button>
     <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
@@ -261,6 +262,12 @@
   <div id="tabInbox" class="card" style="padding:18px">
     <div class="sectitle"><h2>Bandeja de aprobación</h2><span class="muted" id="inboxCount"></span></div>
     <div style="overflow:auto"><table id="inboxTable"></table></div>
+  </div>
+  <div id="tabTienda" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>🛒 Tienda — precios de servicios</h2></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Precio de cada servicio <b>por propiedad</b>, en dólares. El huésped paga en una página propia con Stripe (retención; se cobra solo cuando el cleaner aprueba). Deja un campo <b>vacío</b> si esa propiedad no ofrece ese servicio.</p>
+    <div class="note" style="margin:10px 0;border-color:#f59e0b;background:#fffbeb">⚠️ <b>Columna "Checkout":</b> pon una propiedad en <b>Propio</b> (Stripe) solo cuando estés en <b>producción</b> — llaves reales de Stripe y política de la plataforma confirmada. Con llaves de prueba, mantenla en <b>Host Co</b> para no afectar a huéspedes reales.</div>
+    <div style="overflow:auto"><table id="tiendaTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
   </div>
   <div id="tabInvoices" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Facturas por bisemana</h2>
@@ -814,7 +821,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','mensajes','llamadas'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -2573,6 +2580,58 @@ async function msgLoadMode(){
   const b=document.getElementById('msgModeBadge'); if(!b)return;
   b.textContent=n>0?('AUTO-ENVÍO: '+n+' propiedad'+(n>1?'es':'')):'SOLO REVISIÓN';
   b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(n>0?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e');
+}
+
+// ── Tienda (precios de upsell por propiedad + toggle de checkout propio) ─────
+function tiendaC(){ return window.sb; } // cliente/sesión del dueño. RLS: is_owner()
+const TIENDA_KINDS=[['early_checkin','Early check-in'],['late_checkout','Late check-out'],['extra_night','Noche extra']];
+async function tiendaInit(){
+  const tb=document.getElementById('tiendaTable'); if(!tb)return;
+  tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Cargando…</td></tr></tbody>';
+  const [{data:props,error:pe},{data:prices,error:qe}]=await Promise.all([
+    tiendaC().from('ops_properties').select('id,name,use_own_checkout').order('name'),
+    tiendaC().from('ops_upsell_prices').select('property_id,kind,amount_cents,active')
+  ]);
+  if(pe||qe){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste las migraciones de precios (<code>ops_upsell_prices</code> / <code>use_own_checkout</code>)? ('+opsEsc((pe||qe).message)+')</td></tr></tbody>'; return; }
+  const pm={}; for(const r of (prices||[])){ if(r.active!==false) pm[r.property_id+'|'+r.kind]=r.amount_cents; }
+  const rows=(props||[]).map(p=>{
+    const cells=TIENDA_KINDS.map(([k])=>{
+      const c=pm[p.id+'|'+k]; const val=(c!=null)?(c/100).toFixed(2):'';
+      return '<td style="text-align:center;white-space:nowrap"><span class="muted" style="font-size:12px">$</span>'+
+        '<input type="number" min="0" step="0.01" value="'+val+'" placeholder="—" '+
+        'style="width:76px;padding:7px 8px;border:1.5px solid var(--line);border-radius:8px;text-align:right;margin-left:2px" '+
+        'onchange="tiendaSavePrice(\''+p.id+'\',\''+k+'\',this)"></td>';
+    }).join('');
+    const on=p.use_own_checkout===true;
+    const tog='<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer" title="Propio = cobra con Stripe en página propia. Host Co = tienda Host Co.">'+
+      '<input type="checkbox" '+(on?'checked':'')+' onchange="tiendaToggleOwn(\''+p.id+'\',this)"> '+
+      '<span style="font-size:12px;font-weight:700;color:'+(on?'#166534':'#6b7885')+'">'+(on?'🟢 Propio':'Host Co')+'</span></label></td>';
+    return '<tr><td>'+opsEsc(p.name)+'</td>'+cells+tog+'</tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Propiedad</th><th style="text-align:center">Early check-in</th><th style="text-align:center">Late check-out</th><th style="text-align:center">Noche extra</th><th style="text-align:center">Checkout</th></tr></thead><tbody>'+(rows||'<tr><td class="muted" style="padding:16px">No hay propiedades.</td></tr>')+'</tbody>';
+}
+async function tiendaSavePrice(pid,kind,el){
+  const raw=(el.value||'').trim();
+  if(raw===''){ // vacío → quitar ese servicio de la propiedad
+    const {error}=await tiendaC().from('ops_upsell_prices').delete().eq('property_id',pid).eq('kind',kind);
+    if(error){ toast('Precio: '+error.message); return; }
+    toast('Servicio quitado'); return;
+  }
+  const dollars=parseFloat(raw);
+  if(isNaN(dollars)||dollars<0){ toast('Monto inválido'); return; }
+  const amount_cents=Math.round(dollars*100);
+  el.value=(amount_cents/100).toFixed(2);
+  const {error}=await tiendaC().from('ops_upsell_prices').upsert(
+    {property_id:pid,kind,amount_cents,currency:'usd',active:true,updated_at:new Date().toISOString()},
+    {onConflict:'property_id,kind'});
+  if(error){ toast('Precio: '+error.message); return; }
+  toast('✅ Guardado ($'+(amount_cents/100).toFixed(2)+')');
+}
+async function tiendaToggleOwn(pid,el){
+  const on=el.checked;
+  const {error}=await tiendaC().from('ops_properties').update({use_own_checkout:on}).eq('id',pid);
+  if(error){ toast('Checkout: '+error.message); el.checked=!on; return; }
+  toast(on?'🟢 Checkout propio activado':'↩️ Volvió a Host Co'); tiendaInit();
 }
 async function msgLoadAuto(){
   const {data,error}=await msgC().from('ops_properties').select('id,name,msg_auto_reply,is_active').order('name');
