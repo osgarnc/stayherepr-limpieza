@@ -238,12 +238,12 @@
     <button id="tExpenses" onclick="tabTo('expenses')">💸 Gastos</button>
     <button id="tReports" onclick="tabTo('reports')">📋 Reportes</button>
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
+    <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
     <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
     <button id="tData" onclick="tabTo('data')">🗄️ Base de datos</button>
     <button id="tTrash" onclick="tabTo('trash')">🗑️ Papelera <span id="trashCount"></span></button>
   </div>
   <div class="tabs hide" id="navAutomatizacion">
-    <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
     <button id="tOperaciones" onclick="tabTo('operaciones');opsInit()">🏨 Precios Dinámicos</button>
     <button id="tTienda" onclick="tabTo('tienda');tiendaInit()">🛒 Tienda</button>
     <button id="tMensajes" onclick="tabTo('mensajes');msgInit()">💬 Mensajes</button>
@@ -277,6 +277,18 @@
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Precio de cada servicio <b>por propiedad</b>, en dólares. El huésped paga en una página propia con Stripe (retención; se cobra solo cuando el cleaner aprueba). Deja un campo <b>vacío</b> si esa propiedad no ofrece ese servicio.</p>
     <div class="note" style="margin:10px 0;border-color:#f59e0b;background:#fffbeb">⚠️ <b>Columna "Checkout":</b> pon una propiedad en <b>Propio</b> (Stripe) solo cuando estés en <b>producción</b> — llaves reales de Stripe y política de la plataforma confirmada. Con llaves de prueba, mantenla en <b>Host Co</b> para no afectar a huéspedes reales.</div>
     <div style="overflow:auto"><table id="tiendaTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
+  </div>
+  <div id="tiendaTierModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div class="card" style="max-width:460px;width:100%;max-height:85vh;overflow:auto">
+      <div class="sectitle"><h2 id="tiendaTierTitle">Tramos</h2></div>
+      <p class="muted" style="font-size:12px;margin-top:0">El huésped elige una de estas horas y paga el precio de esa fila. Ordénalas como quieras; se muestran de más temprano a más tarde.</p>
+      <div id="tiendaTierList" style="margin:10px 0"></div>
+      <button class="btn ghost sm" style="width:100%" onclick="tiendaAddTierRow()">➕ Añadir hora</button>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+        <button class="btn ghost" onclick="tiendaCloseTiers()">Cancelar</button>
+        <button class="btn" id="tiendaTierSaveBtn" onclick="tiendaSaveTiers()">Guardar</button>
+      </div>
+    </div>
   </div>
   <div id="tabInvoices" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Facturas por bisemana</h2>
@@ -522,18 +534,6 @@
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
           <button class="btn ghost" onclick="msgCloseCleanerProps()">Cancelar</button>
           <button class="btn" id="clPropsSaveBtn" onclick="msgSaveCleanerProps()">Guardar</button>
-        </div>
-      </div>
-    </div>
-    <div id="tiendaTierModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
-      <div class="card" style="max-width:460px;width:100%;max-height:85vh;overflow:auto">
-        <div class="sectitle"><h2 id="tiendaTierTitle">Tramos</h2></div>
-        <p class="muted" style="font-size:12px;margin-top:0">El huésped elige una de estas horas y paga el precio de esa fila. Ordénalas como quieras; se muestran de más temprano a más tarde.</p>
-        <div id="tiendaTierList" style="margin:10px 0"></div>
-        <button class="btn ghost sm" style="width:100%" onclick="tiendaAddTierRow()">➕ Añadir hora</button>
-        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
-          <button class="btn ghost" onclick="tiendaCloseTiers()">Cancelar</button>
-          <button class="btn" id="tiendaTierSaveBtn" onclick="tiendaSaveTiers()">Guardar</button>
         </div>
       </div>
     </div>
@@ -856,7 +856,8 @@ function mainTab(m){
   document.getElementById('mtAuto').classList.toggle('on',m==='auto');
   document.getElementById('navOperaciones').classList.toggle('hide',m!=='ops');
   document.getElementById('navAutomatizacion').classList.toggle('hide',m!=='auto');
-  tabTo(m==='ops'?'inbox':'settings');
+  if(m==='ops'){tabTo('inbox');}
+  else{tabTo('operaciones');opsInit();}
 }
 let selection={};
 function ensureSel(pid){if(!selection[pid])selection[pid]={cleaning:false,beforeFile:null,afterFile:null,damageOn:false,damage:'',damageFiles:[],earlyCheckin:false,lateCheckout:false,extraGuest:false,gastos:[]};return selection[pid];}
