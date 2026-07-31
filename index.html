@@ -273,7 +273,7 @@
     <div style="overflow:auto"><table id="inboxTable"></table></div>
   </div>
   <div id="tabTienda" class="card hide" style="padding:18px">
-    <div class="sectitle"><h2>🛒 Tienda — precios de servicios</h2></div>
+    <div class="sectitle"><h2>🛒 Tienda — precios de servicios</h2><button class="btn ghost sm" onclick="tiendaTestOpen()">🧪 Probar pago</button></div>
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Precio de cada servicio <b>por propiedad</b>, en dólares. El huésped paga en una página propia con Stripe (retención; se cobra solo cuando el cleaner aprueba). Deja un campo <b>vacío</b> si esa propiedad no ofrece ese servicio.</p>
     <div class="note" style="margin:10px 0;border-color:#f59e0b;background:#fffbeb">⚠️ <b>Columna "Checkout":</b> pon una propiedad en <b>Propio</b> (Stripe) solo cuando estés en <b>producción</b> — llaves reales de Stripe y política de la plataforma confirmada. Con llaves de prueba, mantenla en <b>Host Co</b> para no afectar a huéspedes reales.</div>
     <div style="overflow:auto"><table id="tiendaTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
@@ -287,6 +287,24 @@
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
         <button class="btn ghost" onclick="tiendaCloseTiers()">Cancelar</button>
         <button class="btn" id="tiendaTierSaveBtn" onclick="tiendaSaveTiers()">Guardar</button>
+      </div>
+    </div>
+  </div>
+  <div id="tiendaTestModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div class="card" style="max-width:460px;width:100%;max-height:85vh;overflow:auto">
+      <div class="sectitle"><h2>🧪 Probar pago</h2></div>
+      <p class="muted" style="font-size:12px;margin-top:0">Te llega a <b>tu Telegram</b> el enlace de pago + la tarjeta de aprobar/rechazar. Paga con la tarjeta de prueba <code>4242 4242 4242 4242</code> y aprueba tú mismo. <b>No le llega nada a ningún huésped ni cleaner real, ni se toca Hostfully.</b></p>
+      <div class="field"><label>Propiedad</label><select id="tstProp" onchange="tiendaTestHours()"></select></div>
+      <div class="field"><label>Servicio</label><select id="tstKind" onchange="tiendaTestHours()">
+        <option value="late_checkout">Late check-out</option>
+        <option value="early_checkin">Early check-in</option>
+        <option value="extra_night">Noche extra</option>
+      </select></div>
+      <div class="field" id="tstHourRow"><label>Hora</label><select id="tstHour"></select></div>
+      <div id="tstResult" style="margin:8px 0"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+        <button class="btn ghost" onclick="tiendaTestClose()">Cerrar</button>
+        <button class="btn" id="tstSendBtn" onclick="tiendaTestSend()">Enviar a mi Telegram</button>
       </div>
     </div>
   </div>
@@ -2739,6 +2757,38 @@ async function tiendaToggleOwn(pid,el){
   const {error}=await tiendaC().from('ops_properties').update({use_own_checkout:on}).eq('id',pid);
   if(error){ toast('Checkout: '+error.message); el.checked=!on; return; }
   toast(on?'🟢 Checkout propio activado':'↩️ Volvió a Host Co'); tiendaInit();
+}
+// ── Arnés de prueba (manda enlace + tarjeta a TU Telegram; nada real) ──
+async function tiendaTestOpen(){
+  if(!window._tiendaProps||!Object.keys(window._tiendaProps).length){ await tiendaInit(); }
+  const ps=Object.entries(window._tiendaProps||{}).sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
+  document.getElementById('tstProp').innerHTML=ps.map(e=>'<option value="'+e[0]+'">'+opsEsc(e[1])+'</option>').join('');
+  document.getElementById('tstResult').innerHTML='';
+  tiendaTestHours();
+  document.getElementById('tiendaTestModal').classList.remove('hide');
+}
+function tiendaTestClose(){ document.getElementById('tiendaTestModal').classList.add('hide'); }
+function tiendaTestHours(){
+  const pid=document.getElementById('tstProp').value, kind=document.getElementById('tstKind').value;
+  const row=document.getElementById('tstHourRow'), sel=document.getElementById('tstHour');
+  if(kind==='extra_night'){ row.style.display='none'; sel.innerHTML=''; return; }
+  row.style.display='';
+  const mine=(window._tiendaTiers||[]).filter(t=>t.property_id===pid&&t.kind===kind&&t.active!==false).sort((a,b)=>a.minutes-b.minutes);
+  if(!mine.length){ sel.innerHTML='<option value="">(sin horarios — configúralos primero)</option>'; return; }
+  sel.innerHTML=mine.map(t=>'<option value="'+t.minutes+'">'+opsEsc(tiendaMinToLabel(t.minutes))+' — $'+(t.amount_cents/100).toFixed(2)+'</option>').join('');
+}
+async function tiendaTestSend(){
+  const pid=document.getElementById('tstProp').value, kind=document.getElementById('tstKind').value;
+  let minutes=null;
+  if(kind!=='extra_night'){ const v=document.getElementById('tstHour').value; if(v===''){ toast('Configura y elige una hora'); return; } minutes=parseInt(v,10); }
+  const btn=document.getElementById('tstSendBtn'); btn.disabled=true;
+  const res=document.getElementById('tstResult'); res.innerHTML='<span class="muted">Enviando…</span>';
+  try{
+    const r=await tiendaC().functions.invoke('upsell-test',{body:{propertyId:pid,kind:kind,minutes:minutes}});
+    btn.disabled=false;
+    if(r.error||!(r.data&&r.data.ok)){ res.innerHTML='<span style="color:#b91c1c">'+opsEsc((r.data&&r.data.error)||(r.error&&r.error.message)||'Error')+'</span>'; return; }
+    res.innerHTML='<div class="note" style="border-color:#16a34a;background:#f0fdf4">✅ Enviado a tu Telegram. Revisa el bot: paga con la <b>4242</b> y aprueba/rechaza ahí.<br><br>O abre el enlace aquí: <a href="'+r.data.payUrl+'" target="_blank" rel="noopener">'+opsEsc(r.data.payUrl)+'</a></div>';
+  }catch(e){ btn.disabled=false; res.innerHTML='<span style="color:#b91c1c">'+opsEsc(String((e&&e.message)||e))+'</span>'; }
 }
 async function msgLoadAuto(){
   const {data,error}=await msgC().from('ops_properties').select('id,name,msg_auto_reply,is_active').order('name');
