@@ -2627,7 +2627,7 @@ async function tiendaInit(){
   tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Cargando…</td></tr></tbody>';
   const [{data:props,error:pe},{data:prices,error:qe},{data:tiers,error:te}]=await Promise.all([
     tiendaC().from('ops_properties').select('id,name,use_own_checkout').order('name'),
-    tiendaC().from('ops_upsell_prices').select('property_id,kind,amount_cents,active'),
+    tiendaC().from('ops_upsell_prices').select('property_id,kind,amount_cents,active,auto_price'),
     tiendaC().from('ops_upsell_price_tiers').select('property_id,kind,minutes,amount_cents,active')
   ]);
   if(pe||qe||te){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste las migraciones de precios (<code>ops_upsell_prices</code> / <code>ops_upsell_price_tiers</code> / <code>use_own_checkout</code>)? ('+opsEsc((pe||qe||te).message)+')</td></tr></tbody>'; return; }
@@ -2635,17 +2635,21 @@ async function tiendaInit(){
   window._tiendaTiers=tiers||[];
   // conteo de tramos por (propiedad, servicio)
   const tc={}; for(const t of (tiers||[])){ if(t.active!==false){ const k=t.property_id+'|'+t.kind; tc[k]=(tc[k]||0)+1; } }
-  // precio fijo de noche extra
-  const pm={}; for(const r of (prices||[])){ if(r.active!==false && r.kind==='extra_night') pm[r.property_id]=r.amount_cents; }
+  // noche extra: {amount, auto}. auto=true → precio del calendario (cron 5am); false → fijo.
+  const pm={}; for(const r of (prices||[])){ if(r.active!==false && r.kind==='extra_night') pm[r.property_id]={amount:r.amount_cents,auto:r.auto_price===true}; }
   const tierBtn=(pid,kind)=>{ const n=tc[pid+'|'+kind]||0;
     return '<td style="text-align:center"><button class="btn ghost sm" onclick="tiendaTiers(\''+pid+'\',\''+kind+'\')">'+(n?('🕐 '+n+' hora'+(n===1?'':'s')):'⚠️ 0 horas')+'</button></td>'; };
   const rows=(props||[]).map(p=>{
     const early=tierBtn(p.id,'early_checkin');
     const late=tierBtn(p.id,'late_checkout');
-    const xc=pm[p.id]; const xval=(xc!=null)?(xc/100).toFixed(2):'';
-    const extra='<td style="text-align:center;white-space:nowrap"><span class="muted" style="font-size:12px">$</span>'+
-      '<input type="number" min="0" step="0.01" value="'+xval+'" placeholder="—" '+
-      'style="width:76px;padding:7px 8px;border:1.5px solid var(--line);border-radius:8px;text-align:right;margin-left:2px" '+
+    const ex=pm[p.id]||{amount:null,auto:false}; const auto=ex.auto===true;
+    const xval=(ex.amount!=null&&ex.amount>0)?(ex.amount/100).toFixed(2):'';
+    const extra='<td style="text-align:center;white-space:nowrap">'+
+      '<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;font-size:11px;font-weight:700;color:'+(auto?'#166534':'#9ca3af')+'" title="Auto: usa la tarifa de la próxima noche disponible, actualizada con el cron de precios (5am AST).">'+
+        '<input type="checkbox" '+(auto?'checked':'')+' onchange="tiendaToggleExtraAuto(\''+p.id+'\',this)">🔄</label> '+
+      '<span class="muted" style="font-size:12px">$</span>'+
+      '<input type="number" min="0" step="0.01" value="'+xval+'" placeholder="'+(auto?'auto':'—')+'" '+(auto?'disabled':'')+' '+
+      'style="width:64px;padding:7px 6px;border:1.5px solid var(--line);border-radius:8px;text-align:right;margin-left:2px'+(auto?';background:#f1f5f9;color:#64748b':'')+'" '+
       'onchange="tiendaSaveExtra(\''+p.id+'\',this)"></td>';
     const on=p.use_own_checkout===true;
     const tog='<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer" title="Propio = cobra con Stripe en página propia. Host Co = tienda Host Co.">'+
@@ -2697,6 +2701,8 @@ async function tiendaSaveTiers(){
   tiendaCloseTiers(); tiendaInit();
 }
 // Noche extra (precio fijo, por ahora)
+// Editar el monto = modo MANUAL (auto_price=false). El input está deshabilitado en modo auto,
+// así que este onchange solo dispara en manual.
 async function tiendaSaveExtra(pid,el){
   const raw=(el.value||'').trim();
   if(raw===''){ const {error}=await tiendaC().from('ops_upsell_prices').delete().eq('property_id',pid).eq('kind','extra_night');
@@ -2704,10 +2710,29 @@ async function tiendaSaveExtra(pid,el){
   const dollars=parseFloat(raw); if(isNaN(dollars)||dollars<0){ toast('Monto inválido'); return; }
   const amount_cents=Math.round(dollars*100); el.value=(amount_cents/100).toFixed(2);
   const {error}=await tiendaC().from('ops_upsell_prices').upsert(
-    {property_id:pid,kind:'extra_night',amount_cents,currency:'usd',active:true,updated_at:new Date().toISOString()},
+    {property_id:pid,kind:'extra_night',amount_cents,currency:'usd',active:true,auto_price:false,updated_at:new Date().toISOString()},
     {onConflict:'property_id,kind'});
   if(error){ toast('Precio: '+error.message); return; }
   toast('✅ Guardado ($'+(amount_cents/100).toFixed(2)+')');
+}
+// Alterna la noche extra entre AUTO (precio del calendario, cron 5am) y MANUAL (monto fijo).
+async function tiendaToggleExtraAuto(pid,el){
+  const auto=el.checked;
+  if(auto){
+    // Crea/actualiza la fila en modo auto. El monto lo pondrá el cron; si no hay, queda 0 hasta las 5am.
+    const {data}=await tiendaC().from('ops_upsell_prices').select('amount_cents').eq('property_id',pid).eq('kind','extra_night').maybeSingle();
+    const amount_cents=(data&&data.amount_cents)?data.amount_cents:0;
+    const {error}=await tiendaC().from('ops_upsell_prices').upsert(
+      {property_id:pid,kind:'extra_night',amount_cents,currency:'usd',active:true,auto_price:true,updated_at:new Date().toISOString()},
+      {onConflict:'property_id,kind'});
+    if(error){ toast('Noche extra: '+error.message); el.checked=false; return; }
+    toast('🔄 Auto activado — el precio se actualiza a las 5am');
+  } else {
+    const {error}=await tiendaC().from('ops_upsell_prices').update({auto_price:false}).eq('property_id',pid).eq('kind','extra_night');
+    if(error){ toast('Noche extra: '+error.message); el.checked=true; return; }
+    toast('✍️ Manual — pon el precio que quieras');
+  }
+  tiendaInit();
 }
 async function tiendaToggleOwn(pid,el){
   const on=el.checked;
