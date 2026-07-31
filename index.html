@@ -506,7 +506,7 @@
         <button id="opsTabSet" onclick="opsTab('set')">Ajustes</button>
       </div>
       <div id="opsViewProps" class="card" style="padding:14px">
-        <p class="muted" style="font-size:13px;margin-top:0">Precios por propiedad: baja con glide del full hasta <b>5d</b>, luego <b>3d</b>, y el <b>Día</b> de la noche (el más bajo). Vacío = esa propiedad no se toca. Nunca sube sobre lo que Hostfully ya tiene. Oprime <b>Guardar</b> en cada fila.</p>
+        <p class="muted" style="font-size:13px;margin-top:0">Precios por propiedad: baja con glide del full hasta <b>5d</b>, luego <b>3d</b>, y el <b>Desespero</b> (día de la última noche, el más bajo). Vacío = esa propiedad no se toca. Nunca sube sobre lo que Hostfully ya tiene. Oprime <b>Guardar</b> en cada fila.</p>
         <div style="overflow:auto"><table id="opsPropsTable"></table></div>
       </div>
       <div id="opsViewLog" class="card hide" style="padding:14px">
@@ -2430,7 +2430,7 @@ async function opsLoadProps(){
     '<td class="muted">'+opsMoney(p.daily_rate!=null?(p.daily_rate*(1+(Number(p.weekend_adjustment_rate)||0))):(maxp[p.id]!==undefined?maxp[p.id]:p.base_price))+'</td>'+
     '<td><button class="btn ghost sm" onclick="opsSaveProp(this,\''+p.id+'\')">Guardar</button></td></tr>';
   }).join('');
-  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>Modo</th><th>5d</th><th>3d</th><th>Día</th><th>Ventana</th><th>Full price</th><th>Max price</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>Modo</th><th>5d</th><th>3d</th><th>Desespero</th><th>Ventana</th><th>Full price</th><th>Max price</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
   const sel=document.getElementById('opsLogProp');
   sel.innerHTML='<option value="">Todas</option>'+data.map(p=>'<option value="'+p.id+'">'+opsEsc(p.name)+'</option>').join('');
 }
