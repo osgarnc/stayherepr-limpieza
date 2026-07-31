@@ -531,7 +531,7 @@
       <div style="overflow:auto"><table id="msgAutoTable"></table></div>
     </div>
     <div id="msgViewCleaners" class="card hide" style="padding:14px">
-      <p class="muted" style="font-size:13px;margin-top:0">Cleaners que reciben las solicitudes de <b>late check-out / early check-in</b> por Telegram para aprobar. Solo se les envía a los que estén <b>Activos</b>. <br>Para el <b>Telegram ID</b>: el cleaner le escribe cualquier mensaje al bot y este le responde su ID; pégalo aquí.</p>
+      <p class="muted" style="font-size:13px;margin-top:0">Cleaners que reciben las solicitudes de <b>late check-out / early check-in</b> por Telegram para aprobar. Solo se les envía a los que estén <b>Activos</b>. <br>Para el <b>Telegram ID</b>: el cleaner le escribe cualquier mensaje al bot y este le responde su ID; pégalo aquí.<br><b>Host Co 💳</b>: marca a la única persona que <b>acepta los cargos</b> en Host Co (Ingrid). La aprobación del servicio la da cualquier cleaner asignado, pero la tarjeta de aceptar el cargo va solo al Manager.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px">
         <input id="clName" placeholder="Nombre" style="flex:1;min-width:120px;padding:8px;border:1.5px solid var(--line);border-radius:8px">
         <input id="clChat" placeholder="Telegram ID (ej. 8572998489)" style="flex:1;min-width:150px;padding:8px;border:1.5px solid var(--line);border-radius:8px">
@@ -2479,7 +2479,7 @@ async function msgLoadUpsell(){
 }
 async function msgLoadCleaners(){
   const tb=document.getElementById('msgCleanersTable');
-  const {data,error}=await msgC().from('ops_cleaners').select('id,name,telegram_chat_id,phone,active,property_ids').order('name');
+  const {data,error}=await msgC().from('ops_cleaners').select('id,name,telegram_chat_id,phone,active,property_ids,accepts_charges').order('name');
   if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste las migraciones <code>ops_cleaners</code> / <code>property_ids</code>? ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
   window._cleaners={}; for(const c of (data||[])) window._cleaners[c.id]=c;
   if(!(data||[]).length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay cleaners. Agrega uno arriba.</td></tr></tbody>';return;}
@@ -2489,11 +2489,12 @@ async function msgLoadCleaners(){
     '<td>'+opsEsc(c.name)+'</td>'+
     '<td class="muted" style="font-size:12px">'+opsEsc(c.telegram_chat_id)+'</td>'+
     '<td style="text-align:center"><button class="btn ghost sm" onclick="msgCleanerProps(\''+c.id+'\')">'+(n?('🏠 '+n):'⚠️ 0')+' propiedad'+(n===1?'':'es')+'</button></td>'+
+    '<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer" title="Solo esta persona acepta los cargos en Host Co. Es exclusivo: activarlo aquí lo quita de los demás."><input type="checkbox" '+(c.accepts_charges?'checked':'')+' onchange="msgSetChargeManager(\''+c.id+'\',this)"> <span style="font-size:12px;font-weight:700;color:'+(c.accepts_charges?'#7c3aed':'#9ca3af')+'">'+(c.accepts_charges?'💳 Manager':'—')+'</span></label></td>'+
     '<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" '+(c.active?'checked':'')+' onchange="msgToggleCleaner(\''+c.id+'\',this)"> <span style="font-size:12px;font-weight:700;color:'+(c.active?'#166534':'#92400e')+'">'+(c.active?'Activo':'Inactivo')+'</span></label></td>'+
     '<td style="text-align:right"><button class="btn ghost sm" onclick="msgDeleteCleaner(\''+c.id+'\',\''+opsEsc(c.name).replace(/\x27/g,"")+'\')">Borrar</button></td>'+
     '</tr>';
   }).join('');
-  tb.innerHTML='<thead><tr><th>Nombre</th><th>Telegram ID</th><th style="text-align:center">Propiedades</th><th style="text-align:center">Estado</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+  tb.innerHTML='<thead><tr><th>Nombre</th><th>Telegram ID</th><th style="text-align:center">Propiedades</th><th style="text-align:center" title="Manager de Host Co: quien acepta los cargos">Host Co 💳</th><th style="text-align:center">Estado</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
 }
 let _clPropsId=null;
 async function msgCleanerProps(id){
@@ -2542,6 +2543,23 @@ async function msgToggleCleaner(id,el){
   const {error}=await msgC().from('ops_cleaners').update({active}).eq('id',id);
   if(error){ toast('Cleaners: '+error.message); el.checked=!active; return; }
   toast(active?'✅ Activo':'Inactivo'); msgLoadCleaners();
+}
+// Manager de Host Co (accepts_charges): quien ACEPTA los cargos. Es exclusivo — activar a uno
+// apaga a los demás. Si se apaga sin activar otro, nadie recibe las tarjetas de aceptar cargo.
+async function msgSetChargeManager(id,el){
+  const on=el.checked;
+  if(on){
+    const {error:e1}=await msgC().from('ops_cleaners').update({accepts_charges:false}).neq('id',id);
+    if(e1){ toast('Host Co: '+e1.message); el.checked=false; return; }
+    const {error:e2}=await msgC().from('ops_cleaners').update({accepts_charges:true}).eq('id',id);
+    if(e2){ toast('Host Co: '+e2.message); el.checked=false; return; }
+    toast('💳 Manager de Host Co actualizado');
+  }else{
+    const {error}=await msgC().from('ops_cleaners').update({accepts_charges:false}).eq('id',id);
+    if(error){ toast('Host Co: '+error.message); el.checked=true; return; }
+    toast('⚠️ Sin manager de Host Co — nadie recibirá las tarjetas de aceptar cargo');
+  }
+  msgLoadCleaners();
 }
 async function msgDeleteCleaner(id,name){
   if(!confirm('¿Borrar al cleaner '+name+'? Dejará de recibir solicitudes.')) return;
