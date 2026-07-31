@@ -80,6 +80,9 @@
   .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
   .tabs button{background:#fff;border:1.5px solid var(--line);color:var(--ink-soft);padding:9px 15px;border-radius:999px;font-weight:600;font-size:14px}
   .tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .maintabs{display:flex;gap:8px;margin-bottom:14px}
+  .maintabs button{flex:1;background:var(--sand);border:1.5px solid var(--line);color:var(--ink-soft);padding:13px;border-radius:12px;font-weight:800;font-size:15px}
+  .maintabs button.on{background:var(--sea);color:#fff;border-color:var(--sea)}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:12px;border-bottom:1px solid var(--line);vertical-align:middle}
   th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft)}
@@ -221,7 +224,11 @@
     <div class="card stat"><div class="k">Servicios aprob.</div><div class="v" id="stSvc">$0</div></div>
     <div class="card stat"><div class="k">Gastos aprob.</div><div class="v gold" id="stExp">$0</div></div>
   </div>
-  <div class="tabs">
+  <div class="maintabs">
+    <button id="mtOps" class="on" onclick="mainTab('ops')">🧹 Operaciones</button>
+    <button id="mtAuto" onclick="mainTab('auto')">🤖 Automatización</button>
+  </div>
+  <div class="tabs" id="navOperaciones">
     <button id="tInbox" class="on" onclick="tabTo('inbox')">📥 Bandeja</button>
     <button id="tDash" onclick="tabTo('dash')">📊 Dashboard</button>
     <button id="tInvoices" onclick="tabTo('invoices')">🧾 Facturas bisemanales</button>
@@ -231,14 +238,16 @@
     <button id="tExpenses" onclick="tabTo('expenses')">💸 Gastos</button>
     <button id="tReports" onclick="tabTo('reports')">📋 Reportes</button>
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
+    <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
+    <button id="tData" onclick="tabTo('data')">🗄️ Base de datos</button>
+    <button id="tTrash" onclick="tabTo('trash')">🗑️ Papelera <span id="trashCount"></span></button>
+  </div>
+  <div class="tabs hide" id="navAutomatizacion">
     <button id="tSettings" onclick="tabTo('settings')">⚙️ Perfiles y ajustes</button>
     <button id="tOperaciones" onclick="tabTo('operaciones');opsInit()">🏨 Precios Dinámicos</button>
     <button id="tTienda" onclick="tabTo('tienda');tiendaInit()">🛒 Tienda</button>
     <button id="tMensajes" onclick="tabTo('mensajes');msgInit()">💬 Mensajes</button>
     <button id="tLlamadas" onclick="tabTo('llamadas');callInit()">📞 Llamadas</button>
-    <button id="tUsers" onclick="tabTo('users')">🔐 Usuarios</button>
-    <button id="tData" onclick="tabTo('data')">🗄️ Base de datos</button>
-    <button id="tTrash" onclick="tabTo('trash')">🗑️ Papelera <span id="trashCount"></span></button>
   </div>
   <div id="tabDash" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Dashboard por contratista</h2>
@@ -827,6 +836,16 @@ function tabTo(t){
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
   document.getElementById('tab'+C).classList.toggle('hide',x!==t);
   document.getElementById('t'+C).classList.toggle('on',x===t);});}
+// Dos secciones principales: Operaciones y Automatización (cada una con su grupo de sub-tabs).
+let mainView='ops';
+function mainTab(m){
+  mainView=m;
+  document.getElementById('mtOps').classList.toggle('on',m==='ops');
+  document.getElementById('mtAuto').classList.toggle('on',m==='auto');
+  document.getElementById('navOperaciones').classList.toggle('hide',m!=='ops');
+  document.getElementById('navAutomatizacion').classList.toggle('hide',m!=='auto');
+  tabTo(m==='ops'?'inbox':'settings');
+}
 let selection={};
 function ensureSel(pid){if(!selection[pid])selection[pid]={cleaning:false,beforeFile:null,afterFile:null,damageOn:false,damage:'',damageFiles:[],earlyCheckin:false,lateCheckout:false,extraGuest:false,gastos:[]};return selection[pid];}
 function toggleCleaning(pid){const s=ensureSel(pid);s.cleaning=!s.cleaning;renderPropList();}
