@@ -525,6 +525,18 @@
         </div>
       </div>
     </div>
+    <div id="tiendaTierModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+      <div class="card" style="max-width:460px;width:100%;max-height:85vh;overflow:auto">
+        <div class="sectitle"><h2 id="tiendaTierTitle">Tramos</h2></div>
+        <p class="muted" style="font-size:12px;margin-top:0">El huésped elige una de estas horas y paga el precio de esa fila. Ordénalas como quieras; se muestran de más temprano a más tarde.</p>
+        <div id="tiendaTierList" style="margin:10px 0"></div>
+        <button class="btn ghost sm" style="width:100%" onclick="tiendaAddTierRow()">➕ Añadir hora</button>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+          <button class="btn ghost" onclick="tiendaCloseTiers()">Cancelar</button>
+          <button class="btn" id="tiendaTierSaveBtn" onclick="tiendaSaveTiers()">Guardar</button>
+        </div>
+      </div>
+    </div>
     <div class="sectitle"><h2>💬 Mensajes</h2>
       <span style="display:flex;align-items:center;gap:10px"><span id="msgModeBadge"></span><button class="btn ghost sm" onclick="msgLoad()">Actualizar</button></span>
     </div>
@@ -2601,47 +2613,97 @@ async function msgLoadMode(){
   b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(n>0?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e');
 }
 
-// ── Tienda (precios de upsell por propiedad + toggle de checkout propio) ─────
+// ── Tienda (precios de upsell por propiedad) ────────────────────────────────
+// Early/Late: precios POR HORA (tramos libres, tabla ops_upsell_price_tiers, editor en modal).
+// Noche extra: precio fijo por ahora (pasará a "precio publicado de Hostfully" en la fase 3).
 function tiendaC(){ return window.sb; } // cliente/sesión del dueño. RLS: is_owner()
-const TIENDA_KINDS=[['early_checkin','Early check-in'],['late_checkout','Late check-out'],['extra_night','Noche extra']];
+// Helpers de hora ↔ minutos ↔ etiqueta.
+function tiendaHHMMToMin(s){ const m=/^(\d{1,2}):(\d{2})$/.exec((s||'').trim()); if(!m)return null; const h=+m[1],mi=+m[2]; if(h>23||mi>59)return null; return h*60+mi; }
+function tiendaMinToHHMM(x){ const h=Math.floor(x/60),mi=x%60; return String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0'); }
+function tiendaMinToLabel(x){ let h=Math.floor(x/60); const mi=x%60; const ap=h>=12?'PM':'AM'; h=h%12; if(h===0)h=12; return h+':'+String(mi).padStart(2,'0')+' '+ap; }
 async function tiendaInit(){
   const tb=document.getElementById('tiendaTable'); if(!tb)return;
   tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Cargando…</td></tr></tbody>';
-  const [{data:props,error:pe},{data:prices,error:qe}]=await Promise.all([
+  const [{data:props,error:pe},{data:prices,error:qe},{data:tiers,error:te}]=await Promise.all([
     tiendaC().from('ops_properties').select('id,name,use_own_checkout').order('name'),
-    tiendaC().from('ops_upsell_prices').select('property_id,kind,amount_cents,active')
+    tiendaC().from('ops_upsell_prices').select('property_id,kind,amount_cents,active'),
+    tiendaC().from('ops_upsell_price_tiers').select('property_id,kind,minutes,amount_cents,active')
   ]);
-  if(pe||qe){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste las migraciones de precios (<code>ops_upsell_prices</code> / <code>use_own_checkout</code>)? ('+opsEsc((pe||qe).message)+')</td></tr></tbody>'; return; }
-  const pm={}; for(const r of (prices||[])){ if(r.active!==false) pm[r.property_id+'|'+r.kind]=r.amount_cents; }
+  if(pe||qe||te){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste las migraciones de precios (<code>ops_upsell_prices</code> / <code>ops_upsell_price_tiers</code> / <code>use_own_checkout</code>)? ('+opsEsc((pe||qe||te).message)+')</td></tr></tbody>'; return; }
+  window._tiendaProps={}; for(const p of (props||[])) window._tiendaProps[p.id]=p.name;
+  window._tiendaTiers=tiers||[];
+  // conteo de tramos por (propiedad, servicio)
+  const tc={}; for(const t of (tiers||[])){ if(t.active!==false){ const k=t.property_id+'|'+t.kind; tc[k]=(tc[k]||0)+1; } }
+  // precio fijo de noche extra
+  const pm={}; for(const r of (prices||[])){ if(r.active!==false && r.kind==='extra_night') pm[r.property_id]=r.amount_cents; }
+  const tierBtn=(pid,kind)=>{ const n=tc[pid+'|'+kind]||0;
+    return '<td style="text-align:center"><button class="btn ghost sm" onclick="tiendaTiers(\''+pid+'\',\''+kind+'\')">'+(n?('🕐 '+n+' hora'+(n===1?'':'s')):'⚠️ 0 horas')+'</button></td>'; };
   const rows=(props||[]).map(p=>{
-    const cells=TIENDA_KINDS.map(([k])=>{
-      const c=pm[p.id+'|'+k]; const val=(c!=null)?(c/100).toFixed(2):'';
-      return '<td style="text-align:center;white-space:nowrap"><span class="muted" style="font-size:12px">$</span>'+
-        '<input type="number" min="0" step="0.01" value="'+val+'" placeholder="—" '+
-        'style="width:76px;padding:7px 8px;border:1.5px solid var(--line);border-radius:8px;text-align:right;margin-left:2px" '+
-        'onchange="tiendaSavePrice(\''+p.id+'\',\''+k+'\',this)"></td>';
-    }).join('');
+    const early=tierBtn(p.id,'early_checkin');
+    const late=tierBtn(p.id,'late_checkout');
+    const xc=pm[p.id]; const xval=(xc!=null)?(xc/100).toFixed(2):'';
+    const extra='<td style="text-align:center;white-space:nowrap"><span class="muted" style="font-size:12px">$</span>'+
+      '<input type="number" min="0" step="0.01" value="'+xval+'" placeholder="—" '+
+      'style="width:76px;padding:7px 8px;border:1.5px solid var(--line);border-radius:8px;text-align:right;margin-left:2px" '+
+      'onchange="tiendaSaveExtra(\''+p.id+'\',this)"></td>';
     const on=p.use_own_checkout===true;
     const tog='<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer" title="Propio = cobra con Stripe en página propia. Host Co = tienda Host Co.">'+
       '<input type="checkbox" '+(on?'checked':'')+' onchange="tiendaToggleOwn(\''+p.id+'\',this)"> '+
       '<span style="font-size:12px;font-weight:700;color:'+(on?'#166534':'#6b7885')+'">'+(on?'🟢 Propio':'Host Co')+'</span></label></td>';
-    return '<tr><td>'+opsEsc(p.name)+'</td>'+cells+tog+'</tr>';
+    return '<tr><td>'+opsEsc(p.name)+'</td>'+early+late+extra+tog+'</tr>';
   }).join('');
   tb.innerHTML='<thead><tr><th>Propiedad</th><th style="text-align:center">Early check-in</th><th style="text-align:center">Late check-out</th><th style="text-align:center">Noche extra</th><th style="text-align:center">Checkout</th></tr></thead><tbody>'+(rows||'<tr><td class="muted" style="padding:16px">No hay propiedades.</td></tr>')+'</tbody>';
 }
-async function tiendaSavePrice(pid,kind,el){
-  const raw=(el.value||'').trim();
-  if(raw===''){ // vacío → quitar ese servicio de la propiedad
-    const {error}=await tiendaC().from('ops_upsell_prices').delete().eq('property_id',pid).eq('kind',kind);
-    if(error){ toast('Precio: '+error.message); return; }
-    toast('Servicio quitado'); return;
+// ── Editor de tramos por hora (modal) ──
+let _tiendaTierCtx=null;
+function tiendaTierRow(hhmm,price){
+  return '<div class="ttRow" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
+    '<input type="time" class="ttTime" value="'+(hhmm||'')+'" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:15px">'+
+    '<span class="muted" style="font-size:13px">$</span>'+
+    '<input type="number" min="0" step="0.01" class="ttPrice" value="'+(price||'')+'" placeholder="0.00" style="width:88px;padding:8px;border:1.5px solid var(--line);border-radius:8px;text-align:right">'+
+    '<button class="btn ghost sm" title="Quitar" onclick="this.closest(\'.ttRow\').remove()">✕</button>'+
+    '</div>';
+}
+function tiendaTiers(pid,kind){
+  _tiendaTierCtx={pid,kind};
+  const name=(window._tiendaProps||{})[pid]||'';
+  const kindLbl=kind==='early_checkin'?'Early check-in':'Late check-out';
+  document.getElementById('tiendaTierTitle').textContent='Tramos de '+kindLbl+' — '+name;
+  const mine=(window._tiendaTiers||[]).filter(t=>t.property_id===pid&&t.kind===kind&&t.active!==false).sort((a,b)=>a.minutes-b.minutes);
+  document.getElementById('tiendaTierList').innerHTML=mine.map(t=>tiendaTierRow(tiendaMinToHHMM(t.minutes),(t.amount_cents/100).toFixed(2))).join('')||tiendaTierRow('','');
+  document.getElementById('tiendaTierModal').classList.remove('hide');
+}
+function tiendaAddTierRow(){ document.getElementById('tiendaTierList').insertAdjacentHTML('beforeend',tiendaTierRow('','')); }
+function tiendaCloseTiers(){ document.getElementById('tiendaTierModal').classList.add('hide'); _tiendaTierCtx=null; }
+async function tiendaSaveTiers(){
+  const ctx=_tiendaTierCtx; if(!ctx)return;
+  const recs=[]; const seen=new Set();
+  for(const r of document.querySelectorAll('#tiendaTierList .ttRow')){
+    const tv=r.querySelector('.ttTime').value; const pv=(r.querySelector('.ttPrice').value||'').trim();
+    if(!tv&&pv==='') continue; // fila vacía, ignorar
+    const minutes=tiendaHHMMToMin(tv); if(minutes==null){ toast('Falta la hora en una fila'); return; }
+    if(pv===''){ toast('Falta el precio en una fila'); return; }
+    if(seen.has(minutes)){ toast('Hay horas repetidas'); return; } seen.add(minutes);
+    const cents=Math.round(parseFloat(pv)*100); if(isNaN(cents)||cents<0){ toast('Monto inválido'); return; }
+    recs.push({property_id:ctx.pid,kind:ctx.kind,label:tiendaMinToLabel(minutes),minutes,amount_cents:cents,active:true});
   }
-  const dollars=parseFloat(raw);
-  if(isNaN(dollars)||dollars<0){ toast('Monto inválido'); return; }
-  const amount_cents=Math.round(dollars*100);
-  el.value=(amount_cents/100).toFixed(2);
+  const btn=document.getElementById('tiendaTierSaveBtn'); btn.disabled=true;
+  const del=await tiendaC().from('ops_upsell_price_tiers').delete().eq('property_id',ctx.pid).eq('kind',ctx.kind);
+  if(del.error){ btn.disabled=false; toast('Tramos: '+del.error.message); return; }
+  if(recs.length){ const ins=await tiendaC().from('ops_upsell_price_tiers').insert(recs);
+    if(ins.error){ btn.disabled=false; toast('Tramos: '+ins.error.message); return; } }
+  btn.disabled=false; toast('✅ Guardado ('+recs.length+' hora'+(recs.length===1?'':'s')+')');
+  tiendaCloseTiers(); tiendaInit();
+}
+// Noche extra (precio fijo, por ahora)
+async function tiendaSaveExtra(pid,el){
+  const raw=(el.value||'').trim();
+  if(raw===''){ const {error}=await tiendaC().from('ops_upsell_prices').delete().eq('property_id',pid).eq('kind','extra_night');
+    if(error){ toast('Precio: '+error.message); return; } toast('Noche extra quitada'); return; }
+  const dollars=parseFloat(raw); if(isNaN(dollars)||dollars<0){ toast('Monto inválido'); return; }
+  const amount_cents=Math.round(dollars*100); el.value=(amount_cents/100).toFixed(2);
   const {error}=await tiendaC().from('ops_upsell_prices').upsert(
-    {property_id:pid,kind,amount_cents,currency:'usd',active:true,updated_at:new Date().toISOString()},
+    {property_id:pid,kind:'extra_night',amount_cents,currency:'usd',active:true,updated_at:new Date().toISOString()},
     {onConflict:'property_id,kind'});
   if(error){ toast('Precio: '+error.message); return; }
   toast('✅ Guardado ($'+(amount_cents/100).toFixed(2)+')');
