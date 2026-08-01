@@ -314,10 +314,12 @@
       <p class="muted" style="font-size:12px;margin-top:0">Prueba REAL sobre una reserva de prueba: <b>Extender</b> mueve el check-out +1 noche en Hostfully (se sincroniza a las plataformas y al turno). <b>Revertir</b> lo regresa a la fecha original para dejar el calendario limpio. Los avisos van solo a <b>tu Telegram</b>.</p>
       <div class="note" style="margin:8px 0;border-color:#f59e0b;background:#fffbeb">⚠️ Escribe a Hostfully de verdad. Úsalo solo con una <b>reserva de prueba</b> (fecha futura, con noche libre después).</div>
       <div class="field"><label>Lead UID de la reserva</label><input type="text" id="extLead" placeholder="ej. dfc83444-0279-4917-b0a3-a9780ca330dd"></div>
+      <div class="field"><label>Monto a registrar como pagado (para probar reconciliación)</label><span class="muted">$</span> <input type="number" min="0" step="0.01" id="extAmount" placeholder="ej. 63.00" style="width:110px"></div>
       <div id="extResult" style="margin:8px 0"></div>
-      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap">
         <button class="btn ghost" onclick="tiendaExtTestClose()">Cerrar</button>
         <button class="btn ghost" id="extRevertBtn" onclick="tiendaExtTest('revert')">↩️ Revertir</button>
+        <button class="btn ghost" id="extPayBtn" onclick="tiendaExtTest('pay')">💵 Registrar pago</button>
         <button class="btn" id="extExtendBtn" onclick="tiendaExtTest('extend')">Extender +1</button>
       </div>
     </div>
@@ -2809,20 +2811,30 @@ function tiendaExtTestClose(){ document.getElementById('tiendaExtTestModal').cla
 async function tiendaExtTest(action){
   const leadUid=(document.getElementById('extLead').value||'').trim();
   if(!leadUid){ toast('Pon el Lead UID de la reserva'); return; }
-  const msg=action==='extend'?'¿Extender esta reserva +1 noche en Hostfully? (escritura real)':'¿Revertir el check-out a su fecha original?';
+  const body={leadUid:leadUid,action:action};
+  let msg;
+  if(action==='extend') msg='¿Extender esta reserva +1 noche en Hostfully? (escritura real)';
+  else if(action==='revert') msg='¿Revertir el check-out a su fecha original?';
+  else { // pay
+    const amt=parseFloat(document.getElementById('extAmount').value||'');
+    if(!(amt>0)){ toast('Pon un monto > 0 para registrar el pago'); return; }
+    body.amount=amt; msg='¿Registrar $'+amt.toFixed(2)+' como pagado en Hostfully? (salda el balance)';
+  }
   if(!confirm(msg)) return;
-  const ext=document.getElementById('extExtendBtn'), rev=document.getElementById('extRevertBtn'), res=document.getElementById('extResult');
-  ext.disabled=true; rev.disabled=true; res.innerHTML='<span class="muted">Procesando…</span>';
+  const ext=document.getElementById('extExtendBtn'), rev=document.getElementById('extRevertBtn'), pay=document.getElementById('extPayBtn'), res=document.getElementById('extResult');
+  ext.disabled=true; rev.disabled=true; pay.disabled=true; res.innerHTML='<span class="muted">Procesando…</span>';
   try{
-    const r=await tiendaC().functions.invoke('extra-night-test',{body:{leadUid:leadUid,action:action}});
-    ext.disabled=false; rev.disabled=false;
+    const r=await tiendaC().functions.invoke('extra-night-test',{body:body});
+    ext.disabled=false; rev.disabled=false; pay.disabled=false;
     if(r.error||!(r.data&&r.data.ok)){ res.innerHTML='<span style="color:#b91c1c">'+opsEsc((r.data&&r.data.error)||(r.error&&r.error.message)||'Error')+'</span>'; return; }
     if(action==='extend'){
-      res.innerHTML='<div class="note" style="border-color:#16a34a;background:#f0fdf4">✅ Extendida: check-out <b>'+opsEsc(r.data.oldCheckOutDate)+'</b> → <b>'+opsEsc(r.data.newCheckOutDate)+'</b>. Revisa Airbnb/VRBO, el balance y el turno. Te avisé por Telegram. Cuando termines, dale <b>Revertir</b>.</div>';
+      res.innerHTML='<div class="note" style="border-color:#16a34a;background:#f0fdf4">✅ Extendida: check-out <b>'+opsEsc(r.data.oldCheckOutDate)+'</b> → <b>'+opsEsc(r.data.newCheckOutDate)+'</b>. Revisa Airbnb/VRBO, el balance y el turno. Cuando termines, dale <b>Revertir</b>.</div>';
+    } else if(action==='pay'){
+      res.innerHTML='<div class="note" style="border-color:#16a34a;background:#f0fdf4">💵 Registré <b>$'+opsEsc(Number(r.data.amount).toFixed(2))+'</b> como pagado. Verifica en Hostfully que el <b>balance bajó</b>.</div>';
     } else {
       res.innerHTML='<div class="note" style="border-color:#0ea5a4;background:#f0fdfa">↩️ Revertida: check-out de vuelta a <b>'+opsEsc(r.data.revertedTo)+'</b>. Calendario limpio.</div>';
     }
-  }catch(e){ ext.disabled=false; rev.disabled=false; res.innerHTML='<span style="color:#b91c1c">'+opsEsc(String((e&&e.message)||e))+'</span>'; }
+  }catch(e){ ext.disabled=false; rev.disabled=false; pay.disabled=false; res.innerHTML='<span style="color:#b91c1c">'+opsEsc(String((e&&e.message)||e))+'</span>'; }
 }
 async function tiendaTestSend(){
   const pid=document.getElementById('tstProp').value, kind=document.getElementById('tstKind').value;
