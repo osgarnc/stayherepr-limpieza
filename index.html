@@ -273,7 +273,7 @@
     <div style="overflow:auto"><table id="inboxTable"></table></div>
   </div>
   <div id="tabTienda" class="card hide" style="padding:18px">
-    <div class="sectitle"><h2>🛒 Tienda — precios de servicios</h2><button class="btn ghost sm" onclick="tiendaTestOpen()">🧪 Probar pago</button></div>
+    <div class="sectitle"><h2>🛒 Tienda — precios de servicios</h2><span style="display:flex;gap:8px"><button class="btn ghost sm" onclick="tiendaTestOpen()">🧪 Probar pago</button><button class="btn ghost sm" onclick="tiendaExtTestOpen()">🏨 Probar extensión</button></span></div>
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Precio de cada servicio <b>por propiedad</b>, en dólares. El huésped paga en una página propia con Stripe (retención; se cobra solo cuando el cleaner aprueba). Deja un campo <b>vacío</b> si esa propiedad no ofrece ese servicio.</p>
     <div class="note" style="margin:10px 0;border-color:#f59e0b;background:#fffbeb">⚠️ <b>Columna "Checkout":</b> pon una propiedad en <b>Propio</b> (Stripe) solo cuando estés en <b>producción</b> — llaves reales de Stripe y política de la plataforma confirmada. Con llaves de prueba, mantenla en <b>Host Co</b> para no afectar a huéspedes reales.</div>
     <div style="overflow:auto"><table id="tiendaTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
@@ -305,6 +305,20 @@
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
         <button class="btn ghost" onclick="tiendaTestClose()">Cerrar</button>
         <button class="btn" id="tstSendBtn" onclick="tiendaTestSend()">Enviar a mi Telegram</button>
+      </div>
+    </div>
+  </div>
+  <div id="tiendaExtTestModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div class="card" style="max-width:480px;width:100%;max-height:85vh;overflow:auto">
+      <div class="sectitle"><h2>🏨 Probar extensión (noche extra)</h2></div>
+      <p class="muted" style="font-size:12px;margin-top:0">Prueba REAL sobre una reserva de prueba: <b>Extender</b> mueve el check-out +1 noche en Hostfully (se sincroniza a las plataformas y al turno). <b>Revertir</b> lo regresa a la fecha original para dejar el calendario limpio. Los avisos van solo a <b>tu Telegram</b>.</p>
+      <div class="note" style="margin:8px 0;border-color:#f59e0b;background:#fffbeb">⚠️ Escribe a Hostfully de verdad. Úsalo solo con una <b>reserva de prueba</b> (fecha futura, con noche libre después).</div>
+      <div class="field"><label>Lead UID de la reserva</label><input type="text" id="extLead" placeholder="ej. dfc83444-0279-4917-b0a3-a9780ca330dd"></div>
+      <div id="extResult" style="margin:8px 0"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+        <button class="btn ghost" onclick="tiendaExtTestClose()">Cerrar</button>
+        <button class="btn ghost" id="extRevertBtn" onclick="tiendaExtTest('revert')">↩️ Revertir</button>
+        <button class="btn" id="extExtendBtn" onclick="tiendaExtTest('extend')">Extender +1</button>
       </div>
     </div>
   </div>
@@ -2788,6 +2802,27 @@ function tiendaTestHours(){
   const mine=(window._tiendaTiers||[]).filter(t=>t.property_id===pid&&t.kind===kind&&t.active!==false).sort((a,b)=>a.minutes-b.minutes);
   if(!mine.length){ sel.innerHTML='<option value="">(sin horarios — configúralos primero)</option>'; return; }
   sel.innerHTML=mine.map(t=>'<option value="'+t.minutes+'">'+opsEsc(tiendaMinToLabel(t.minutes))+' — $'+(t.amount_cents/100).toFixed(2)+'</option>').join('');
+}
+// ── Prueba de extensión (noche extra): extiende/revierte una reserva real de prueba ──
+function tiendaExtTestOpen(){ document.getElementById('extResult').innerHTML=''; document.getElementById('tiendaExtTestModal').classList.remove('hide'); }
+function tiendaExtTestClose(){ document.getElementById('tiendaExtTestModal').classList.add('hide'); }
+async function tiendaExtTest(action){
+  const leadUid=(document.getElementById('extLead').value||'').trim();
+  if(!leadUid){ toast('Pon el Lead UID de la reserva'); return; }
+  const msg=action==='extend'?'¿Extender esta reserva +1 noche en Hostfully? (escritura real)':'¿Revertir el check-out a su fecha original?';
+  if(!confirm(msg)) return;
+  const ext=document.getElementById('extExtendBtn'), rev=document.getElementById('extRevertBtn'), res=document.getElementById('extResult');
+  ext.disabled=true; rev.disabled=true; res.innerHTML='<span class="muted">Procesando…</span>';
+  try{
+    const r=await tiendaC().functions.invoke('extra-night-test',{body:{leadUid:leadUid,action:action}});
+    ext.disabled=false; rev.disabled=false;
+    if(r.error||!(r.data&&r.data.ok)){ res.innerHTML='<span style="color:#b91c1c">'+opsEsc((r.data&&r.data.error)||(r.error&&r.error.message)||'Error')+'</span>'; return; }
+    if(action==='extend'){
+      res.innerHTML='<div class="note" style="border-color:#16a34a;background:#f0fdf4">✅ Extendida: check-out <b>'+opsEsc(r.data.oldCheckOutDate)+'</b> → <b>'+opsEsc(r.data.newCheckOutDate)+'</b>. Revisa Airbnb/VRBO, el balance y el turno. Te avisé por Telegram. Cuando termines, dale <b>Revertir</b>.</div>';
+    } else {
+      res.innerHTML='<div class="note" style="border-color:#0ea5a4;background:#f0fdfa">↩️ Revertida: check-out de vuelta a <b>'+opsEsc(r.data.revertedTo)+'</b>. Calendario limpio.</div>';
+    }
+  }catch(e){ ext.disabled=false; rev.disabled=false; res.innerHTML='<span style="color:#b91c1c">'+opsEsc(String((e&&e.message)||e))+'</span>'; }
 }
 async function tiendaTestSend(){
   const pid=document.getElementById('tstProp').value, kind=document.getElementById('tstKind').value;
