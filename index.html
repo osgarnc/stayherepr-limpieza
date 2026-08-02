@@ -248,6 +248,7 @@
     <button id="tTienda" onclick="tabTo('tienda');tiendaInit()">🛒 Tienda</button>
     <button id="tMensajes" onclick="tabTo('mensajes');msgInit()">💬 Mensajes</button>
     <button id="tLlamadas" onclick="tabTo('llamadas');callInit()">📞 Llamadas</button>
+    <button id="tWebsite" onclick="tabTo('website');websiteInit()">🌐 Website</button>
   </div>
   <div id="tabDash" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Dashboard por contratista</h2>
@@ -277,6 +278,11 @@
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Precio de cada servicio <b>por propiedad</b>, en dólares. El huésped paga en una página propia con Stripe (retención; se cobra solo cuando el cleaner aprueba). Deja un campo <b>vacío</b> si esa propiedad no ofrece ese servicio.</p>
     <div class="note" style="margin:10px 0;border-color:#f59e0b;background:#fffbeb">⚠️ <b>Columna "Checkout":</b> pon una propiedad en <b>Propio</b> (Stripe) solo cuando estés en <b>producción</b> — llaves reales de Stripe y política de la plataforma confirmada. Con llaves de prueba, mantenla en <b>Host Co</b> para no afectar a huéspedes reales.</div>
     <div style="overflow:auto"><table id="tiendaTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
+  </div>
+  <div id="tabWebsite" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>🌐 Website — propiedades y ocupación</h2><span class="muted" id="websiteCount"></span></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Controla lo que muestra <b>stayherepr.com</b>. Ajusta la <b>ocupación máxima</b> por propiedad (ej. la casa completa hasta 12, aunque Hostfully tope en 10) y oculta/muestra propiedades. Los cambios salen <b>en vivo</b> en el website.</p>
+    <div style="overflow:auto"><table id="websiteTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
   </div>
   <div id="tiendaTierModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
     <div class="card" style="max-width:460px;width:100%;max-height:85vh;overflow:auto">
@@ -877,7 +883,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','website'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -2669,6 +2675,42 @@ function tiendaC(){ return window.sb; } // cliente/sesión del dueño. RLS: is_o
 function tiendaHHMMToMin(s){ const m=/^(\d{1,2}):(\d{2})$/.exec((s||'').trim()); if(!m)return null; const h=+m[1],mi=+m[2]; if(h>23||mi>59)return null; return h*60+mi; }
 function tiendaMinToHHMM(x){ const h=Math.floor(x/60),mi=x%60; return String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0'); }
 function tiendaMinToLabel(x){ let h=Math.floor(x/60); const mi=x%60; const ap=h>=12?'PM':'AM'; h=h%12; if(h===0)h=12; return h+':'+String(mi).padStart(2,'0')+' '+ap; }
+// ── Website: propiedades y ocupación (tabla website_properties, lectura pública) ──
+async function websiteInit(){
+  const tb=document.getElementById('websiteTable'); if(!tb)return;
+  tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Cargando…</td></tr></tbody>';
+  const {data,error}=await sb.from('website_properties').select('*').order('sort');
+  if(error){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste <code>fase-website-properties.sql</code>? ('+opsEsc(error.message)+')</td></tr></tbody>'; return; }
+  const cnt=document.getElementById('websiteCount'); if(cnt) cnt.textContent=(data||[]).length+' propiedades';
+  const rows=(data||[]).map(p=>{
+    const hf=(p.hostfully_max==null?'—':p.hostfully_max);
+    const cap='<td style="text-align:center;white-space:nowrap">'+
+      '<input type="number" min="1" step="1" value="'+(p.max_occupancy==null?'':p.max_occupancy)+'" '+
+      'style="width:68px;padding:7px 6px;border:1.5px solid var(--line);border-radius:8px;text-align:center;font-weight:700" '+
+      'onchange="websiteSaveMax(\''+p.uid+'\',this)"> '+
+      '<span class="muted" style="font-size:11px" title="Máximo según Hostfully">(HF: '+hf+')</span></td>';
+    const on=p.active!==false;
+    const tog='<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">'+
+      '<input type="checkbox" '+(on?'checked':'')+' onchange="websiteToggleActive(\''+p.uid+'\',this)"> '+
+      '<span style="font-size:12px;font-weight:700;color:'+(on?'#166534':'#9ca3af')+'">'+(on?'🟢 Visible':'Oculta')+'</span></label></td>';
+    return '<tr><td>'+opsEsc(p.name)+'</td><td class="muted" style="text-align:center;font-size:12px">'+(p.bedrooms==null?'—':p.bedrooms)+' hab · '+(p.bathrooms==null?'—':p.bathrooms)+' ba</td>'+cap+tog+'</tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Propiedad</th><th style="text-align:center">Config.</th><th style="text-align:center">Ocupación máx. (website)</th><th style="text-align:center">Visible</th></tr></thead><tbody>'+(rows||'<tr><td class="muted" style="padding:16px">No hay propiedades. Corre el SQL de semilla.</td></tr>')+'</tbody>';
+}
+async function websiteSaveMax(uid,el){
+  const v=parseInt(el.value,10);
+  if(isNaN(v)||v<1){ toast('Ocupación inválida'); return; }
+  el.value=v;
+  const {error}=await sb.from('website_properties').update({max_occupancy:v,updated_at:new Date().toISOString()}).eq('uid',uid);
+  if(error){ toast('Ocupación: '+error.message); return; }
+  toast('✅ Ocupación guardada ('+v+')');
+}
+async function websiteToggleActive(uid,el){
+  const on=el.checked;
+  const {error}=await sb.from('website_properties').update({active:on,updated_at:new Date().toISOString()}).eq('uid',uid);
+  if(error){ el.checked=!on; toast('Visible: '+error.message); return; }
+  toast(on?'✅ Visible en el website':'Oculta del website'); websiteInit();
+}
 async function tiendaInit(){
   const tb=document.getElementById('tiendaTable'); if(!tb)return;
   tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Cargando…</td></tr></tbody>';
