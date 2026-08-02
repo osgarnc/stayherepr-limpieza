@@ -534,7 +534,7 @@
         <button id="opsTabSet" onclick="opsTab('set')">Ajustes</button>
       </div>
       <div id="opsViewProps" class="card" style="padding:14px">
-        <p class="muted" style="font-size:13px;margin-top:0">Precios por propiedad: baja con glide del full hasta <b>5d</b>, luego <b>3d</b>, y el <b>Desespero</b> (día de la última noche, el más bajo). Vacío = esa propiedad no se toca. Nunca sube sobre lo que Hostfully ya tiene, <b>salvo</b> viernes/sábado y festivos de PR/EEUU, que llevan un <b>+10%</b> (premium) sobre el precio de esa noche. Oprime <b>Guardar</b> en cada fila.</p>
+        <p class="muted" style="font-size:13px;margin-top:0">Precios por propiedad: baja con glide del full hasta <b>5d</b>, se sostiene, al día 3 baja a <b>3d</b> y de ahí hace glide hasta el <b>Desespero</b> (día de la última noche, el más bajo). Vacío = esa propiedad no se toca. Nunca sube sobre lo que Hostfully ya tiene, <b>salvo</b> viernes/sábado y festivos de PR/EEUU, que llevan un <b>+10%</b> (premium) sobre el precio de esa noche. Oprime <b>Guardar</b> en cada fila.</p>
         <div style="overflow:auto"><table id="opsPropsTable"></table></div>
       </div>
       <div id="opsViewLog" class="card hide" style="padding:14px">
@@ -2540,7 +2540,7 @@ async function opsLoadLog(){
   // "Nuestro" = precio que pondría nuestra lógica (escalonado: glide→5d, luego 3d, luego día).
   const targetOf=(full,p5,p3,p0,win,days)=>{
     if(p5==null||p3==null||p0==null) return full;
-    let v; if(days<=0)v=p0; else if(days<=3)v=p3; else if(days<=5)v=p5;
+    let v; if(days<=0)v=p0; else if(days<=3)v=p0+(p3-p0)*(days/3); else if(days<=5)v=p5;
     else {const d=win-5; const f=d>0?Math.min(1,Math.max(0,(win-days)/d)):1; v=full-(full-p5)*f;}
     return Math.round(Math.min(full,v));
   };
