@@ -534,7 +534,7 @@
         <button id="opsTabSet" onclick="opsTab('set')">Ajustes</button>
       </div>
       <div id="opsViewProps" class="card" style="padding:14px">
-        <p class="muted" style="font-size:13px;margin-top:0">Precios por propiedad: baja con glide del full hasta <b>5d</b>, se sostiene, al día 3 baja a <b>3d</b> y de ahí hace glide hasta el <b>Desespero</b> (día de la última noche, el más bajo). Vacío = esa propiedad no se toca. Nunca sube sobre lo que Hostfully ya tiene, <b>salvo</b> viernes/sábado y festivos de PR/EEUU, que llevan un <b>+10%</b> (premium) sobre el precio de esa noche. Oprime <b>Guardar</b> en cada fila.</p>
+        <p class="muted" style="font-size:13px;margin-top:0">Precios por propiedad: baja con glide del full hasta <b>5d</b>, se sostiene, al día 3 baja a <b>3d</b> y de ahí hace glide hasta <b>0D</b> (día de la última noche, a las 5 AM). Ese día, además, a las <b>4pm</b> y a las <b>8pm</b> se cambia al precio que pongas en esas columnas (crons intradía). Vacío = esa columna no se toca. Nunca sube sobre lo que Hostfully ya tiene, <b>salvo</b> viernes/sábado y festivos de PR/EEUU, que llevan un <b>+10%</b> (premium) sobre el precio de esa noche. Oprime <b>Guardar</b> en cada fila.</p>
         <div style="overflow:auto"><table id="opsPropsTable"></table></div>
       </div>
       <div id="opsViewLog" class="card hide" style="padding:14px">
@@ -2461,13 +2461,13 @@ function msgBodyCell(m){
   return head+'<span>'+opsEsc(shown)+'</span>';
 }
 function opsChip(reason){
-  const M={discounted:['#e0f2fe','#075985','descuento'],floored:['#fef3c7','#92400e','piso'],no_discount:['#eef1f4','#475569','✓ Hostfully'],fixed:['#ede9fe','#5b21b6','precio día'],premium:['#ffe4e6','#9f1239','▲ finde/festivo']};
+  const M={discounted:['#e0f2fe','#075985','descuento'],floored:['#fef3c7','#92400e','piso'],no_discount:['#eef1f4','#475569','✓ Hostfully'],fixed:['#ede9fe','#5b21b6','precio día'],premium:['#ffe4e6','#9f1239','▲ finde/festivo'],day0_4pm:['#fef9c3','#854d0e','🕓 4pm'],day0_8pm:['#fde68a','#78350f','🌙 8pm']};
   const c=M[reason]||['#eef1f4','#6b7885',reason];
   return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+c[0]+';color:'+c[1]+'" title="'+reason+'">'+c[2]+'</span>';
 }
 async function opsLoadProps(){
   const c=opsC();
-  const {data,error}=await c.from('ops_properties').select('id,name,is_active,floor_price,discount_window_days,base_price,daily_rate,weekend_adjustment_rate,pricing_mode,fixed_price,price_day5,price_day3,price_dayof').order('name');
+  const {data,error}=await c.from('ops_properties').select('id,name,is_active,floor_price,discount_window_days,base_price,daily_rate,weekend_adjustment_rate,pricing_mode,fixed_price,price_day5,price_day3,price_dayof,price_day0_4pm,price_day0_8pm').order('name');
   if(error){toast('Ops: '+error.message);return;}
   opsProps=data;
   // Full price = dailyRate de Hostfully; Max = dailyRate*(1+weekendAdjustment). Fallback: mediana/máx de ops_night_base.
@@ -2488,18 +2488,20 @@ async function opsLoadProps(){
     '<td><input type="number" class="ops-p5" '+sty(isFixed)+' placeholder="—" value="'+(p.price_day5!=null?p.price_day5:'')+'"><input type="number" class="ops-fixed" '+sty(!isFixed)+' placeholder="fijo" value="'+(p.fixed_price!=null?p.fixed_price:'')+'"></td>'+
     '<td><input type="number" class="ops-p3" '+sty(isFixed)+' placeholder="—" value="'+(p.price_day3!=null?p.price_day3:'')+'"></td>'+
     '<td><input type="number" class="ops-p0" '+sty(isFixed)+' placeholder="—" value="'+(p.price_dayof!=null?p.price_dayof:'')+'"></td>'+
+    '<td><input type="number" class="ops-p4pm" '+sty(isFixed)+' placeholder="—" value="'+(p.price_day0_4pm!=null?p.price_day0_4pm:'')+'"></td>'+
+    '<td><input type="number" class="ops-p8pm" '+sty(isFixed)+' placeholder="—" value="'+(p.price_day0_8pm!=null?p.price_day0_8pm:'')+'"></td>'+
     '<td><input type="number" class="ops-window" '+inp+' value="'+p.discount_window_days+'"></td>'+
     '<td class="muted">'+opsMoney(p.daily_rate!=null?p.daily_rate:(full[p.id]!==undefined?full[p.id]:p.base_price))+'</td>'+
     '<td class="muted">'+opsMoney(p.daily_rate!=null?(p.daily_rate*(1+(Number(p.weekend_adjustment_rate)||0))):(maxp[p.id]!==undefined?maxp[p.id]:p.base_price))+'</td>'+
     '<td><button class="btn ghost sm" onclick="opsSaveProp(this,\''+p.id+'\')">Guardar</button></td></tr>';
   }).join('');
-  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>Modo</th><th>5d</th><th>3d</th><th>Desespero</th><th>Ventana</th><th>Full price</th><th>Max price</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
+  document.getElementById('opsPropsTable').innerHTML='<thead><tr><th>Propiedad</th><th>Activa</th><th>Modo</th><th>5d</th><th>3d</th><th>0D</th><th>4pm</th><th>8pm</th><th>Ventana</th><th>Full price</th><th>Max price</th><th></th></tr></thead><tbody>'+rows+'</tbody>';
   const sel=document.getElementById('opsLogProp');
   sel.innerHTML='<option value="">Todas</option>'+data.map(p=>'<option value="'+p.id+'">'+opsEsc(p.name)+'</option>').join('');
 }
 function opsToggleFixed(selEl){
   const tr=selEl.closest('tr'), fixed=selEl.value==='fixed';
-  ['.ops-p5','.ops-p3','.ops-p0'].forEach(s=>{const el=tr.querySelector(s); if(el)el.style.display=fixed?'none':'';});
+  ['.ops-p5','.ops-p3','.ops-p0','.ops-p4pm','.ops-p8pm'].forEach(s=>{const el=tr.querySelector(s); if(el)el.style.display=fixed?'none':'';});
   const f=tr.querySelector('.ops-fixed'); if(f){ f.style.display=fixed?'':'none'; if(fixed&&!f.value)f.focus(); }
 }
 async function opsSaveProp(btn,id){
@@ -2516,6 +2518,8 @@ async function opsSaveProp(btn,id){
     price_day5:num('.ops-p5'),
     price_day3:num('.ops-p3'),
     price_dayof:num('.ops-p0'),
+    price_day0_4pm:num('.ops-p4pm'),
+    price_day0_8pm:num('.ops-p8pm'),
     discount_window_days:Number(tr.querySelector('.ops-window').value)
   };
   const {error}=await c.from('ops_properties').update(patch).eq('id',id);
@@ -2546,9 +2550,9 @@ async function opsLoadLog(){
   };
   let saved=0;
   const rows=data.map(r=>{
-    if(r.reason!=='no_discount'&&r.reason!=='premium')saved+=Number(r.discount_amount)||0;
+    if(r.reason!=='no_discount'&&r.reason!=='premium'&&r.reason!=='day0_4pm'&&r.reason!=='day0_8pm')saved+=Number(r.discount_amount)||0;
     const full=Number(r.base_price);
-    const nuestro=(r.reason==='fixed'||r.reason==='premium')?Number(r.applied_price):targetOf(full,p5By[r.property_id],p3By[r.property_id],p0By[r.property_id],winBy[r.property_id],r.days_until_checkin);
+    const nuestro=(r.reason==='fixed'||r.reason==='premium'||r.reason==='day0_4pm'||r.reason==='day0_8pm')?Number(r.applied_price):targetOf(full,p5By[r.property_id],p3By[r.property_id],p0By[r.property_id],winBy[r.property_id],r.days_until_checkin);
     return '<tr><td>'+r.night_date+'</td><td>'+opsEsc(names[r.property_id]||'—')+'</td><td>'+r.days_until_checkin+'</td><td>'+opsMoney(full)+'</td><td>'+opsMoney(nuestro)+'</td><td><b>'+opsMoney(r.applied_price)+'</b></td><td>'+opsChip(r.reason)+'</td></tr>';
   }).join('');
   tb.innerHTML='<thead><tr><th>Fecha</th><th>Propiedad</th><th>d+</th><th>Full</th><th>Nuestro</th><th>Aplicado</th><th>Motivo</th></tr></thead><tbody>'+rows+'</tbody>';
