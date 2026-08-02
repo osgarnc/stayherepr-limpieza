@@ -176,6 +176,7 @@
         <button id="segFacturas" onclick="segTo('facturas')">🧾 Facturas</button>
         <button id="segReporte" onclick="segTo('reporte')">📝 Desahogo</button>
         <button id="segEarly" onclick="segTo('early')">🕐 Early/Late</button>
+        <button id="segCalendar" onclick="segTo('calendar')">📅 Calendario</button>
         <button id="segNueva" onclick="segTo('nueva')" style="display:none">🧾 Libre</button>
       </div>
       <div id="paneRegistrar">
@@ -191,6 +192,10 @@
       <div id="paneEarly" class="hide">
         <p class="muted" style="font-size:13px;margin:2px 0 10px">Early check-in / Late check-out <b>aprobados y pagados</b> que tú aprobaste. Te ayuda a planificar la limpieza.</p>
         <div id="myEarlyList"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver tus early/late.</p></div>
+      </div>
+      <div id="paneCalendar" class="hide">
+        <p class="muted" style="font-size:13px;margin:2px 0 10px">Calendario de todas las propiedades (llegadas y salidas). 🔑 = early check-in aprobado · 🕗 = late check-out aprobado.</p>
+        <div id="myCalendarList"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver el calendario.</p></div>
       </div>
       <div id="paneReporte" class="hide">
         <div class="note" style="margin-bottom:12px">📝 Reporta a administración cualquier cosa que deba atender (fotos + descripción).</div>
@@ -807,13 +812,14 @@ function setMode(m,force){
   }
 }
 function segTo(s){
-  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte',early:'paneEarly',nueva:'paneNueva'};
-  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte',early:'segEarly',nueva:'segNueva'};
+  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte',early:'paneEarly',calendar:'paneCalendar',nueva:'paneNueva'};
+  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte',early:'segEarly',calendar:'segCalendar',nueva:'segNueva'};
   Object.keys(P).forEach(k=>{const el=document.getElementById(P[k]);if(el)el.classList.toggle('hide',k!==s);});
   Object.keys(B).forEach(k=>{const el=document.getElementById(B[k]);if(el)el.classList.toggle('on',k===s);});
   if(s==='facturas')renderMyInvoices();
   if(s==='reporte'){renderReportPhotos();renderMyReports();}
   if(s==='early')renderMyEarlyLate();
+  if(s==='calendar')renderMyCalendar();
   if(s==='nueva'){const f=document.getElementById('flFecha');if(f&&!f.value)f.value=todayISO();if(!document.getElementById('flLines').children.length){flAddLine();}}
 }
 /* ---------- EARLY/LATE DE LA LIMPIADORA (personal) ---------- */
@@ -841,6 +847,40 @@ async function renderMyEarlyLate(){
         (cuando?'📅 '+esc(cuando)+'<br>':'')+
         '👤 '+esc(e.guest_name||'—')+
       '</div>'+
+    '</div>';
+  }).join('');
+}
+/* ---------- CALENDARIO COMPARTIDO (personal) ---------- */
+async function renderMyCalendar(){
+  const el=document.getElementById('myCalendarList');if(!el)return;
+  el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Cargando…</p>';
+  const today=todayISO();
+  const {data,error}=await sb.from('ops_reservations')
+    .select('property_name,guest_name,check_in,check_out,early_checkin_approved,late_checkout_approved,status')
+    .or('check_in.gte.'+today+',check_out.gte.'+today).order('check_in',{ascending:true});
+  if(error){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar el calendario (¿corriste <code>fase-ops-reservations.sql</code> y el sync de Hostfully?).</p>';return;}
+  const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const ev=[];
+  (data||[]).forEach(r=>{
+    if(r.check_in&&r.check_in>=today)ev.push({date:r.check_in,type:'in',r:r});
+    if(r.check_out&&r.check_out>=today)ev.push({date:r.check_out,type:'out',r:r});
+  });
+  if(!ev.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No hay llegadas ni salidas próximas.</p>';return;}
+  const byDate={};ev.forEach(e=>{(byDate[e.date]=byDate[e.date]||[]).push(e);});
+  const dfmt=d=>{try{return new Date(d+'T00:00:00').toLocaleDateString('es-PR',{weekday:'long',day:'numeric',month:'long'});}catch(_){return d;}};
+  const tmr=(function(){var t=new Date(today+'T00:00:00');t.setDate(t.getDate()+1);return t.toISOString().slice(0,10);})();
+  const dayLabel=d=>d===today?('Hoy · '+dfmt(d)):d===tmr?('Mañana · '+dfmt(d)):dfmt(d);
+  el.innerHTML=Object.keys(byDate).sort().map(function(d){
+    const rows=byDate[d].sort((a,b)=>a.type<b.type?-1:1).map(function(e){const r=e.r;const isOut=e.type==='out';
+      const badge=isOut?['🧹 Salida','#F7E2DC','#C0492E']:['🛬 Llegada','#E1F3E9','#1F8A57'];
+      const mark=isOut?(r.late_checkout_approved?' <span title="Late check-out aprobado">🕗</span>':''):(r.early_checkin_approved?' <span title="Early check-in aprobado">🔑</span>':'');
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line)">'+
+        '<div><b style="font-size:13.5px">'+esc(r.property_name||'—')+'</b>'+mark+'<div class="muted" style="font-size:12px">👤 '+esc(r.guest_name||'—')+'</div></div>'+
+        '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:'+badge[1]+';color:'+badge[2]+';white-space:nowrap">'+badge[0]+'</span>'+
+      '</div>';
+    }).join('');
+    return '<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px">'+
+      '<div style="font-weight:800;font-size:13px;color:var(--sea);text-transform:capitalize;margin-bottom:2px">'+esc(dayLabel(d))+'</div>'+rows+
     '</div>';
   }).join('');
 }
