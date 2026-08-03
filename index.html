@@ -177,6 +177,7 @@
         <button id="segReporte" onclick="segTo('reporte')">📝 Desahogo</button>
         <button id="segEarly" onclick="segTo('early')">🕐 Early/Late</button>
         <button id="segCalendar" onclick="segTo('calendar')">📅 Calendario</button>
+        <button id="segAvail" onclick="segTo('avail')">💲 Disponibles</button>
         <button id="segNueva" onclick="segTo('nueva')" style="display:none">🧾 Libre</button>
       </div>
       <div id="paneRegistrar">
@@ -196,6 +197,13 @@
       <div id="paneCalendar" class="hide">
         <p class="muted" style="font-size:13px;margin:2px 0 10px">Calendario de todas las propiedades (llegadas y salidas). 🔑 = early check-in aprobado · 🕗 = late check-out aprobado.</p>
         <div id="myCalendarList"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver el calendario.</p></div>
+      </div>
+      <div id="paneAvail" class="hide">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:2px 0 8px">
+          <p class="muted" style="font-size:13px;margin:0">Noches <b>disponibles</b> (próximos 15 días) con su precio publicado. Búsqueda en vivo.</p>
+          <button class="btn ghost sm" style="white-space:nowrap" onclick="renderAvailability()">🔄</button>
+        </div>
+        <div id="myAvailList"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para buscar disponibilidad.</p></div>
       </div>
       <div id="paneReporte" class="hide">
         <div class="note" style="margin-bottom:12px">📝 Reporta a administración cualquier cosa que deba atender (fotos + descripción).</div>
@@ -812,14 +820,15 @@ function setMode(m,force){
   }
 }
 function segTo(s){
-  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte',early:'paneEarly',calendar:'paneCalendar',nueva:'paneNueva'};
-  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte',early:'segEarly',calendar:'segCalendar',nueva:'segNueva'};
+  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte',early:'paneEarly',calendar:'paneCalendar',avail:'paneAvail',nueva:'paneNueva'};
+  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte',early:'segEarly',calendar:'segCalendar',avail:'segAvail',nueva:'segNueva'};
   Object.keys(P).forEach(k=>{const el=document.getElementById(P[k]);if(el)el.classList.toggle('hide',k!==s);});
   Object.keys(B).forEach(k=>{const el=document.getElementById(B[k]);if(el)el.classList.toggle('on',k===s);});
   if(s==='facturas')renderMyInvoices();
   if(s==='reporte'){renderReportPhotos();renderMyReports();}
   if(s==='early')renderMyEarlyLate();
   if(s==='calendar')renderMyCalendar();
+  if(s==='avail')renderAvailability();
   if(s==='nueva'){const f=document.getElementById('flFecha');if(f&&!f.value)f.value=todayISO();if(!document.getElementById('flLines').children.length){flAddLine();}}
 }
 /* ---------- EARLY/LATE DE LA LIMPIADORA (personal) ---------- */
@@ -883,6 +892,27 @@ async function renderMyCalendar(){
       '<div style="font-weight:800;font-size:13px;color:var(--sea);text-transform:capitalize;margin-bottom:2px">'+esc(dayLabel(d))+'</div>'+rows+
     '</div>';
   }).join('');
+}
+/* ---------- DISPONIBILIDAD EN VIVO (personal) ---------- */
+async function renderAvailability(){
+  const el=document.getElementById('myAvailList');if(!el)return;
+  el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Buscando disponibilidad en vivo…</p>';
+  let data;
+  try{ const r=await sb.functions.invoke('ops-availability',{body:{}}); if(r.error)throw r.error; data=r.data; }
+  catch(e){ el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar la disponibilidad. Intenta de nuevo con 🔄.</p>'; return; }
+  if(!data||!data.ok){ el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar la disponibilidad.</p>'; return; }
+  const props=data.properties||[];
+  const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const md=iso=>{try{return new Date(iso+'T00:00:00').toLocaleDateString('es-PR',{day:'numeric',month:'short'});}catch(_){return iso;}};
+  if(!props.length){ el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Sin noches disponibles en los próximos '+(data.days||15)+' días 🎉</p>'; return; }
+  el.innerHTML='<div class="muted" style="font-size:12px;margin-bottom:8px">'+props.length+' propiedad(es) con disponibilidad · '+esc(md(data.from))+' – '+esc(md(data.to))+'</div>'+
+    props.map(function(p){
+      const chips=(p.nights||[]).map(function(n){return '<span style="display:inline-flex;align-items:center;gap:5px;background:#F1F9F8;border:1px solid var(--sea);border-radius:999px;padding:4px 9px;font-size:12px;margin:0 4px 4px 0"><b>'+esc(md(n.date))+'</b><span style="color:var(--sea);font-weight:700">$'+n.price+'</span></span>';}).join('');
+      return '<div style="border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:10px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><b style="font-size:14px">'+esc(p.name)+'</b><span class="muted" style="font-size:12px;white-space:nowrap">'+(p.nights||[]).length+' noche'+((p.nights||[]).length===1?'':'s')+'</span></div>'+
+        '<div>'+chips+'</div>'+
+      '</div>';
+    }).join('');
 }
 /* ---------- REPORTE DIARIO (personal) ---------- */
 let drFiles=[];
