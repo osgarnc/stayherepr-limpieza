@@ -191,7 +191,7 @@
       </div>
       <div id="paneFacturas" class="hide"><div id="myInvoices"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver tus facturas.</p></div></div>
       <div id="paneEarly" class="hide">
-        <p class="muted" style="font-size:13px;margin:2px 0 10px">Early check-in / Late check-out <b>aprobados y pagados</b> que tú aprobaste. Te ayuda a planificar la limpieza.</p>
+        <p class="muted" style="font-size:13px;margin:2px 0 10px">Early check-in / Late check-out <b>aprobados y pagados</b> en todas las propiedades. Te ayuda a planificar la limpieza.</p>
         <div id="myEarlyList"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver tus early/late.</p></div>
       </div>
       <div id="paneCalendar" class="hide">
@@ -842,7 +842,7 @@ async function renderMyEarlyLate(){
   // Solo presentes y futuros: oculta los cuya fecha de evento ya pasó (desde el inicio de hoy).
   const startToday=new Date();startToday.setHours(0,0,0,0);
   const rowsData=(data||[]).filter(e=>!e.event_at||new Date(e.event_at)>=startToday);
-  if(!rowsData.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No tienes early/late próximos. Aparecerán aquí los presentes y futuros.</p>';return;}
+  if(!rowsData.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No hay early/late próximos. Aparecerán aquí los presentes y futuros.</p>';return;}
   const svc=k=>k==='early_checkin'?['🔑 Early check-in','#ede9fe','#5b21b6']:['🕗 Late check-out','#ede9fe','#5b21b6'];
   const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   const fmt=d=>{try{return new Date(d).toLocaleString('es-PR',{dateStyle:'medium',timeStyle:'short'});}catch(e){return d;}};
