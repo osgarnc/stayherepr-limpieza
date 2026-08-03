@@ -903,14 +903,22 @@ async function renderAvailability(){
   if(!data||!data.ok){ el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar la disponibilidad.</p>'; return; }
   const props=data.properties||[];
   const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  const md=iso=>{try{return new Date(iso+'T00:00:00').toLocaleDateString('es-PR',{day:'numeric',month:'short'});}catch(_){return iso;}};
-  if(!props.length){ el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Sin noches disponibles en los próximos '+(data.days||15)+' días 🎉</p>'; return; }
-  el.innerHTML='<div class="muted" style="font-size:12px;margin-bottom:8px">'+props.length+' propiedad(es) con disponibilidad · '+esc(md(data.from))+' – '+esc(md(data.to))+'</div>'+
-    props.map(function(p){
-      const chips=(p.nights||[]).map(function(n){return '<span style="display:inline-flex;align-items:center;gap:5px;background:#F1F9F8;border:1px solid var(--sea);border-radius:999px;padding:4px 9px;font-size:12px;margin:0 4px 4px 0"><b>'+esc(md(n.date))+'</b><span style="color:var(--sea);font-weight:700">$'+n.price+'</span></span>';}).join('');
-      return '<div style="border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:10px">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><b style="font-size:14px">'+esc(p.name)+'</b><span class="muted" style="font-size:12px;white-space:nowrap">'+(p.nights||[]).length+' noche'+((p.nights||[]).length===1?'':'s')+'</span></div>'+
-        '<div>'+chips+'</div>'+
+  const dlabel=iso=>{try{return new Date(iso+'T00:00:00').toLocaleDateString('es-PR',{weekday:'long',day:'numeric',month:'long'});}catch(_){return iso;}};
+  const mdShort=iso=>{try{return new Date(iso+'T00:00:00').toLocaleDateString('es-PR',{day:'numeric',month:'short'});}catch(_){return iso;}};
+  // Pivotear: agrupar por FECHA -> propiedades disponibles esa noche.
+  const byDate={};
+  props.forEach(function(p){(p.nights||[]).forEach(function(n){(byDate[n.date]=byDate[n.date]||[]).push({name:p.name,price:n.price});});});
+  const dates=Object.keys(byDate).sort();
+  if(!dates.length){ el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Sin noches disponibles en los próximos '+(data.days||15)+' días 🎉</p>'; return; }
+  const today=todayISO();
+  el.innerHTML='<div class="muted" style="font-size:12px;margin-bottom:8px">'+esc(mdShort(data.from))+' – '+esc(mdShort(data.to))+' · toca una fecha para ver qué propiedades están libres esa noche</div>'+
+    dates.map(function(d){
+      const items=byDate[d].sort(function(a,b){return a.name<b.name?-1:1;});
+      const rows=items.map(function(x){return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)"><span style="font-size:13.5px">'+esc(x.name)+'</span><b style="color:var(--sea);white-space:nowrap">$'+x.price+'</b></div>';}).join('');
+      const lbl=d===today?('Hoy · '+dlabel(d)):dlabel(d);
+      return '<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:13px;color:var(--sea);text-transform:capitalize">'+esc(lbl)+'</b><span class="muted" style="font-size:12px;white-space:nowrap">'+items.length+' libre'+(items.length===1?'':'s')+'</span></div>'+
+        rows+
       '</div>';
     }).join('');
 }
