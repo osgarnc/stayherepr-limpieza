@@ -262,6 +262,7 @@
     <button id="tTienda" onclick="tabTo('tienda');tiendaInit()">🛒 Tienda</button>
     <button id="tMensajes" onclick="tabTo('mensajes');msgInit()">💬 Mensajes</button>
     <button id="tLlamadas" onclick="tabTo('llamadas');callInit()">📞 Llamadas</button>
+    <button id="tCrons" onclick="tabTo('crons');cronsInit()">⏱️ Crons</button>
     <button id="tWebsite" onclick="tabTo('website');websiteInit()">🌐 Website</button>
   </div>
   <!-- 🛑 Parada de emergencia: detiene TODA la actividad del bot (mismo flag bot_paused que /pausar en Telegram). -->
@@ -303,6 +304,12 @@
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Precio de cada servicio <b>por propiedad</b>, en dólares. El huésped paga en una página propia con Stripe (retención; se cobra solo cuando el cleaner aprueba). Deja un campo <b>vacío</b> si esa propiedad no ofrece ese servicio.</p>
     <div class="note" style="margin:10px 0;border-color:#f59e0b;background:#fffbeb">⚠️ <b>Columna "Checkout":</b> pon una propiedad en <b>Propio</b> (Stripe) solo cuando estés en <b>producción</b> — llaves reales de Stripe y política de la plataforma confirmada. Con llaves de prueba, mantenla en <b>Host Co</b> para no afectar a huéspedes reales.</div>
     <div style="overflow:auto"><table id="tiendaTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
+  </div>
+  <div id="tabCrons" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>⏱️ Tareas automáticas (crons)</h2><button onclick="cronsLoad()" style="padding:7px 12px;border:1.5px solid var(--line);border-radius:8px;background:#fff;cursor:pointer">↻ Refrescar</button></div>
+    <p class="muted" style="font-size:13px;margin-top:-4px">Activa/apaga cada tarea y ajusta cada cuánto corre. El formato es <b>cron</b> (min hora día mes día-semana). Ej: <code>*/20 * * * *</code> = cada 20 min · <code>0 * * * *</code> = cada hora · <code>15 * * * *</code> = cada hora al minuto 15 · <code>0 9 * * *</code> = 9:00 UTC diario.</p>
+    <div id="cronsWarn" class="note" style="display:none;border-color:#f59e0b;background:#fffbeb;font-size:13px"></div>
+    <div id="cronsList"></div>
   </div>
   <div id="tabWebsite" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>🌐 Website — propiedades y ocupación</h2><span class="muted" id="websiteCount"></span></div>
@@ -1007,7 +1014,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','website'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -1025,6 +1032,57 @@ function mainTab(m){
   if(m==='ops'){tabTo('inbox');}
   else{tabTo('operaciones');opsInit();}
 }
+// ⏱️ Crons — administrar las tareas automáticas (pg_cron) vía RPC ops_list_crons / ops_set_cron.
+const CRON_INFO={
+  'sync-reservations':['🔄','Sincronizar reservas','Trae las reservas de Hostfully (alimenta calendario y cobros). Recomendado: cada hora.'],
+  'precios-diario':['💲','Precios dinámicos (diario)','Ajusta precios en Hostfully cada mañana.'],
+  'precios-4pm':['💲','Precios intradía 4pm','Fija el precio de HOY a las 4pm.'],
+  'precios-8pm':['💲','Precios intradía 8pm','Fija el precio de HOY a las 8pm.'],
+  'early-late-reminders':['⏰','Recordatorios early/late','Reconcilia y recuerda pagos de early/late check.'],
+  'upsell-reminders':['🛎️','Recordatorios de upsell','Recuerda pagos pendientes de early/late.'],
+  'extra-night-offers':['🌙','Oferta de noche extra','Ofrece extender la estadía el día antes del checkout.'],
+  'ai-cost-report':['📊','Reporte de costo IA','Resumen semanal de costo de IA a Telegram.'],
+  'outbound-flush':['📤','Envío de la cola (undo)','Envía los mensajes en cola tras la ventana de 2 min. NO lo apagues (o nada sale).'],
+  'booking-charges':['💳','Cobro Booking/Priceline','Envía enlaces de cobro del total a reservas Booking sin pagar. Ojo: puede hostigar si Booking ya cobró.'],
+};
+let cronsLoaded=false;
+function cronsInit(){ if(!cronsLoaded) cronsLoad(); }
+async function cronsLoad(){
+  const warn=document.getElementById('cronsWarn'), list=document.getElementById('cronsList');
+  list.innerHTML='<p class="muted">Cargando…</p>'; warn.style.display='none';
+  const {data,error}=await window.sb.rpc('ops_list_crons');
+  if(error){ warn.textContent='No pude leer los crons: '+error.message; warn.style.display='block'; list.innerHTML=''; return; }
+  cronsLoaded=true;
+  const rows=(data||[]).slice().sort((a,b)=>String(a.jobname).localeCompare(String(b.jobname)));
+  if(!rows.length){ list.innerHTML='<p class="muted">No hay crons configurados.</p>'; return; }
+  list.innerHTML=rows.map(function(j){
+    const info=CRON_INFO[j.jobname]||['⚙️',j.jobname,''];
+    const sid='cronSch_'+j.jobname, aid='cronAct_'+j.jobname;
+    return '<div style="border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;'+(j.active?'':'opacity:.7;background:#fafafa')+'">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">'+
+        '<div><div style="font-weight:800">'+info[0]+' '+opsEsc(info[1])+'</div>'+
+        '<div class="muted" style="font-size:12.5px">'+opsEsc(info[2])+'</div></div>'+
+        '<label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-weight:700;font-size:13px">'+
+          '<input type="checkbox" id="'+aid+'" '+(j.active?'checked':'')+'> '+(j.active?'<span style="color:#166534">Activo</span>':'<span style="color:#9ca3af">Apagado</span>')+'</label>'+
+      '</div>'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">'+
+        '<span style="font-size:13px;color:var(--muted)">Cada cuánto:</span>'+
+        '<input type="text" id="'+sid+'" value="'+opsEsc(j.schedule)+'" style="font-family:monospace;padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;width:150px">'+
+        '<button onclick="cronSave(\''+j.jobname+'\')" style="padding:7px 14px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer">Guardar</button>'+
+      '</div></div>';
+  }).join('');
+}
+async function cronSave(jobname){
+  const sch=(document.getElementById('cronSch_'+jobname).value||'').trim();
+  const act=document.getElementById('cronAct_'+jobname).checked;
+  if(!/^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/.test(sch)){ toast('Formato cron inválido (deben ser 5 campos, ej. */20 * * * *)'); return; }
+  if(!act && !confirm('¿Apagar "'+jobname+'"? No correrá hasta que lo reactives.')) return;
+  const {data,error}=await window.sb.rpc('ops_set_cron',{p_jobname:jobname,p_schedule:sch,p_active:act});
+  if(error){ toast('Error: '+error.message); return; }
+  if(data==='not_found'){ toast('No encontré ese cron.'); return; }
+  toast('✅ Guardado'); cronsLoad();
+}
+
 // 🛑 Parada de emergencia — mismo flag bot_paused que /pausar en Telegram.
 async function emergencyRefresh(){
   try{
