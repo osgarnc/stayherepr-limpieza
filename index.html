@@ -264,6 +264,17 @@
     <button id="tLlamadas" onclick="tabTo('llamadas');callInit()">📞 Llamadas</button>
     <button id="tWebsite" onclick="tabTo('website');websiteInit()">🌐 Website</button>
   </div>
+  <!-- 🛑 Parada de emergencia: detiene TODA la actividad del bot (mismo flag bot_paused que /pausar en Telegram). -->
+  <div class="hide" id="emergencyBar" style="margin:10px 0 4px">
+    <div id="emgCard" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;border:2px solid #ef4444;background:#fef2f2">
+      <div>
+        <div id="emgTitle" style="font-weight:800;color:#991b1b;font-size:15px">🛑 Parada de emergencia</div>
+        <div id="emgStatus" class="muted" style="font-size:13px">Estado: —</div>
+      </div>
+      <button id="emgBtn" onclick="emergencyToggle()" style="padding:12px 20px;border:none;border-radius:10px;font-weight:800;font-size:15px;cursor:pointer;background:#ef4444;color:#fff">🛑 DETENER TODO</button>
+    </div>
+    <div class="muted" style="font-size:12px;margin:6px 2px 0">Detiene TODO: no se envía nada a huéspedes (automático ni manual), no se tocan precios y los crons no corren. Reactívalo con el mismo botón (o <b>/reanudar</b> en Telegram).</div>
+  </div>
   <div id="tabDash" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Dashboard por contratista</h2>
       <span style="display:flex;align-items:center;gap:6px;font-size:13px">Año <select id="dashYear" onchange="setDash('year',this.value)" style="padding:7px 10px;border:1.5px solid var(--line);border-radius:8px"></select></span>
@@ -1010,8 +1021,53 @@ function mainTab(m){
   document.getElementById('mtAuto').classList.toggle('on',m==='auto');
   document.getElementById('navOperaciones').classList.toggle('hide',m!=='ops');
   document.getElementById('navAutomatizacion').classList.toggle('hide',m!=='auto');
+  const eb=document.getElementById('emergencyBar'); if(eb){eb.classList.toggle('hide',m!=='auto'); if(m==='auto')emergencyRefresh();}
   if(m==='ops'){tabTo('inbox');}
   else{tabTo('operaciones');opsInit();}
+}
+// 🛑 Parada de emergencia — mismo flag bot_paused que /pausar en Telegram.
+async function emergencyRefresh(){
+  try{
+    const {data}=await window.sb.from('ops_app_settings').select('value').eq('key','bot_paused').maybeSingle();
+    const paused=!!data&&(String(data.value)==='1'||String(data.value).toLowerCase()==='true');
+    emergencyRender(paused);
+  }catch(e){/* deja el UI como esté */}
+}
+function emergencyRender(paused){
+  const card=document.getElementById('emgCard'),title=document.getElementById('emgTitle'),st=document.getElementById('emgStatus'),btn=document.getElementById('emgBtn');
+  if(!btn)return;
+  if(paused){
+    card.style.background='#7f1d1d';card.style.borderColor='#7f1d1d';
+    title.style.color='#fff';title.textContent='🛑 BOT EN PAUSA';
+    st.innerHTML='<span style="color:#fecaca;font-weight:700">No se está enviando nada. Los crons no corren.</span>';
+    btn.textContent='▶️ REACTIVAR BOT';btn.style.background='#16a34a';
+  }else{
+    card.style.background='#fef2f2';card.style.borderColor='#ef4444';
+    title.style.color='#991b1b';title.textContent='🛑 Parada de emergencia';
+    st.textContent='Estado: activo (todo funcionando normal)';
+    btn.textContent='🛑 DETENER TODO';btn.style.background='#ef4444';
+  }
+  btn.dataset.paused=paused?'1':'0';
+}
+async function emergencyToggle(){
+  const btn=document.getElementById('emgBtn');const paused=btn.dataset.paused==='1';
+  if(!paused){
+    if(!confirm('🛑 ¿DETENER TODO el bot?\n\nNo se enviará NADA a huéspedes (automático ni manual), no se tocan precios y los crons no correrán. Podrás reactivarlo cuando quieras.'))return;
+  }else{
+    if(!confirm('▶️ ¿Reactivar el bot?\n\nTodo vuelve a la normalidad; los mensajes que quedaron en cola saldrán según su ventana.'))return;
+  }
+  btn.disabled=true;
+  try{
+    if(!paused){
+      const {error}=await window.sb.from('ops_app_settings').upsert({key:'bot_paused',value:'1'},{onConflict:'key'});
+      if(error)throw error;toast('🛑 Bot DETENIDO');
+    }else{
+      const {error}=await window.sb.from('ops_app_settings').upsert({key:'bot_paused',value:'0'},{onConflict:'key'});
+      if(error)throw error;toast('✅ Bot reactivado');
+    }
+    await emergencyRefresh();
+  }catch(e){toast('Error: '+(e.message||e));}
+  btn.disabled=false;
 }
 let selection={};
 function ensureSel(pid){if(!selection[pid])selection[pid]={cleaning:false,beforeFile:null,afterFile:null,damageOn:false,damage:'',damageFiles:[],earlyCheckin:false,lateCheckout:false,extraGuest:false,gastos:[]};return selection[pid];}
