@@ -3146,12 +3146,12 @@ async function msgSend(){
   const id=_msgReplyId; if(!id)return;
   const body=document.getElementById('msgReplyText').value.trim();
   if(!body){ toast('Escribe una respuesta'); return; }
-  if(!confirm('¿Enviar esta respuesta al huésped por Hostfully? Se entrega de inmediato.')) return;
+  if(!confirm('¿Enviar esta respuesta al huésped?\n\nSe pone en cola con ~2 min por si quieres cancelar o editar (te llega una tarjeta a Telegram). Si no haces nada, se envía solo.')) return;
   const btn=document.getElementById('msgSendBtn'); btn.disabled=true; btn.textContent='Enviando…';
   const {data,error}=await msgC().functions.invoke('ops-send-message',{body:{messageId:id,body}});
   btn.disabled=false; btn.textContent='Enviar a huésped';
   if(error||(data&&data.ok===false)){ toast('Error al enviar: '+((error&&error.message)||(data&&data.error)||'desconocido')); return; }
-  toast('✅ Enviado al huésped'); msgCloseReply(); msgLoadPending();
+  toast('⏳ En cola (2 min). Cancela o edita desde Telegram si algo está mal.'); msgCloseReply(); msgLoadPending();
 }
 async function msgPolish(){
   const id=_msgReplyId; if(!id)return;
