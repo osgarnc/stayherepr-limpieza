@@ -1063,7 +1063,7 @@ async function cronsLoad(){
         '<div><div style="font-weight:800">'+info[0]+' '+opsEsc(info[1])+'</div>'+
         '<div class="muted" style="font-size:12.5px">'+opsEsc(info[2])+'</div></div>'+
         '<label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-weight:700;font-size:13px">'+
-          '<input type="checkbox" id="'+aid+'" '+(j.active?'checked':'')+'> '+(j.active?'<span style="color:#166534">Activo</span>':'<span style="color:#9ca3af">Apagado</span>')+'</label>'+
+          '<input type="checkbox" id="'+aid+'" '+(j.active?'checked':'')+' onchange="cronToggle(\''+j.jobname+'\',this)"> '+(j.active?'<span style="color:#166534">Activo</span>':'<span style="color:#9ca3af">Apagado</span>')+'</label>'+
       '</div>'+
       '<div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">'+
         '<span style="font-size:13px;color:var(--muted)">Cada cuánto:</span>'+
@@ -1072,15 +1072,29 @@ async function cronsLoad(){
       '</div></div>';
   }).join('');
 }
+const CRON_RE=/^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/;
+async function cronApply(jobname,active,sch){
+  const {data,error}=await window.sb.rpc('ops_set_cron',{p_jobname:jobname,p_schedule:sch,p_active:active});
+  if(error){ toast('Error: '+error.message); return false; }
+  if(data==='not_found'){ toast('No encontré ese cron.'); return false; }
+  return true;
+}
+// El checkbox guarda AL INSTANTE (activar/apagar). Si falla o se cancela, revierte el visual.
+async function cronToggle(jobname,el){
+  const active=el.checked;
+  const sch=(document.getElementById('cronSch_'+jobname).value||'').trim();
+  if(!CRON_RE.test(sch)){ toast('El intervalo es inválido; corrígelo antes de apagar/prender.'); el.checked=!active; return; }
+  if(!active && !confirm('¿Apagar "'+jobname+'"? No correrá hasta que lo reactives.')){ el.checked=true; return; }
+  const ok=await cronApply(jobname,active,sch);
+  if(!ok){ el.checked=!active; return; }
+  toast(active?'✅ Activado':'⏸️ Apagado'); cronsLoad();
+}
+// El botón Guardar aplica el intervalo (y el estado actual del checkbox).
 async function cronSave(jobname){
   const sch=(document.getElementById('cronSch_'+jobname).value||'').trim();
-  const act=document.getElementById('cronAct_'+jobname).checked;
-  if(!/^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/.test(sch)){ toast('Formato cron inválido (deben ser 5 campos, ej. */20 * * * *)'); return; }
-  if(!act && !confirm('¿Apagar "'+jobname+'"? No correrá hasta que lo reactives.')) return;
-  const {data,error}=await window.sb.rpc('ops_set_cron',{p_jobname:jobname,p_schedule:sch,p_active:act});
-  if(error){ toast('Error: '+error.message); return; }
-  if(data==='not_found'){ toast('No encontré ese cron.'); return; }
-  toast('✅ Guardado'); cronsLoad();
+  const active=document.getElementById('cronAct_'+jobname).checked;
+  if(!CRON_RE.test(sch)){ toast('Formato cron inválido (5 campos, ej. */20 * * * *)'); return; }
+  if(await cronApply(jobname,active,sch)){ toast('✅ Guardado'); cronsLoad(); }
 }
 
 // 🛑 Parada de emergencia — mismo flag bot_paused que /pausar en Telegram.
