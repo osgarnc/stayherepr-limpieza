@@ -196,6 +196,7 @@
       </div>
       <div id="paneCalendar" class="hide">
         <p class="muted" style="font-size:13px;margin:2px 0 10px">Calendario de todas las propiedades (llegadas y salidas). 🔑 = early check-in aprobado · 🕗 = late check-out aprobado.</p>
+        <div id="calFilterBar" style="position:relative;margin-bottom:10px"></div>
         <div id="myCalendarList"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver el calendario.</p></div>
       </div>
       <div id="paneAvail" class="hide">
@@ -860,6 +861,7 @@ async function renderMyEarlyLate(){
   }).join('');
 }
 /* ---------- CALENDARIO COMPARTIDO (personal) ---------- */
+const _attr=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 async function renderMyCalendar(){
   const el=document.getElementById('myCalendarList');if(!el)return;
   el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Cargando…</p>';
@@ -868,13 +870,46 @@ async function renderMyCalendar(){
     .select('property_name,guest_name,check_in,check_out,early_checkin_approved,late_checkout_approved,status')
     .or('check_in.gte.'+today+',check_out.gte.'+today).order('check_in',{ascending:true});
   if(error){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar el calendario (¿corriste <code>fase-ops-reservations.sql</code> y el sync de Hostfully?).</p>';return;}
+  window._calData=data||[];
+  // Lista de propiedades presentes en los datos (para el filtro).
+  const names=Array.from(new Set(window._calData.map(r=>r.property_name||'—'))).sort();
+  window._calNames=names;
+  if(!window._calSel){window._calSel=new Set(names);}
+  else{const keep=new Set(Array.from(window._calSel).filter(n=>names.indexOf(n)>-1));window._calSel=keep.size?keep:new Set(names);}
+  // Dropdown multi-selección.
+  const fb=document.getElementById('calFilterBar');
+  if(fb){
+    fb.innerHTML='<button class="btn ghost sm" style="width:100%;text-align:left" onclick="calToggleDropdown()">🏠 <span id="calBtnLbl"></span> ▾</button>'+
+      '<div id="calDropdown" class="hide" style="position:absolute;z-index:30;left:0;right:0;background:#fff;border:1.5px solid var(--line);border-radius:10px;margin-top:4px;padding:8px;max-height:280px;overflow:auto;box-shadow:var(--shadow)">'+
+        '<label style="display:flex;gap:8px;align-items:center;padding:6px 4px;font-weight:700;cursor:pointer"><input type="checkbox" id="calChkAll" onchange="calAllProps(this.checked)"> Todas</label>'+
+        '<div style="border-top:1px solid var(--line);margin:4px 0"></div>'+
+        names.map(n=>'<label style="display:flex;gap:8px;align-items:center;padding:6px 4px;cursor:pointer"><input type="checkbox" class="calChk" value="'+_attr(n)+'" onchange="calTogProp(this.value,this.checked)"> '+String(n).replace(/</g,'&lt;')+'</label>').join('')+
+      '</div>';
+    calSyncChecks();
+  }
+  calDraw();
+}
+function calToggleDropdown(){const d=document.getElementById('calDropdown');if(d)d.classList.toggle('hide');}
+function calSyncChecks(){
+  const sel=window._calSel||new Set();
+  document.querySelectorAll('#calDropdown .calChk').forEach(c=>{c.checked=sel.has(c.value);});
+  const all=document.getElementById('calChkAll');if(all)all.checked=(window._calNames||[]).length>0&&sel.size===(window._calNames||[]).length;
+  const lbl=document.getElementById('calBtnLbl');
+  if(lbl){const t=(window._calNames||[]).length;lbl.textContent=(sel.size===0)?'Ninguna propiedad':(sel.size===t)?'Todas las propiedades':(sel.size+' propiedad'+(sel.size===1?'':'es'));}
+}
+function calAllProps(on){window._calSel=on?new Set(window._calNames||[]):new Set();calSyncChecks();calDraw();}
+function calTogProp(name,on){window._calSel=window._calSel||new Set();if(on)window._calSel.add(name);else window._calSel.delete(name);calSyncChecks();calDraw();}
+function calDraw(){
+  const el=document.getElementById('myCalendarList');if(!el)return;
+  const today=todayISO();const sel=window._calSel||new Set();
   const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   const ev=[];
-  (data||[]).forEach(r=>{
+  (window._calData||[]).forEach(r=>{
+    if(!sel.has(r.property_name||'—'))return;
     if(r.check_in&&r.check_in>=today)ev.push({date:r.check_in,type:'in',r:r});
     if(r.check_out&&r.check_out>=today)ev.push({date:r.check_out,type:'out',r:r});
   });
-  if(!ev.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No hay llegadas ni salidas próximas.</p>';return;}
+  if(!ev.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">'+(sel.size===0?'Selecciona al menos una propiedad.':'No hay llegadas ni salidas próximas.')+'</p>';return;}
   const byDate={};ev.forEach(e=>{(byDate[e.date]=byDate[e.date]||[]).push(e);});
   const dfmt=d=>{try{return new Date(d+'T00:00:00').toLocaleDateString('es-PR',{weekday:'long',day:'numeric',month:'long'});}catch(_){return d;}};
   const tmr=(function(){var t=new Date(today+'T00:00:00');t.setDate(t.getDate()+1);return t.toISOString().slice(0,10);})();
