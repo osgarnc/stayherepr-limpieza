@@ -1047,6 +1047,8 @@ const CRON_INFO={
 };
 let cronsLoaded=false;
 function cronsInit(){ if(!cronsLoaded) cronsLoad(); }
+let cronState={};
+const DOW=['D','L','M','X','J','V','S']; // índice = número cron (0=Domingo … 6=Sábado)
 async function cronsLoad(){
   const warn=document.getElementById('cronsWarn'), list=document.getElementById('cronsList');
   list.innerHTML='<p class="muted">Cargando…</p>'; warn.style.display='none';
@@ -1056,22 +1058,69 @@ async function cronsLoad(){
   const rows=(data||[]).slice().sort((a,b)=>String(a.jobname).localeCompare(String(b.jobname)));
   if(!rows.length){ list.innerHTML='<p class="muted">No hay crons configurados.</p>'; return; }
   list.innerHTML=rows.map(function(j){
-    const info=CRON_INFO[j.jobname]||['⚙️',j.jobname,''];
-    const sid='cronSch_'+j.jobname, aid='cronAct_'+j.jobname;
-    return '<div style="border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;'+(j.active?'':'opacity:.7;background:#fafafa')+'">'+
+    const info=CRON_INFO[j.jobname]||['⚙️',j.jobname,''], job=j.jobname, aid='cronAct_'+job;
+    return '<div style="border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;'+(j.active?'':'opacity:.65;background:#fafafa')+'">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">'+
         '<div><div style="font-weight:800">'+info[0]+' '+opsEsc(info[1])+'</div>'+
         '<div class="muted" style="font-size:12.5px">'+opsEsc(info[2])+'</div></div>'+
         '<label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-weight:700;font-size:13px">'+
-          '<input type="checkbox" id="'+aid+'" '+(j.active?'checked':'')+' onchange="cronToggle(\''+j.jobname+'\',this)"> '+(j.active?'<span style="color:#166534">Activo</span>':'<span style="color:#9ca3af">Apagado</span>')+'</label>'+
+          '<input type="checkbox" id="'+aid+'" '+(j.active?'checked':'')+' onchange="cronToggle(\''+job+'\',this)"> '+(j.active?'<span style="color:#166534">Activo</span>':'<span style="color:#9ca3af">Apagado</span>')+'</label>'+
       '</div>'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">'+
-        '<span style="font-size:13px;color:var(--muted)">Cada cuánto:</span>'+
-        '<input type="text" id="'+sid+'" value="'+opsEsc(j.schedule)+'" style="font-family:monospace;padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;width:150px">'+
-        '<button onclick="cronSave(\''+j.jobname+'\')" style="padding:7px 14px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer">Guardar</button>'+
+      '<div style="margin-top:10px">'+
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+          '<span style="font-size:13px;color:var(--muted)">Repetir:</span>'+
+          '<select id="cronFreq_'+job+'" onchange="cronFreqChange(\''+job+'\')" style="padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;background:#fff">'+
+            '<option value="min">Cada X minutos</option><option value="hour">Cada X horas</option>'+
+            '<option value="daily">Todos los días</option><option value="weekly">Días de la semana</option>'+
+            '<option value="adv">Avanzado (cron)</option></select>'+
+          '<span id="cronOpts_'+job+'"></span>'+
+          '<button onclick="cronSave(\''+job+'\')" style="padding:7px 14px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer">Guardar</button>'+
+        '</div>'+
+        '<div id="cronPrev_'+job+'" class="muted" style="font-size:12px;margin-top:6px"></div>'+
       '</div></div>';
   }).join('');
+  rows.forEach(function(j){ cronState[j.jobname]=cronParse(j.schedule); document.getElementById('cronFreq_'+j.jobname).value=cronState[j.jobname].freq; cronFreqChange(j.jobname,true); });
 }
+function utc2ast(h,d){ h=h-4; if(h<0){h+=24; d=(d+6)%7;} return {h:h,d:d}; }
+function ast2utc(h,d){ h=h+4; if(h>=24){h-=24; d=(d+1)%7;} return {h:h,d:d}; }
+function pad2(n){return String(n).padStart(2,'0');}
+function cronParse(sch){
+  const p=String(sch||'').trim().split(/\s+/); if(p.length!==5) return {freq:'adv',raw:sch};
+  const mi=p[0],hr=p[1],dom=p[2],mon=p[3],dow=p[4]; let m;
+  if(dom==='*'&&mon==='*'&&dow==='*'){
+    if((m=/^\*\/(\d+)$/.exec(mi))&&hr==='*') return {freq:'min',n:+m[1]};
+    if(/^\d+$/.test(mi)&&hr==='*') return {freq:'hour',n:1,minute:+mi};
+    if(/^\d+$/.test(mi)&&(m=/^\*\/(\d+)$/.exec(hr))) return {freq:'hour',n:+m[1],minute:+mi};
+    if(/^\d+$/.test(mi)&&/^\d+$/.test(hr)){ const a=utc2ast(+hr,0); return {freq:'daily',hourAst:a.h,minute:+mi}; }
+  }
+  if(dom==='*'&&mon==='*'&&/^[0-6](,[0-6])*$/.test(dow)&&/^\d+$/.test(mi)&&/^\d+$/.test(hr)){
+    const dows=dow.split(',').map(Number), a=utc2ast(+hr,dows[0]);
+    return {freq:'weekly',hourAst:a.h,minute:+mi,dows:dows.map(function(d){return utc2ast(+hr,d).d;})};
+  }
+  return {freq:'adv',raw:sch};
+}
+function cronOptsHtml(job,st){
+  const inp='style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px" onchange="cronPrev(\''+job+'\')"';
+  if(st.freq==='min') return 'cada <input type="number" min="1" max="59" id="cronN_'+job+'" value="'+(st.n||20)+'" '+inp+' style="width:64px;padding:6px 8px;border:1.5px solid var(--line);border-radius:8px"> minutos';
+  if(st.freq==='hour') return 'cada <input type="number" min="1" max="23" id="cronN_'+job+'" value="'+(st.n||1)+'" '+inp+' style="width:60px;padding:6px;border:1.5px solid var(--line);border-radius:8px"> h, al min <input type="number" min="0" max="59" id="cronMin_'+job+'" value="'+(st.minute||0)+'" '+inp+' style="width:60px;padding:6px;border:1.5px solid var(--line);border-radius:8px">';
+  if(st.freq==='daily') return 'a las <input type="time" id="cronTime_'+job+'" value="'+pad2(st.hourAst!=null?st.hourAst:9)+':'+pad2(st.minute||0)+'" '+inp+'> <span class="muted" style="font-size:11px">(hora PR)</span>';
+  if(st.freq==='weekly'){ const sel=st.dows||[1]; const days=DOW.map(function(lb,i){return '<label style="font-size:12px;margin-right:5px;cursor:pointer"><input type="checkbox" class="cronDow_'+job+'" value="'+i+'" '+(sel.indexOf(i)>=0?'checked':'')+' onchange="cronPrev(\''+job+'\')"> '+lb+'</label>';}).join(''); return days+' a las <input type="time" id="cronTime_'+job+'" value="'+pad2(st.hourAst!=null?st.hourAst:9)+':'+pad2(st.minute||0)+'" '+inp+'> <span class="muted" style="font-size:11px">(PR)</span>'; }
+  return '<input type="text" id="cronRaw_'+job+'" value="'+opsEsc(st.raw||'')+'" placeholder="*/20 * * * *" '+inp+' style="font-family:monospace;padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;width:150px">';
+}
+function cronFreqChange(job,keep){
+  const f=document.getElementById('cronFreq_'+job).value;
+  const st=(keep&&cronState[job]&&cronState[job].freq===f)?cronState[job]:{freq:f};
+  document.getElementById('cronOpts_'+job).innerHTML=cronOptsHtml(job,st); cronPrev(job);
+}
+function cronBuild(job){
+  const f=document.getElementById('cronFreq_'+job).value, g=function(id){return document.getElementById(id+'_'+job);};
+  if(f==='min'){ const n=Math.min(59,Math.max(1,+g('cronN').value||1)); return {cron:'*/'+n+' * * * *',text:'Cada '+n+' minuto(s)'}; }
+  if(f==='hour'){ const n=Math.min(23,Math.max(1,+g('cronN').value||1)),mi=Math.min(59,Math.max(0,+g('cronMin').value||0)); return {cron:mi+' '+(n===1?'*':'*/'+n)+' * * *',text:'Cada '+n+' hora(s), al minuto '+mi}; }
+  if(f==='daily'){ const t=(g('cronTime').value||'09:00').split(':'),u=ast2utc(+t[0],0); return {cron:(+t[1])+' '+u.h+' * * *',text:'Todos los días '+t[0]+':'+t[1]+' PR'}; }
+  if(f==='weekly'){ const t=(g('cronTime').value||'09:00').split(':'),boxes=Array.prototype.slice.call(document.querySelectorAll('.cronDow_'+job)).filter(function(c){return c.checked;}).map(function(c){return +c.value;}); if(!boxes.length) return {cron:null,text:'Elige al menos un día'}; const uh=ast2utc(+t[0],0).h,ud=Array.from(new Set(boxes.map(function(d){return ast2utc(+t[0],d).d;}))).sort(function(a,b){return a-b;}); return {cron:(+t[1])+' '+uh+' * * '+ud.join(','),text:boxes.map(function(d){return DOW[d];}).join(',')+' a las '+t[0]+':'+t[1]+' PR'}; }
+  const raw=(g('cronRaw').value||'').trim(); return {cron:raw,text:raw};
+}
+function cronPrev(job){ const b=cronBuild(job),el=document.getElementById('cronPrev_'+job); if(el) el.innerHTML=b.cron?('📅 '+opsEsc(b.text)+' &nbsp;·&nbsp; <code style="font-size:11px">'+opsEsc(b.cron)+'</code>'):'⚠️ '+opsEsc(b.text); }
 const CRON_RE=/^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/;
 async function cronApply(jobname,active,sch){
   const {data,error}=await window.sb.rpc('ops_set_cron',{p_jobname:jobname,p_schedule:sch,p_active:active});
@@ -1079,22 +1128,17 @@ async function cronApply(jobname,active,sch){
   if(data==='not_found'){ toast('No encontré ese cron.'); return false; }
   return true;
 }
-// El checkbox guarda AL INSTANTE (activar/apagar). Si falla o se cancela, revierte el visual.
 async function cronToggle(jobname,el){
-  const active=el.checked;
-  const sch=(document.getElementById('cronSch_'+jobname).value||'').trim();
-  if(!CRON_RE.test(sch)){ toast('El intervalo es inválido; corrígelo antes de apagar/prender.'); el.checked=!active; return; }
+  const active=el.checked, b=cronBuild(jobname);
+  if(!b.cron||!CRON_RE.test(b.cron)){ toast('Config inválida; corrígela antes.'); el.checked=!active; return; }
   if(!active && !confirm('¿Apagar "'+jobname+'"? No correrá hasta que lo reactives.')){ el.checked=true; return; }
-  const ok=await cronApply(jobname,active,sch);
-  if(!ok){ el.checked=!active; return; }
+  if(!await cronApply(jobname,active,b.cron)){ el.checked=!active; return; }
   toast(active?'✅ Activado':'⏸️ Apagado'); cronsLoad();
 }
-// El botón Guardar aplica el intervalo (y el estado actual del checkbox).
 async function cronSave(jobname){
-  const sch=(document.getElementById('cronSch_'+jobname).value||'').trim();
-  const active=document.getElementById('cronAct_'+jobname).checked;
-  if(!CRON_RE.test(sch)){ toast('Formato cron inválido (5 campos, ej. */20 * * * *)'); return; }
-  if(await cronApply(jobname,active,sch)){ toast('✅ Guardado'); cronsLoad(); }
+  const b=cronBuild(jobname), active=document.getElementById('cronAct_'+jobname).checked;
+  if(!b.cron||!CRON_RE.test(b.cron)){ toast('Config inválida: '+b.text); return; }
+  if(await cronApply(jobname,active,b.cron)){ toast('✅ Guardado'); cronsLoad(); }
 }
 
 // 🛑 Parada de emergencia — mismo flag bot_paused que /pausar en Telegram.
