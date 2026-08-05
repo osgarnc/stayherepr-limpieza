@@ -1034,16 +1034,16 @@ function mainTab(m){
 }
 // ⏱️ Crons — administrar las tareas automáticas (pg_cron) vía RPC ops_list_crons / ops_set_cron.
 const CRON_INFO={
-  'sync-reservations':['🔄','Sincronizar reservas','Trae las reservas de Hostfully (alimenta calendario y cobros). Recomendado: cada hora.'],
-  'precios-diario':['💲','Precios dinámicos (diario)','Ajusta precios en Hostfully cada mañana.'],
-  'precios-4pm':['💲','Precios intradía 4pm','Fija el precio de HOY a las 4pm.'],
-  'precios-8pm':['💲','Precios intradía 8pm','Fija el precio de HOY a las 8pm.'],
-  'early-late-reminders':['⏰','Recordatorios early/late','Reconcilia y recuerda pagos de early/late check.'],
-  'upsell-reminders':['🛎️','Recordatorios de upsell','Recuerda pagos pendientes de early/late.'],
-  'extra-night-offers':['🌙','Oferta de noche extra','Ofrece extender la estadía el día antes del checkout.'],
-  'ai-cost-report':['📊','Reporte de costo IA','Resumen semanal de costo de IA a Telegram.'],
-  'outbound-flush':['📤','Envío de la cola (undo)','Envía los mensajes en cola tras la ventana de 2 min. NO lo apagues (o nada sale).'],
-  'booking-charges':['💳','Cobro Booking/Priceline','Envía enlaces de cobro del total a reservas Booking sin pagar. Ojo: puede hostigar si Booking ya cobró.'],
+  'sync-reservations':['🔄','Sincronizar reservas','Cada vez que corre, trae de Hostfully todas las reservas presentes y futuras y actualiza la base. Alimenta el calendario del equipo, el archivo de reservas nuevas y el cobro de Booking. Recomendado: cada hora.'],
+  'precios-diario':['💲','Precios dinámicos (diario)','Cada mañana recalcula y escribe en Hostfully el precio de cada noche libre según el modelo de descuento (baja el precio a medida que se acerca la fecha si sigue sin reservarse).'],
+  'precios-4pm':['💲','Precio de hoy — 4pm','A las 4pm fija el precio de la noche de HOY al valor configurado para ese horario (ajuste de último minuto para el día en curso).'],
+  'precios-8pm':['💲','Precio de hoy — 8pm','A las 8pm fija el precio de la noche de HOY al valor configurado para ese horario (última rebaja del día).'],
+  'early-late-reminders':['⏰','Recordatorios early/late','Cada vez que corre, revisa los early/late check-in/out en curso: confirma los que ya se pagaron y le recuerda al huésped (o al cleaner) lo que falta.'],
+  'upsell-reminders':['🛎️','Recordatorios de upsell','Verifica si el huésped pagó su early/late; si pagó lo confirma, y si no, le manda UN recordatorio de pago. También cierra los que ya vencieron.'],
+  'extra-night-offers':['🌙','Oferta de noche extra','Una vez al día busca reservas con checkout mañana y, si la noche siguiente está libre, le ofrece al huésped extender/quedarse una noche más.'],
+  'ai-cost-report':['📊','Reporte de costo de IA','Una vez por semana te envía a Telegram el resumen de cuánto gastó el bot en IA (tokens) esa semana.'],
+  'outbound-flush':['📤','Enviar cola de mensajes','Cada minuto revisa la cola y ENVÍA al huésped los mensajes cuya ventana de 2 min (cancelar/editar) ya venció. ⚠️ Si lo apagas, NADA sale al huésped.'],
+  'booking-charges':['💳','Cobro Booking/Priceline','Le envía el enlace de pago del TOTAL a las reservas de Booking/Priceline que Hostfully muestra sin pagar. Con "días antes del check-in" solo cobra en ese momento; si no, cobra al detectarlas.'],
 };
 let cronsLoaded=false;
 function cronsInit(){ if(!cronsLoaded) cronsLoad(); }
@@ -1061,11 +1061,11 @@ async function cronsLoad(){
     const info=CRON_INFO[j.jobname]||['⚙️',j.jobname,''], job=j.jobname, aid='cronAct_'+job;
     return '<div style="border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;'+(j.active?'':'opacity:.65;background:#fafafa')+'">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">'+
-        '<div><div style="font-weight:800">'+info[0]+' '+opsEsc(info[1])+'</div>'+
-        '<div class="muted" style="font-size:12.5px">'+opsEsc(info[2])+'</div></div>'+
+        '<div style="font-weight:800">'+info[0]+' '+opsEsc(info[1])+'</div>'+
         '<label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-weight:700;font-size:13px">'+
           '<input type="checkbox" id="'+aid+'" '+(j.active?'checked':'')+' onchange="cronToggle(\''+job+'\',this)"> '+(j.active?'<span style="color:#166534">Activo</span>':'<span style="color:#9ca3af">Apagado</span>')+'</label>'+
       '</div>'+
+      '<div class="muted" style="font-size:12.5px;margin-top:6px;line-height:1.45">'+opsEsc(info[2])+'</div>'+
       '<div style="margin-top:10px">'+
         '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
           '<span style="font-size:13px;color:var(--muted)">Repetir:</span>'+
