@@ -1042,6 +1042,7 @@ const CRON_INFO={
   'extra-night-offers':['🌙','Oferta de noche extra','Una vez al día busca reservas con checkout mañana y, si la noche siguiente está libre, le ofrece al huésped extender/quedarse una noche más.'],
   'ai-cost-report':['📊','Reporte de costo de IA','Una vez por semana te envía a Telegram el resumen de cuánto gastó el bot en IA (tokens) esa semana.'],
   'outbound-flush':['📤','Enviar cola de mensajes','Cada minuto revisa la cola y ENVÍA al huésped los mensajes cuya ventana de 2 min (cancelar/editar) ya venció. ⚠️ Si lo apagas, NADA sale al huésped.'],
+  'tg-cleanup':['🧹','Limpiar chat del bot','Cada hora borra los mensajes que el bot envió (con más de 24h) en el chat principal de Operaciones y en el de Ingrid, para mantenerlos limpios. NUNCA toca los archivos por propiedad (son el registro permanente).'],
 };
 let cronsLoaded=false;
 function cronsInit(){ if(!cronsLoaded) cronsLoad(); }
