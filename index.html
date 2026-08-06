@@ -619,6 +619,7 @@
       <button id="msgTabLog" onclick="msgTab('log')">Historial</button>
       <button id="msgTabAuto" onclick="msgTab('auto')">⚙️ Auto-envío</button>
       <button id="msgTabCleaners" onclick="msgTab('cleaners')">🧹 Cleaners</button>
+      <button id="msgTabClRem" onclick="msgTab('clrem')">⏰ Recordatorios</button>
       <button id="msgTabUpsell" onclick="msgTab('upsell')">💰 Early/Late</button>
       <button id="msgTabEmergency" onclick="msgTab('emergency')">🚨 Emergencia</button>
     </div>
@@ -670,6 +671,19 @@
           <button class="btn" id="bcastSendBtn" style="background:#c0392b;border-color:#c0392b" onclick="msgBcastSend()">🚨 Enviar a seleccionadas</button>
         </div>
       </div>
+    </div>
+    <div id="msgViewClRem" class="card hide" style="padding:14px">
+      <p class="muted" style="font-size:13px;margin-top:0">Recordatorios automáticos para los <b>cleaners activos</b>. Cada mañana a las <b>6am</b>, cuando una reserva que <b>entra ese día</b> traiga <b>más de N huéspedes</b>, se les recuerda la tarea que definas. Puedes añadir varios.</p>
+      <div class="card" style="padding:12px;margin-bottom:12px;background:var(--bg2,#f7f8fa)">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div><label style="font-weight:600;font-size:13px">Nombre (opcional)</label><br><input id="clrLabel" placeholder="Ej: Grupos grandes" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:160px"></div>
+          <div><label style="font-weight:600;font-size:13px">Más de N huéspedes</label><br><input id="clrN" type="number" min="1" value="4" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:90px"></div>
+        </div>
+        <div style="margin-top:10px"><label style="font-weight:600;font-size:13px">Recordatorio a los cleaners</label><br>
+          <textarea id="clrMsg" placeholder="Ej: Traer sábanas y toallas extra, y preparar la cama adicional." style="width:100%;min-height:70px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px;margin-top:4px"></textarea></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn" id="clrAddBtn" onclick="msgClRemAdd()">➕ Añadir recordatorio</button></div>
+      </div>
+      <div id="clrList"></div>
     </div>
   </div>
 
@@ -2871,10 +2885,51 @@ function msgWouldChip(would){return would?'<span style="display:inline-block;pad
 function msgFmtDate(s){return s?new Date(s).toLocaleString():'—';}
 async function msgInit(){ await Promise.all([msgLoadMode(), msgLoadProps()]); msgTab('pending'); }
 function msgTab(w){
-  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto',cleaners:'msgViewCleaners',upsell:'msgViewUpsell',emergency:'msgViewEmergency'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto',cleaners:'msgTabCleaners',upsell:'msgTabUpsell',emergency:'msgTabEmergency'};
+  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto',cleaners:'msgViewCleaners',clrem:'msgViewClRem',upsell:'msgViewUpsell',emergency:'msgViewEmergency'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto',cleaners:'msgTabCleaners',clrem:'msgTabClRem',upsell:'msgTabUpsell',emergency:'msgTabEmergency'};
   Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
   Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===w));
-  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():(w==='cleaners')?msgLoadCleaners():(w==='upsell')?msgLoadUpsell():(w==='emergency')?msgBcastInit():msgLoadPending();
+  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():(w==='cleaners')?msgLoadCleaners():(w==='clrem')?msgLoadClRem():(w==='upsell')?msgLoadUpsell():(w==='emergency')?msgBcastInit():msgLoadPending();
+}
+async function msgLoadClRem(){
+  const box=document.getElementById('clrList');
+  const {data,error}=await msgC().from('ops_cleaner_reminders').select('id,label,threshold,message,active').order('created_at',{ascending:true});
+  if(error){box.innerHTML='<p class="muted" style="font-size:13px">No se pudo cargar ('+opsEsc(error.message)+'). ¿Corriste la migración <code>ops_cleaner_reminders</code>?</p>';return;}
+  const rows=data||[];
+  if(!rows.length){box.innerHTML='<p class="muted" style="font-size:13px">Aún no hay recordatorios. Añade uno arriba.</p>';return;}
+  box.innerHTML=rows.map(r=>'<div class="card" style="padding:12px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between">'+
+    '<div style="flex:1">'+
+      '<div style="font-weight:600">'+(r.label?opsEsc(r.label)+' · ':'')+'Más de '+r.threshold+' huésped'+(r.threshold===1?'':'es')+'</div>'+
+      '<div class="muted" style="font-size:13px;margin-top:2px;white-space:pre-wrap">'+opsEsc(r.message||'')+'</div>'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+
+      '<label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" '+(r.active?'checked':'')+' onchange="msgClRemToggle(\''+r.id+'\',this.checked)"> Activo</label>'+
+      '<button class="btn ghost sm" onclick="msgClRemDelete(\''+r.id+'\')">🗑️ Borrar</button>'+
+    '</div>'+
+  '</div>').join('');
+}
+async function msgClRemAdd(){
+  const label=document.getElementById('clrLabel').value.trim();
+  const n=parseInt(document.getElementById('clrN').value,10);
+  const msg=document.getElementById('clrMsg').value.trim();
+  if(!(n>=1)){toast('Pon un número de huéspedes (N ≥ 1)');return;}
+  if(!msg){toast('Escribe el recordatorio');return;}
+  const btn=document.getElementById('clrAddBtn');btn.disabled=true;
+  const {error}=await msgC().from('ops_cleaner_reminders').insert({label:label||null,threshold:n,message:msg,active:true});
+  btn.disabled=false;
+  if(error){toast('Error: '+error.message);return;}
+  document.getElementById('clrLabel').value='';document.getElementById('clrMsg').value='';document.getElementById('clrN').value='4';
+  toast('✅ Recordatorio añadido');
+  msgLoadClRem();
+}
+async function msgClRemToggle(id,on){
+  const {error}=await msgC().from('ops_cleaner_reminders').update({active:on}).eq('id',id);
+  if(error){toast('Error: '+error.message);msgLoadClRem();}
+}
+async function msgClRemDelete(id){
+  if(!confirm('¿Borrar este recordatorio?'))return;
+  const {error}=await msgC().from('ops_cleaner_reminders').delete().eq('id',id);
+  if(error){toast('Error: '+error.message);return;}
+  toast('Borrado');msgLoadClRem();
 }
 function msgBcastInit(){
   const u=document.getElementById('bcastUntil');
