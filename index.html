@@ -1038,12 +1038,10 @@ const CRON_INFO={
   'precios-diario':['💲','Precios dinámicos (diario)','Cada mañana recalcula y escribe en Hostfully el precio de cada noche libre según el modelo de descuento (baja el precio a medida que se acerca la fecha si sigue sin reservarse).'],
   'precios-4pm':['💲','Precio de hoy — 4pm','A las 4pm fija el precio de la noche de HOY al valor configurado para ese horario (ajuste de último minuto para el día en curso).'],
   'precios-8pm':['💲','Precio de hoy — 8pm','A las 8pm fija el precio de la noche de HOY al valor configurado para ese horario (última rebaja del día).'],
-  'early-late-reminders':['⏰','Recordatorios early/late','Cada vez que corre, revisa los early/late check-in/out en curso: confirma los que ya se pagaron y le recuerda al huésped (o al cleaner) lo que falta.'],
-  'upsell-reminders':['🛎️','Recordatorios de upsell','Verifica si el huésped pagó su early/late; si pagó lo confirma, y si no, le manda UN recordatorio de pago. También cierra los que ya vencieron.'],
+  'daily-digest':['☀️','Resumen 6am a Ingrid','Cada mañana a las 6am le envía SOLO a Ingrid el resumen de pendientes: reservas sin pagar, early/late y noches extra pendientes (cada uno con su botón para enviar el enlace), y pre-arrival sin completar. Nunca le escribe al huésped: el mensaje sale solo si ella toca el botón.'],
   'extra-night-offers':['🌙','Oferta de noche extra','Una vez al día busca reservas con checkout mañana y, si la noche siguiente está libre, le ofrece al huésped extender/quedarse una noche más.'],
   'ai-cost-report':['📊','Reporte de costo de IA','Una vez por semana te envía a Telegram el resumen de cuánto gastó el bot en IA (tokens) esa semana.'],
   'outbound-flush':['📤','Enviar cola de mensajes','Cada minuto revisa la cola y ENVÍA al huésped los mensajes cuya ventana de 2 min (cancelar/editar) ya venció. ⚠️ Si lo apagas, NADA sale al huésped.'],
-  'booking-charges':['💳','Cobro Booking/Priceline','Le envía el enlace de pago del TOTAL a las reservas de Booking/Priceline que Hostfully muestra sin pagar. Con "días antes del check-in" solo cobra en ese momento; si no, cobra al detectarlas.'],
 };
 let cronsLoaded=false;
 function cronsInit(){ if(!cronsLoaded) cronsLoad(); }
