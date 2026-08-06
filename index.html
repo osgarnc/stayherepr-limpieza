@@ -676,8 +676,9 @@
       <p class="muted" style="font-size:13px;margin-top:0">Recordatorios automáticos para los <b>cleaners activos</b>. Cada mañana a las <b>6am</b>, cuando una reserva que <b>entra ese día</b> traiga <b>más de N huéspedes</b>, se les recuerda la tarea que definas. Puedes añadir varios.</p>
       <div class="card" style="padding:12px;margin-bottom:12px;background:var(--bg2,#f7f8fa)">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-          <div><label style="font-weight:600;font-size:13px">Nombre (opcional)</label><br><input id="clrLabel" placeholder="Ej: Grupos grandes" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:160px"></div>
+          <div><label style="font-weight:600;font-size:13px">Propiedad</label><br><select id="clrProp" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;min-width:200px"></select></div>
           <div><label style="font-weight:600;font-size:13px">Más de N huéspedes</label><br><input id="clrN" type="number" min="1" value="4" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:90px"></div>
+          <div><label style="font-weight:600;font-size:13px">Nombre (opcional)</label><br><input id="clrLabel" placeholder="Ej: Grupos grandes" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:150px"></div>
         </div>
         <div style="margin-top:10px"><label style="font-weight:600;font-size:13px">Recordatorio a los cleaners</label><br>
           <textarea id="clrMsg" placeholder="Ej: Traer sábanas y toallas extra, y preparar la cama adicional." style="width:100%;min-height:70px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px;margin-top:4px"></textarea></div>
@@ -2893,13 +2894,21 @@ function msgTab(w){
 }
 async function msgLoadClRem(){
   const box=document.getElementById('clrList');
-  const {data,error}=await msgC().from('ops_cleaner_reminders').select('id,label,threshold,message,active').order('created_at',{ascending:true});
+  if(!window._msgProps||!Object.keys(window._msgProps).length){ await msgLoadProps(); }
+  // Poblar el selector de propiedad (Todas + cada propiedad, ordenadas por nombre).
+  const sel=document.getElementById('clrProp');
+  if(sel){
+    const props=Object.entries(window._msgProps||{}).sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
+    sel.innerHTML='<option value="">Todas las propiedades</option>'+props.map(p=>'<option value="'+opsEsc(p[0])+'">'+opsEsc(p[1])+'</option>').join('');
+  }
+  const {data,error}=await msgC().from('ops_cleaner_reminders').select('id,label,threshold,message,active,property_id').order('created_at',{ascending:true});
   if(error){box.innerHTML='<p class="muted" style="font-size:13px">No se pudo cargar ('+opsEsc(error.message)+'). ¿Corriste la migración <code>ops_cleaner_reminders</code>?</p>';return;}
   const rows=data||[];
   if(!rows.length){box.innerHTML='<p class="muted" style="font-size:13px">Aún no hay recordatorios. Añade uno arriba.</p>';return;}
   box.innerHTML=rows.map(r=>'<div class="card" style="padding:12px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between">'+
     '<div style="flex:1">'+
-      '<div style="font-weight:600">'+(r.label?opsEsc(r.label)+' · ':'')+'Más de '+r.threshold+' huésped'+(r.threshold===1?'':'es')+'</div>'+
+      '<div style="font-weight:600">🏠 '+opsEsc(r.property_id?((window._msgProps||{})[r.property_id]||'Propiedad'):'Todas las propiedades')+'</div>'+
+      '<div style="font-size:13px;margin-top:1px">'+(r.label?opsEsc(r.label)+' · ':'')+'Más de '+r.threshold+' huésped'+(r.threshold===1?'':'es')+'</div>'+
       '<div class="muted" style="font-size:13px;margin-top:2px;white-space:pre-wrap">'+opsEsc(r.message||'')+'</div>'+
     '</div>'+
     '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+
@@ -2910,15 +2919,16 @@ async function msgLoadClRem(){
 }
 async function msgClRemAdd(){
   const label=document.getElementById('clrLabel').value.trim();
+  const pid=document.getElementById('clrProp').value||null;
   const n=parseInt(document.getElementById('clrN').value,10);
   const msg=document.getElementById('clrMsg').value.trim();
   if(!(n>=1)){toast('Pon un número de huéspedes (N ≥ 1)');return;}
   if(!msg){toast('Escribe el recordatorio');return;}
   const btn=document.getElementById('clrAddBtn');btn.disabled=true;
-  const {error}=await msgC().from('ops_cleaner_reminders').insert({label:label||null,threshold:n,message:msg,active:true});
+  const {error}=await msgC().from('ops_cleaner_reminders').insert({label:label||null,property_id:pid,threshold:n,message:msg,active:true});
   btn.disabled=false;
   if(error){toast('Error: '+error.message);return;}
-  document.getElementById('clrLabel').value='';document.getElementById('clrMsg').value='';document.getElementById('clrN').value='4';
+  document.getElementById('clrLabel').value='';document.getElementById('clrMsg').value='';document.getElementById('clrN').value='4';document.getElementById('clrProp').value='';
   toast('✅ Recordatorio añadido');
   msgLoadClRem();
 }
