@@ -644,14 +644,14 @@
       <div style="overflow:auto"><table id="msgCleanersTable"></table></div>
     </div>
     <div id="msgViewUpsell" class="card hide" style="padding:14px">
-      <div class="sectitle" style="margin-top:0"><h3 style="margin:0;font-size:15px">🕗 Sin solicitar</h3>
+      <div class="sectitle" style="margin-top:0"><h3 style="margin:0;font-size:15px">📋 Solicitados</h3></div>
+      <p class="muted" style="font-size:12px;margin:0 0 6px">Early/late solicitados, ordenados por <b>check-in</b> (el que entra primero, arriba). Abajo, separadas, las estadías <b>ya completadas</b>. Los "aprobado sin pago" (aún abiertos) traen botón para reenviar el enlace.</p>
+      <div style="overflow:auto"><table id="msgUpsellTable"></table></div>
+      <div class="sectitle" style="border-top:1px solid var(--line);padding-top:12px;margin-top:16px"><h3 style="margin:0;font-size:15px">🕗 Sin solicitar</h3>
         <span style="display:flex;align-items:center;gap:8px;font-size:13px">Incluir hasta check-in <input type="date" id="upNoReqUntil" onchange="msgLoadUpNoReq()" style="padding:6px;border:1.5px solid var(--line);border-radius:8px;font-size:13px"></span>
       </div>
       <p class="muted" style="font-size:12px;margin:0 0 8px">Reservas vigentes/próximas <b>sin</b> early/late solicitado. Envía el enlace de cobro (sale al huésped tras la ventana de 2 min, con tarjeta a tu Telegram). Early solo para llegadas futuras.</p>
-      <div id="upNoReqList" style="margin-bottom:16px"></div>
-      <div class="sectitle" style="border-top:1px solid var(--line);padding-top:12px"><h3 style="margin:0;font-size:15px">📋 Solicitados</h3></div>
-      <p class="muted" style="font-size:12px;margin:0 0 6px">Early/late solicitados, en orden: <b>1)</b> aprobado por cleaner + pagado · <b>2)</b> aprobado sin pago · <b>3)</b> pagado sin aprobación · <b>4)</b> los demás. Los "aprobado sin pago" traen botón para reenviar el enlace.</p>
-      <div style="overflow:auto"><table id="msgUpsellTable"></table></div>
+      <div id="upNoReqList"></div>
     </div>
     <div id="msgViewEmergency" class="card hide" style="padding:14px">
       <p class="muted" style="font-size:13px;margin-top:0">Aviso <b>masivo</b> a los huéspedes de las propiedades que elijas (ej. crisis de agua). Llega a los <b>hospedados ahora</b> y a los que <b>llegan hasta la fecha</b> que escojas. Escribe el borrador, <b>púlelo</b>, revisa el texto y las propiedades, y ponlo en cola. Te llega <b>una tarjeta a Telegram</b> con la vista previa y <b>~2 min</b> para cancelar todo o enviar ya (si no haces nada, sale solo). Cada huésped lo recibe en su idioma.</p>
@@ -3020,20 +3020,21 @@ async function msgLoadUpsell(){
   // Relevantes: pagados (historial) o con estadía vigente/futura. (Lionel ya está cerrado en la BDD.)
   rows=rows.filter(x=>x.paid||(x.co&&x.co>=today));
   const tier=x=> (x.appr&&x.paid)?1:(x.appr&&!x.paid)?2:(!x.appr&&x.paid)?3:4;
-  // ARRIBA: check-in hoy/futuro, el más cercano a hoy primero. ABAJO: check-in ya pasó (o sin fecha,
-  // = estadías pasadas como Tyra/Giselle/Bonnie), por nivel y luego lo más reciente.
-  const isPast=x=> !(x.ci&&x.ci>=today);
+  // ARRIBA: estadía aún vigente/futura (check-out hoy o después), ordenada por CHECK-IN ascendente
+  // (el que entró/entra primero, arriba — ej. Cynthia hospedada va encima de una llegada posterior).
+  // ABAJO: estadía COMPLETA ya pasada (check-out < hoy, o sin fecha = pasada no sincronizada).
+  const isPast=x=> !(x.co&&x.co>=today);
   rows.sort((a,b)=>{
     const pa=isPast(a)?1:0,pb=isPast(b)?1:0;
     if(pa!==pb) return pa-pb;
-    if(!pa) return String(a.ci).localeCompare(String(b.ci))||tier(a)-tier(b);
-    return tier(a)-tier(b)||String(b.co||b.ci||'').localeCompare(String(a.co||a.ci||''));
+    if(!pa) return String(a.ci||'zzz').localeCompare(String(b.ci||'zzz'))||tier(a)-tier(b);
+    return String(b.co||'').localeCompare(String(a.co||''))||tier(a)-tier(b);
   });
   if(!rows.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay early/late solicitados relevantes.</td></tr></tbody>';return;}
   const svc=k=>k==='early_checkin'?'🔑 Early':'🕗 Late';
   let divDone=false, trs='';
   for(const x of rows){
-    if(isPast(x)&&!divDone){ trs+='<tr><td colspan="8" class="muted" style="padding:7px 4px;font-size:12px;border-top:2px solid var(--line);background:var(--bg2,#f7f8fa)">⬇️ Check-in ya pasó / estadías pasadas</td></tr>'; divDone=true; }
+    if(isPast(x)&&!divDone){ trs+='<tr><td colspan="8" class="muted" style="padding:7px 4px;font-size:12px;border-top:2px solid var(--line);background:var(--bg2,#f7f8fa)">⬇️ Estadías ya completadas</td></tr>'; divDone=true; }
     const nm=opsEsc((x.guest||'').replace(/\x27/g,''));
     const cl=x.appr?'✅ aprobado':'⏳ pendiente';
     const pg=x.paid?'✅ pagado':(x.open?'⏳ sin pago':'— '+opsEsc(x.reason||'cerrado'));
