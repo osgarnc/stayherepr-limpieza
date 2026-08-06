@@ -644,7 +644,13 @@
       <div style="overflow:auto"><table id="msgCleanersTable"></table></div>
     </div>
     <div id="msgViewUpsell" class="card hide" style="padding:14px">
-      <p class="muted" style="font-size:13px;margin-top:0">Early check-in y late check-out <b>pagados</b> (confirmados en Host Co). Muestra quién lo aprobó y cuándo se pagó. Al pagar se le avisa al cleaner, y se le recuerda el día del evento (12:01am) y 1 hora antes.</p>
+      <div class="sectitle" style="margin-top:0"><h3 style="margin:0;font-size:15px">🕗 Sin solicitar</h3>
+        <span style="display:flex;align-items:center;gap:8px;font-size:13px">Incluir hasta check-in <input type="date" id="upNoReqUntil" onchange="msgLoadUpNoReq()" style="padding:6px;border:1.5px solid var(--line);border-radius:8px;font-size:13px"></span>
+      </div>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">Reservas vigentes/próximas <b>sin</b> early/late solicitado. Envía el enlace de cobro (sale al huésped tras la ventana de 2 min, con tarjeta a tu Telegram). Early solo para llegadas futuras.</p>
+      <div id="upNoReqList" style="margin-bottom:16px"></div>
+      <div class="sectitle" style="border-top:1px solid var(--line);padding-top:12px"><h3 style="margin:0;font-size:15px">✅ Pagados</h3></div>
+      <p class="muted" style="font-size:12px;margin:0 0 6px">Early/late <b>pagados</b> (confirmados). Si te equivocaste de tipo, usa <b>🔄 cambiar</b> para corregir early↔late.</p>
       <div style="overflow:auto"><table id="msgUpsellTable"></table></div>
     </div>
     <div id="msgViewEmergency" class="card hide" style="padding:14px">
@@ -2984,10 +2990,14 @@ async function msgBcastSend(){
   document.getElementById('bcastResult').classList.add('hide');
   document.getElementById('bcastDraft').value='';
 }
+function msgUpToday(){ const d=new Date(Date.now()-4*3600*1000); return d.toISOString().slice(0,10); }
 async function msgLoadUpsell(){
+  const u=document.getElementById('upNoReqUntil');
+  if(u&&!u.value){ const d=new Date(Date.now()-4*3600*1000); d.setUTCDate(d.getUTCDate()+14); u.value=d.toISOString().slice(0,10); }
+  msgLoadUpNoReq();
   const tb=document.getElementById('msgUpsellTable');
   const {data,error}=await msgC().from('ops_upsell_events')
-    .select('kind,property_name,guest_name,event_at,event_time_label,approved_by_name,paid_at,source').order('paid_at',{ascending:false});
+    .select('id,lead_uid,kind,property_name,guest_name,event_at,event_time_label,approved_by_name,paid_at,source').order('paid_at',{ascending:false});
   if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste la migración <code>ops_upsell_events</code>? ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
   if(!(data||[]).length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay early/late pagados. Aparecerán aquí en cuanto un huésped pague en Host Co.</td></tr></tbody>';return;}
   const svc=k=>k==='early_checkin'?'🔑 Early check-in':'🕗 Late check-out';
@@ -2998,8 +3008,57 @@ async function msgLoadUpsell(){
     '<td>'+opsEsc(e.event_at?new Date(e.event_at).toLocaleString('es-PR',{dateStyle:'medium',timeStyle:'short'}):(e.event_time_label||'—'))+'</td>'+
     '<td>'+opsEsc(e.approved_by_name||(e.source==='direct'?'Pago directo':'—'))+'</td>'+
     '<td class="muted" style="font-size:12px">'+opsEsc(msgFmtDate(e.paid_at))+'</td>'+
+    '<td><button class="btn ghost sm" title="Corregir a '+(e.kind==='early_checkin'?'late':'early')+'" onclick="msgUpsellFlipKind(\''+e.id+'\',\''+e.kind+'\',\''+opsEsc((e.guest_name||"").replace(/\x27/g,""))+'\')">🔄 '+(e.kind==='early_checkin'?'→ late':'→ early')+'</button></td>'+
     '</tr>').join('');
-  tb.innerHTML='<thead><tr><th>Propiedad</th><th>Huésped</th><th>Servicio</th><th>Fecha/hora evento</th><th>Aprobó</th><th>Pagado</th></tr></thead><tbody>'+rows+'</tbody>';
+  tb.innerHTML='<thead><tr><th>Propiedad</th><th>Huésped</th><th>Servicio</th><th>Fecha/hora evento</th><th>Aprobó</th><th>Pagado</th><th>Corregir</th></tr></thead><tbody>'+rows+'</tbody>';
+}
+async function msgLoadUpNoReq(){
+  const box=document.getElementById('upNoReqList'); if(!box) return;
+  const today=msgUpToday();
+  const until=(document.getElementById('upNoReqUntil')||{}).value||today;
+  box.innerHTML='<p class="muted" style="font-size:13px">Cargando…</p>';
+  const c=msgC();
+  const [rv,wt,ev]=await Promise.all([
+    c.from('ops_reservations').select('lead_uid,guest_name,property_name,check_in,check_out,source,status').gte('check_out',today).lte('check_in',until).order('check_in'),
+    c.from('ops_early_late_watch').select('lead_uid,kind').in('kind',['early_checkin','late_checkout']),
+    c.from('ops_upsell_events').select('lead_uid')
+  ]);
+  if(rv.error){box.innerHTML='<p class="muted" style="font-size:13px">No se pudo cargar ('+opsEsc(rv.error.message)+').</p>';return;}
+  const has=new Set([...(wt.data||[]).map(w=>w.lead_uid),...(ev.data||[]).map(e=>e.lead_uid)]);
+  const seen=new Set();
+  const rows=(rv.data||[]).filter(r=>{
+    if(!r.lead_uid||has.has(r.lead_uid)||seen.has(r.lead_uid)) return false;
+    if(String(r.status||'').toUpperCase().includes('CANCEL')) return false;
+    seen.add(r.lead_uid); return true;
+  });
+  if(!rows.length){box.innerHTML='<p class="muted" style="font-size:13px">No hay reservas sin early/late en ese rango. Amplía la fecha si quieres ver más.</p>';return;}
+  box.innerHTML=rows.map(r=>{
+    const future=(r.check_in||'')>today; // llegada futura → se puede ofrecer early
+    const nm=opsEsc((r.guest_name||'Huésped').replace(/\x27/g,''));
+    const btns=(future?'<button class="btn ghost sm" onclick="msgUpsellSendLink(\''+r.lead_uid+'\',\'early_checkin\',\''+nm+'\')">🔑 Enviar early</button> ':'')+
+      '<button class="btn ghost sm" onclick="msgUpsellSendLink(\''+r.lead_uid+'\',\'late_checkout\',\''+nm+'\')">🕗 Enviar late</button>';
+    return '<div class="card" style="padding:10px;margin-bottom:6px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:200px"><b>'+opsEsc(r.guest_name||'Huésped')+'</b> <span class="muted" style="font-size:12px">'+opsEsc(r.source||'')+'</span><br>'+
+        '<span style="font-size:13px">🏠 '+opsEsc(r.property_name||'—')+'</span> <span class="muted" style="font-size:12px">· entra '+(r.check_in||'?')+' · sale '+(r.check_out||'?')+'</span></div>'+
+      '<div style="display:flex;gap:6px">'+btns+'</div>'+
+    '</div>';
+  }).join('');
+}
+async function msgUpsellSendLink(lead,kind,name){
+  const label=kind==='early_checkin'?'early check-in':'late check-out';
+  if(!confirm('¿Enviar el enlace de '+label+' a '+(name||'este huésped')+'?\n\nSale al huésped por Hostfully tras la ventana de 2 min (te llega una tarjeta a tu Telegram para cancelar/editar).')) return;
+  const {data,error}=await msgC().functions.invoke('ops-upsell-link',{body:{leadUid:lead,kind}});
+  if(error||!data||!data.ok){toast('Error: '+((data&&data.error)||(error&&error.message)||'falló'));return;}
+  toast('⏳ Enlace de '+label+' en cola (2 min). Revisa tu Telegram.');
+}
+async function msgUpsellFlipKind(id,cur,name){
+  const nk=cur==='early_checkin'?'late_checkout':'early_checkin';
+  const lbl=nk==='early_checkin'?'early check-in':'late check-out';
+  if(!confirm('¿Corregir el registro de '+(name||'este huésped')+' a '+lbl+'?\n\nSolo cambia la etiqueta del registro (no reenvía nada al huésped).')) return;
+  const {error}=await msgC().from('ops_upsell_events').update({kind:nk}).eq('id',id);
+  if(error){toast('Error: '+error.message);return;}
+  toast('✅ Corregido a '+lbl);
+  msgLoadUpsell();
 }
 async function msgLoadCleaners(){
   const tb=document.getElementById('msgCleanersTable');
