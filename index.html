@@ -620,6 +620,7 @@
       <button id="msgTabAuto" onclick="msgTab('auto')">⚙️ Auto-envío</button>
       <button id="msgTabCleaners" onclick="msgTab('cleaners')">🧹 Cleaners</button>
       <button id="msgTabUpsell" onclick="msgTab('upsell')">💰 Early/Late</button>
+      <button id="msgTabEmergency" onclick="msgTab('emergency')">🚨 Emergencia</button>
     </div>
     <div id="msgViewPending" class="card" style="padding:14px">
       <div style="overflow:auto"><table id="msgPendTable"></table></div>
@@ -644,6 +645,31 @@
     <div id="msgViewUpsell" class="card hide" style="padding:14px">
       <p class="muted" style="font-size:13px;margin-top:0">Early check-in y late check-out <b>pagados</b> (confirmados en Host Co). Muestra quién lo aprobó y cuándo se pagó. Al pagar se le avisa al cleaner, y se le recuerda el día del evento (12:01am) y 1 hora antes.</p>
       <div style="overflow:auto"><table id="msgUpsellTable"></table></div>
+    </div>
+    <div id="msgViewEmergency" class="card hide" style="padding:14px">
+      <p class="muted" style="font-size:13px;margin-top:0">Aviso <b>masivo</b> a los huéspedes de las propiedades que elijas (ej. crisis de agua). Llega a los <b>hospedados ahora</b> y a los que <b>llegan hasta la fecha</b> que escojas. Escribe el borrador, <b>púlelo</b>, revisa el texto y las propiedades, y envía. Cada huésped lo recibe en su idioma.</p>
+      <label style="font-weight:600;font-size:13px">Borrador del aviso</label>
+      <textarea id="bcastDraft" style="width:100%;min-height:110px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px;margin:6px 0 10px" placeholder="Ej.: Les avisamos que hay una interrupción del servicio de agua en el área. Tenemos agua embotellada disponible; escríbannos si necesitan algo."></textarea>
+      <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px">
+        <div><label style="font-weight:600;font-size:13px">Incluir llegadas con check-in hasta</label><br>
+          <input type="date" id="bcastUntil" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:14px"></div>
+        <button class="btn" id="bcastPreviewBtn" onclick="msgBcastPreview()">✨ Pulir y ver destinatarios</button>
+      </div>
+      <div id="bcastResult" class="hide" style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:260px"><label style="font-weight:600;font-size:13px">🇪🇸 Español (pulido)</label>
+            <textarea id="bcastEs" style="width:100%;min-height:150px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px;margin-top:6px"></textarea></div>
+          <div style="flex:1;min-width:260px"><label style="font-weight:600;font-size:13px">🇺🇸 English (polished)</label>
+            <textarea id="bcastEn" style="width:100%;min-height:150px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px;margin-top:6px"></textarea></div>
+        </div>
+        <div style="margin-top:14px"><label style="font-weight:600;font-size:13px">Propiedades a las que enviar <span id="bcastTotal" class="muted"></span></label>
+          <div style="margin:6px 0"><button class="btn ghost sm" onclick="msgBcastAll(true)">Marcar todas</button> <button class="btn ghost sm" onclick="msgBcastAll(false)">Ninguna</button></div>
+          <div id="bcastProps" style="display:flex;flex-direction:column;gap:2px"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
+          <button class="btn" id="bcastSendBtn" style="background:#c0392b;border-color:#c0392b" onclick="msgBcastSend()">🚨 Enviar a seleccionadas</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2845,10 +2871,52 @@ function msgWouldChip(would){return would?'<span style="display:inline-block;pad
 function msgFmtDate(s){return s?new Date(s).toLocaleString():'—';}
 async function msgInit(){ await Promise.all([msgLoadMode(), msgLoadProps()]); msgTab('pending'); }
 function msgTab(w){
-  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto',cleaners:'msgViewCleaners',upsell:'msgViewUpsell'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto',cleaners:'msgTabCleaners',upsell:'msgTabUpsell'};
+  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto',cleaners:'msgViewCleaners',upsell:'msgViewUpsell',emergency:'msgViewEmergency'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto',cleaners:'msgTabCleaners',upsell:'msgTabUpsell',emergency:'msgTabEmergency'};
   Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
   Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===w));
-  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():(w==='cleaners')?msgLoadCleaners():(w==='upsell')?msgLoadUpsell():msgLoadPending();
+  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():(w==='cleaners')?msgLoadCleaners():(w==='upsell')?msgLoadUpsell():(w==='emergency')?msgBcastInit():msgLoadPending();
+}
+function msgBcastInit(){
+  const u=document.getElementById('bcastUntil');
+  if(!u.value){ const d=new Date(Date.now()-4*3600*1000); d.setUTCDate(d.getUTCDate()+3); u.value=d.toISOString().slice(0,10); }
+}
+async function msgBcastPreview(){
+  const text=document.getElementById('bcastDraft').value.trim();
+  if(!text){toast('Escribe el borrador primero');return;}
+  const untilDate=document.getElementById('bcastUntil').value||undefined;
+  const btn=document.getElementById('bcastPreviewBtn'); btn.disabled=true; const old=btn.textContent; btn.textContent='Puliendo…';
+  const {data,error}=await msgC().functions.invoke('ops-broadcast',{body:{mode:'preview',text,untilDate}});
+  btn.disabled=false; btn.textContent=old;
+  if(error||!data||!data.ok){toast('Error: '+((data&&data.error)||(error&&error.message)||'falló'));return;}
+  document.getElementById('bcastEs').value=data.polishedEs||text;
+  document.getElementById('bcastEn').value=data.polishedEn||text;
+  const props=data.properties||[];
+  document.getElementById('bcastTotal').textContent='· '+(data.total||0)+' huésped(es) en '+props.length+' propiedad(es)';
+  const box=document.getElementById('bcastProps');
+  if(!props.length){ box.innerHTML='<p class="muted" style="font-size:13px">No hay huéspedes hospedados ni llegando hasta esa fecha. Prueba una fecha de check-in más lejana.</p>'; }
+  else{
+    box.innerHTML=props.map(p=>'<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 4px;cursor:pointer">'+
+      '<input type="checkbox" class="bcastPropChk" value="'+opsEsc(p.propertyId)+'" checked style="margin-top:3px"> '+
+      '<span><b>'+opsEsc(p.propertyName)+'</b> <span class="muted">('+p.count+' huésped'+(p.count===1?'':'es')+': '+opsEsc((p.guests||[]).join(', ')).slice(0,140)+')</span></span></label>').join('');
+  }
+  document.getElementById('bcastResult').classList.remove('hide');
+}
+function msgBcastAll(on){ document.querySelectorAll('.bcastPropChk').forEach(c=>c.checked=on); }
+async function msgBcastSend(){
+  const es=document.getElementById('bcastEs').value.trim();
+  const en=document.getElementById('bcastEn').value.trim();
+  if(!es&&!en){toast('Falta el texto pulido');return;}
+  const ids=[...document.querySelectorAll('.bcastPropChk:checked')].map(c=>c.value);
+  if(!ids.length){toast('Marca al menos una propiedad');return;}
+  const untilDate=document.getElementById('bcastUntil').value||undefined;
+  if(!confirm('🚨 ¿Enviar el aviso de emergencia a los huéspedes de '+ids.length+' propiedad(es)?\n\nSale AHORA por Hostfully, cada uno en su idioma. No se puede deshacer.')) return;
+  const btn=document.getElementById('bcastSendBtn'); btn.disabled=true; const old=btn.textContent; btn.textContent='Enviando…';
+  const {data,error}=await msgC().functions.invoke('ops-broadcast',{body:{mode:'send',es,en,untilDate,propertyIds:ids}});
+  btn.disabled=false; btn.textContent=old;
+  if(error||!data||!data.ok){toast('Error: '+((data&&data.error)||(error&&error.message)||'falló'));return;}
+  toast('✅ Enviado a '+(data.sent||0)+' huésped(es)'+(data.failed?(' · '+data.failed+' fallaron'):''));
+  document.getElementById('bcastResult').classList.add('hide');
+  document.getElementById('bcastDraft').value='';
 }
 async function msgLoadUpsell(){
   const tb=document.getElementById('msgUpsellTable');
