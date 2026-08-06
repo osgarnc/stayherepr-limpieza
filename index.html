@@ -3090,7 +3090,7 @@ async function msgUpsellSendLink(lead,kind,name){
   if(!confirm('¿Enviar el enlace de '+label+' a '+(name||'este huésped')+'?\n\nSale al huésped por Hostfully tras la ventana de 2 min (te llega una tarjeta a tu Telegram para cancelar/editar).')) return;
   const {data,error}=await msgC().functions.invoke('ops-upsell-link',{body:{leadUid:lead,kind}});
   if(error||!data||!data.ok){toast('Error: '+((data&&data.error)||(error&&error.message)||'falló'));return;}
-  toast('⏳ Enlace de '+label+' en cola (2 min). Revisa tu Telegram.');
+  toast('⏳ Enlace de '+label+' en cola (2 min).'+(data.routedToCleaner?' Le pedí aprobación a la cleaner.':'')+' Revisa tu Telegram.');
 }
 async function msgLoadCleaners(){
   const tb=document.getElementById('msgCleanersTable');
