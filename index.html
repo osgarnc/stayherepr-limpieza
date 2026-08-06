@@ -3020,26 +3020,36 @@ async function msgLoadUpsell(){
   // Relevantes: pagados (historial) o con estadía vigente/futura. (Lionel ya está cerrado en la BDD.)
   rows=rows.filter(x=>x.paid||(x.co&&x.co>=today));
   const tier=x=> (x.appr&&x.paid)?1:(x.appr&&!x.paid)?2:(!x.appr&&x.paid)?3:4;
-  rows.sort((a,b)=>tier(a)-tier(b)||String(a.co||'zzz').localeCompare(String(b.co||'zzz')));
+  // ARRIBA: check-in hoy/futuro, el más cercano a hoy primero. ABAJO: check-in ya pasó (o sin fecha,
+  // = estadías pasadas como Tyra/Giselle/Bonnie), por nivel y luego lo más reciente.
+  const isPast=x=> !(x.ci&&x.ci>=today);
+  rows.sort((a,b)=>{
+    const pa=isPast(a)?1:0,pb=isPast(b)?1:0;
+    if(pa!==pb) return pa-pb;
+    if(!pa) return String(a.ci).localeCompare(String(b.ci))||tier(a)-tier(b);
+    return tier(a)-tier(b)||String(b.co||b.ci||'').localeCompare(String(a.co||a.ci||''));
+  });
   if(!rows.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay early/late solicitados relevantes.</td></tr></tbody>';return;}
   const svc=k=>k==='early_checkin'?'🔑 Early':'🕗 Late';
-  const trs=rows.map(x=>{
+  let divDone=false, trs='';
+  for(const x of rows){
+    if(isPast(x)&&!divDone){ trs+='<tr><td colspan="8" class="muted" style="padding:7px 4px;font-size:12px;border-top:2px solid var(--line);background:var(--bg2,#f7f8fa)">⬇️ Check-in ya pasó / estadías pasadas</td></tr>'; divDone=true; }
     const nm=opsEsc((x.guest||'').replace(/\x27/g,''));
     const cl=x.appr?'✅ aprobado':'⏳ pendiente';
     const pg=x.paid?'✅ pagado':(x.open?'⏳ sin pago':'— '+opsEsc(x.reason||'cerrado'));
-    const est=(x.ci||'?')+' → '+(x.co||'?');
+    const est=(x.ci&&x.co)?(x.ci+' → '+x.co):'<span title="reserva pasada, no sincronizada">— pasada</span>';
     const act=(!x.paid&&x.open)?'<button class="btn ghost sm" onclick="msgUpsellSendLink(\''+x.lead+'\',\''+x.kind+'\',\''+nm+'\')">🔁 Reenviar enlace</button>':'';
-    return '<tr>'+
+    trs+='<tr>'+
       '<td>'+opsEsc(x.prop)+'</td>'+
       '<td>'+opsEsc(x.guest)+'</td>'+
-      '<td class="muted" style="font-size:12px;white-space:nowrap">'+opsEsc(est)+'</td>'+
+      '<td class="muted" style="font-size:12px;white-space:nowrap">'+est+'</td>'+
       '<td>'+svc(x.kind)+'</td>'+
       '<td>'+opsEsc(x.time||'—')+'</td>'+
       '<td style="white-space:nowrap">'+cl+'</td>'+
       '<td style="white-space:nowrap">'+pg+'</td>'+
       '<td>'+act+'</td>'+
     '</tr>';
-  }).join('');
+  }
   tb.innerHTML='<thead><tr><th>Propiedad</th><th>Huésped</th><th>Estadía</th><th>Tipo</th><th>Hora</th><th>Cleaner</th><th>Pago</th><th></th></tr></thead><tbody>'+trs+'</tbody>';
 }
 async function msgLoadUpNoReq(){
