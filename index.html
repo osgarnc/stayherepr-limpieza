@@ -249,6 +249,7 @@
     <button id="tRejected" onclick="tabTo('rejected')">🚫 Rechazados</button>
     <button id="tDamage" onclick="tabTo('damage')">⚠️ Daños</button>
     <button id="tCharges" onclick="tabTo('charges')">💵 Cargos</button>
+    <button id="tEarlylate" onclick="tabTo('earlylate')">🕐 Early/Late</button>
     <button id="tExpenses" onclick="tabTo('expenses')">💸 Gastos</button>
     <button id="tReports" onclick="tabTo('reports')">📋 Reportes</button>
     <button id="tRates" onclick="tabTo('rates')">💵 Tarifas</button>
@@ -411,6 +412,16 @@
       <button class="btn ghost sm" onclick="document.getElementById('chgSearch').value='';renderCharges()">Limpiar</button>
     </div>
     <div style="overflow:auto"><table id="chargesTable"></table></div>
+  </div>
+  <div id="tabEarlylate" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>🕐 Early / Late — registro histórico</h2></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Todos los early check-in y late check-out <b>facturados</b>: los que el huésped <b>pagó por el enlace</b> (store) y los que el <b>personal aplicó</b> en sus servicios (marcados como facturados). Busca por huésped, propiedad, fecha, tipo u origen.</p>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input id="elSearch" oninput="renderEarlyLateHist()" placeholder="🔎 Buscar…" style="flex:1;padding:9px 12px;border:1.5px solid var(--line);border-radius:10px">
+      <button class="btn ghost sm" onclick="document.getElementById('elSearch').value='';renderEarlyLateHist()">Limpiar</button>
+      <span id="elCount" class="muted" style="font-size:13px;white-space:nowrap"></span>
+    </div>
+    <div style="overflow:auto"><table id="elHistTable"></table></div>
   </div>
   <div id="tabExpenses" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>Gastos y reembolsos</h2><span class="muted" id="expTotal"></span></div>
@@ -1061,7 +1072,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','earlylate','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -1504,7 +1515,7 @@ async function submitAll(){
     toast('✉️ Enviado a la administradora');
   } finally { _sending=false; }
 }
-function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();}
+function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();}
 /* ---------- DASHBOARD POR CONTRATISTA (YTD / mensual / bisemanal) ---------- */
 const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 let dashYear='',dashMonth='',dashBiweek='';
@@ -1681,7 +1692,52 @@ async function setChargeStatus(itemId,key,val){
   const {error}=await sb.from('submission_items').update({[field]:val}).eq('id',itemId);
   if(error){console.error(error);toast('No se pudo actualizar (¿corriste el SQL de cargos?)');return;}
   subs.forEach(s=>(s.items||[]).forEach(i=>{if(i.id===itemId)i[local]=val;}));
-  renderCharges();toast('Facturación del cargo actualizada');
+  renderCharges();renderEarlyLateHist();toast('Facturación del cargo actualizada');
+}
+/* ---------- EARLY/LATE — registro histórico combinado (store pagado + cargos del cleaner facturados) ---------- */
+let _elStore=[];
+async function loadElStore(){
+  try{
+    const {data}=await sb.from('ops_upsell_events')
+      .select('kind,property_name,guest_name,event_at,event_time_label,paid_at,approved_by_name,source').not('paid_at','is',null);
+    _elStore=data||[];
+  }catch(e){ _elStore=[]; }
+  renderEarlyLateHist();
+}
+function renderEarlyLateHist(){
+  const tb=document.getElementById('elHistTable');if(!tb)return;
+  const rows=[];
+  // 1) Store: early/late que el huésped pagó por el enlace.
+  (_elStore||[]).forEach(e=>rows.push({
+    fecha:String(e.paid_at||e.event_at||'').slice(0,10), origen:'🛒 Store (huésped)',
+    tipo:e.kind==='early_checkin'?'🔑 Early':'🕗 Late', prop:e.property_name||'—',
+    quien:e.guest_name||'—', hora:e.event_time_label||'', monto:'', nota:e.approved_by_name||e.source||''
+  }));
+  // 2) Cleaner: early/late que el personal aplicó en servicios y ya están FACTURADOS (billed).
+  (subs||[]).filter(s=>s.type==='service').forEach(s=>(s.items||[]).forEach(i=>{
+    [['🔑 Early',i.earlyCheckin,i.earlyStatus],['🕗 Late',i.lateCheckout,i.lateStatus]].forEach(function(c){
+      if((c[1]||0)>0 && c[2]==='billed') rows.push({
+        fecha:s.date||'', origen:'🧹 Cleaner', tipo:c[0], prop:propName(i.prop),
+        quien:staffName(s.staff), hora:'', monto:money(c[1]), nota:'facturado'
+      });
+    });
+  }));
+  rows.sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+  const q=(document.getElementById('elSearch')&&document.getElementById('elSearch').value||'').trim().toLowerCase();
+  const list=q?rows.filter(r=>(r.fecha+' '+r.origen+' '+r.tipo+' '+r.prop+' '+r.quien+' '+r.hora+' '+r.monto+' '+r.nota).toLowerCase().indexOf(q)>-1):rows;
+  const cnt=document.getElementById('elCount');if(cnt)cnt.textContent=list.length+(q?(' de '+rows.length):'')+' registro'+(list.length===1?'':'s');
+  if(!rows.length){tb.innerHTML='<tbody><tr><td colspan="7" class="muted" style="padding:24px;text-align:center">Aún no hay early/late facturados.</td></tr></tbody>';return;}
+  if(!list.length){tb.innerHTML='<thead><tr><th>Fecha</th><th>Origen</th><th>Tipo</th><th>Propiedad</th><th>Huésped / Personal</th><th>Hora</th><th>Monto</th></tr></thead><tbody><tr><td colspan="7" class="muted" style="padding:20px;text-align:center">Sin resultados para «'+opsEsc(q)+'».</td></tr></tbody>';return;}
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Origen</th><th>Tipo</th><th>Propiedad</th><th>Huésped / Personal</th><th>Hora</th><th>Monto</th></tr></thead><tbody>'+
+    list.map(r=>'<tr>'+
+      '<td class="muted" style="font-size:12px;white-space:nowrap">'+opsEsc(r.fecha||'—')+'</td>'+
+      '<td style="white-space:nowrap">'+opsEsc(r.origen)+'</td>'+
+      '<td style="white-space:nowrap">'+r.tipo+'</td>'+
+      '<td>'+opsEsc(r.prop)+'</td>'+
+      '<td>'+opsEsc(r.quien)+'</td>'+
+      '<td>'+opsEsc(r.hora||'—')+'</td>'+
+      '<td style="white-space:nowrap"><b>'+(r.monto||'—')+'</b>'+(r.nota?' <span class="muted" style="font-size:11px">'+opsEsc(r.nota)+'</span>':'')+'</td>'+
+    '</tr>').join('')+'</tbody>';
 }
 /* ---------- REPORTES DEL PERSONAL (back office) ---------- */
 let reportView='pending';
@@ -3017,24 +3073,17 @@ async function msgLoadUpsell(){
   // Pagos directos (Host Co) sin watch → añadir para no perder el historial.
   (ev.data||[]).forEach(e=>{ if(!(wt.data||[]).some(w=>w.lead_uid===e.lead_uid&&w.kind===e.kind)){ const r=resvBy[e.lead_uid]||{};
     rows.push({lead:e.lead_uid,guest:e.guest_name||r.guest_name||'—',prop:e.property_name||r.property_name||'—',ci:r.check_in,co:r.check_out,kind:e.kind,time:e.event_time_label,appr:!!e.approved_by_name,paid:true,open:false,reason:'paid',paid_at:e.paid_at}); }});
-  // Relevantes: pagados (historial) o con estadía vigente/futura. (Lionel ya está cerrado en la BDD.)
-  rows=rows.filter(x=>x.paid||(x.co&&x.co>=today));
+  // Solo estadías VIGENTES/futuras (check-out hoy o después). Las estadías ya completadas NO se
+  // muestran aquí (van al registro histórico en Operaciones → Early/Late).
+  rows=rows.filter(x=>x.co&&x.co>=today);
   const tier=x=> (x.appr&&x.paid)?1:(x.appr&&!x.paid)?2:(!x.appr&&x.paid)?3:4;
-  // ARRIBA: estadía aún vigente/futura (check-out hoy o después), ordenada por CHECK-IN ascendente
-  // (el que entró/entra primero, arriba — ej. Cynthia hospedada va encima de una llegada posterior).
-  // ABAJO: estadía COMPLETA ya pasada (check-out < hoy, o sin fecha = pasada no sincronizada).
-  const isPast=x=> !(x.co&&x.co>=today);
-  rows.sort((a,b)=>{
-    const pa=isPast(a)?1:0,pb=isPast(b)?1:0;
-    if(pa!==pb) return pa-pb;
-    if(!pa) return String(a.ci||'zzz').localeCompare(String(b.ci||'zzz'))||tier(a)-tier(b);
-    return String(b.co||'').localeCompare(String(a.co||''))||tier(a)-tier(b);
-  });
-  if(!rows.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay early/late solicitados relevantes.</td></tr></tbody>';return;}
+  // Orden por CHECK-IN ascendente (el que entró/entra primero, arriba; Cynthia hospedada va encima
+  // de una llegada posterior), y a igualdad de check-in por nivel (aprobado+pagado primero).
+  rows.sort((a,b)=> String(a.ci||'zzz').localeCompare(String(b.ci||'zzz'))||tier(a)-tier(b));
+  if(!rows.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Sin early/late en estadías vigentes. El histórico está en Operaciones → Early/Late.</td></tr></tbody>';return;}
   const svc=k=>k==='early_checkin'?'🔑 Early':'🕗 Late';
-  let divDone=false, trs='';
+  let trs='';
   for(const x of rows){
-    if(isPast(x)&&!divDone){ trs+='<tr><td colspan="8" class="muted" style="padding:7px 4px;font-size:12px;border-top:2px solid var(--line);background:var(--bg2,#f7f8fa)">⬇️ Estadías ya completadas</td></tr>'; divDone=true; }
     const nm=opsEsc((x.guest||'').replace(/\x27/g,''));
     const cl=x.appr?'✅ aprobado':'⏳ pendiente';
     const pg=x.paid?'✅ pagado':(x.open?'⏳ sin pago':'— '+opsEsc(x.reason||'cerrado'));
