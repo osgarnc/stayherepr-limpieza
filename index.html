@@ -641,7 +641,7 @@
       <div style="overflow:auto"><table id="msgLogTable"></table></div>
     </div>
     <div id="msgViewCats" class="card hide" style="padding:14px">
-      <p class="muted" style="font-size:13px;margin-top:0">Enciende el <b>auto-envío por clasificación</b>. Cada interruptor aplica a <b>TODAS las propiedades</b>: con ON, el bot <b>responde solo</b> (sin tu revisión) los mensajes de esa clasificación en cualquier propiedad; con OFF, esos mensajes te llegan para que los revises. Así, si quieres que <b>una sola</b> clasificación se auto-envíe, la enciendes y dejas las demás en OFF.<br><br><b>🔥 Inquiry</b> = consultas de quien <b>aún no ha reservado</b> (leads en caliente): con ON el bot contesta con un mensaje cálido que invita a reservar, sin precios. <b>Dinero, quejas y lo dudoso SIEMPRE escalan</b> a ti y no aparecen aquí.</p>
+      <p class="muted" style="font-size:13px;margin-top:0">Enciende el <b>auto-envío por clasificación</b>. Cada interruptor aplica a <b>TODAS las propiedades</b>: con ON, el bot <b>responde solo</b> (sin tu revisión) los mensajes de esa clasificación en cualquier propiedad; con OFF, esos mensajes te llegan para que los revises. Así, si quieres que <b>una sola</b> clasificación se auto-envíe, la enciendes y dejas las demás en OFF.<br><br><b>🔥 Inquiry</b> = consultas de quien <b>aún no ha reservado</b> (leads en caliente): con ON el bot contesta con un mensaje cálido que invita a reservar, sin precios.<br><br>Las <b>⚠️ sensibles</b> (mantenimiento, pago, queja, equipaje, pre-arrival) vienen <b>apagadas</b>: por defecto te escalan para que las revises. Puedes encender cualquiera si decides que el bot la conteste sola — con la ventana de 2 min como red de seguridad.</p>
       <div style="overflow:auto"><table id="msgCatsTable"></table></div>
     </div>
     <div id="msgViewCleaners" class="card hide" style="padding:14px">
@@ -3482,8 +3482,13 @@ const MSG_CAT_LIST=[
   {key:'local_recommendations',label:'Recomendaciones locales'},
   {key:'power',label:'Luz (LUMA)'},
   {key:'water',label:'Agua (AAA)'},
+  {key:'maintenance',label:'🔧 Mantenimiento / algo roto',caution:true},
+  {key:'payment',label:'💳 Pago / cobro',caution:true},
+  {key:'complaint',label:'😟 Queja / reembolso',caution:true},
+  {key:'luggage',label:'🧳 Equipaje',caution:true},
+  {key:'pre_arrival',label:'📄 Pre-arrival / documentos',caution:true},
 ];
-const MSG_CAT_DEFAULTS={inquiry:true,wifi:true,directions:true,checkin_checkout:true,parking:true,house_rules:true,access_code:true,local_recommendations:true,power:true,water:true};
+const MSG_CAT_DEFAULTS={inquiry:true,wifi:true,directions:true,checkin_checkout:true,parking:true,house_rules:true,access_code:true,local_recommendations:true,power:true,water:true,maintenance:false,payment:false,complaint:false,luggage:false,pre_arrival:false};
 function msgCatOn(map,key){ return (map&&Object.prototype.hasOwnProperty.call(map,key))?!!map[key]:(MSG_CAT_DEFAULTS[key]??false); }
 async function msgLoadCats(){
   const tb=document.getElementById('msgCatsTable');
@@ -3492,7 +3497,14 @@ async function msgLoadCats(){
   if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar ('+opsEsc(error.message)+').</td></tr></tbody>';return;}
   if(data&&data.value){ try{ map=JSON.parse(data.value)||{}; }catch(_e){ map={}; } }
   window._msgCatMap=map;
-  const rows=MSG_CAT_LIST.map(c=>{const on=msgCatOn(map,c.key);return '<tr>'+
+  let firstCaution=true;
+  const rows=MSG_CAT_LIST.map(c=>{
+    const on=msgCatOn(map,c.key);
+    let sep='';
+    if(c.caution&&firstCaution){ firstCaution=false;
+      sep='<tr><td colspan="2" style="padding:10px 6px 4px;font-size:12px;font-weight:700;color:#92400e;border-top:2px solid var(--line)">⚠️ Sensibles — el bot ESCALA por defecto. Enciéndelas solo si quieres que las conteste solo.</td></tr>';
+    }
+    return sep+'<tr>'+
     '<td>'+(c.hot?'🔥 ':'')+opsEsc(c.label)+'</td>'+
     '<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' onchange="msgToggleCat(\''+c.key+'\',this)"> <span style="font-size:12px;font-weight:700;color:'+(on?'#166534':'#92400e')+'">'+(on?'ON':'OFF')+'</span></label></td>'+
     '</tr>';}).join('');
@@ -3500,7 +3512,11 @@ async function msgLoadCats(){
 }
 async function msgToggleCat(key,el){
   const on=el.checked;
-  if(on&&!confirm('¿Activar AUTO-ENVÍO para esta clasificación en TODAS las propiedades?\n\nEl bot responderá SOLO (sin tu revisión) los mensajes de esta clasificación en cualquier propiedad. Dinero, quejas y lo dudoso SIEMPRE escalan a ti.')){ el.checked=false; return; }
+  const meta=MSG_CAT_LIST.find(c=>c.key===key)||{};
+  const msg=meta.caution
+    ? '⚠️ ¿Dejar que el bot CONTESTE SOLO los mensajes de "'+(meta.label||key).replace(/^[^\w¡¿]+/,'')+'" en TODAS las propiedades?\n\nEs un tema SENSIBLE (dinero, quejas, etc.). El bot enviará su borrador SIN tu revisión. Solo la ventana de 2 min te deja cancelar/editar. ¿Seguro?'
+    : '¿Activar AUTO-ENVÍO para esta clasificación en TODAS las propiedades?\n\nEl bot responderá SOLO (sin tu revisión) los mensajes de esta clasificación en cualquier propiedad.';
+  if(on&&!confirm(msg)){ el.checked=false; return; }
   const map=Object.assign({},window._msgCatMap||{}); map[key]=on;
   const {error}=await msgC().from('ops_app_settings').upsert({key:'auto_send_categories',value:JSON.stringify(map)},{onConflict:'key'});
   if(error){toast('Error: '+error.message); el.checked=!on; return; }
