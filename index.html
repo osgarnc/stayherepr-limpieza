@@ -628,8 +628,7 @@
     <div class="tabs" style="margin-bottom:12px">
       <button id="msgTabPending" class="on" onclick="msgTab('pending')">Pendientes <span id="msgPendCount"></span></button>
       <button id="msgTabLog" onclick="msgTab('log')">Historial</button>
-      <button id="msgTabAuto" onclick="msgTab('auto')">⚙️ Auto-envío</button>
-      <button id="msgTabCats" onclick="msgTab('cats')">🏷️ Por clasificación</button>
+      <button id="msgTabCats" onclick="msgTab('cats')">⚙️ Auto-envío</button>
       <button id="msgTabCleaners" onclick="msgTab('cleaners')">🧹 Cleaners</button>
       <button id="msgTabClRem" onclick="msgTab('clrem')">⏰ Recordatorios</button>
       <button id="msgTabUpsell" onclick="msgTab('upsell')">💰 Early/Late</button>
@@ -641,12 +640,8 @@
     <div id="msgViewLog" class="card hide" style="padding:14px">
       <div style="overflow:auto"><table id="msgLogTable"></table></div>
     </div>
-    <div id="msgViewAuto" class="card hide" style="padding:14px">
-      <p class="muted" style="font-size:13px;margin-top:0">Enciende el <b>auto-envío</b> por propiedad. Con ON, el bot <b>responde solo</b> (sin tu revisión) los mensajes de <b>info</b> (wifi, dirección, check-in, parking, reglas) y de <b>luz/agua</b>. Todo lo de <b>dinero, quejas o dudoso siempre escala</b> a ti. Empieza por las propiedades que ya te den confianza.</p>
-      <div style="overflow:auto"><table id="msgAutoTable"></table></div>
-    </div>
     <div id="msgViewCats" class="card hide" style="padding:14px">
-      <p class="muted" style="font-size:13px;margin-top:0"><b>🔥 Inquiry</b> = consultas de quien <b>aún no ha reservado</b> (leads en caliente): con ON, el bot contesta solo con un mensaje cálido que invita a reservar, sin cotizar precio ni disponibilidad. El inquiry <b>NO depende</b> del switch por-propiedad — basta con encenderlo aquí.<br><br>El <b>resto</b> de las clasificaciones (wifi, dirección, luz/agua…) sí necesitan <b>las dos cosas</b>: la propiedad en ⚙️ Auto-envío <b>y</b> su clasificación aquí encendida. Dinero, quejas y lo dudoso <b>siempre escalan</b> y no aparecen aquí.</p>
+      <p class="muted" style="font-size:13px;margin-top:0">Enciende el <b>auto-envío por clasificación</b>. Cada interruptor aplica a <b>TODAS las propiedades</b>: con ON, el bot <b>responde solo</b> (sin tu revisión) los mensajes de esa clasificación en cualquier propiedad; con OFF, esos mensajes te llegan para que los revises. Así, si quieres que <b>una sola</b> clasificación se auto-envíe, la enciendes y dejas las demás en OFF.<br><br><b>🔥 Inquiry</b> = consultas de quien <b>aún no ha reservado</b> (leads en caliente): con ON el bot contesta con un mensaje cálido que invita a reservar, sin precios. <b>Dinero, quejas y lo dudoso SIEMPRE escalan</b> a ti y no aparecen aquí.</p>
       <div style="overflow:auto"><table id="msgCatsTable"></table></div>
     </div>
     <div id="msgViewCleaners" class="card hide" style="padding:14px">
@@ -2954,10 +2949,10 @@ function msgWouldChip(would){return would?'<span style="display:inline-block;pad
 function msgFmtDate(s){return s?new Date(s).toLocaleString():'—';}
 async function msgInit(){ await Promise.all([msgLoadMode(), msgLoadProps()]); msgTab('pending'); }
 function msgTab(w){
-  const V={pending:'msgViewPending',log:'msgViewLog',auto:'msgViewAuto',cats:'msgViewCats',cleaners:'msgViewCleaners',clrem:'msgViewClRem',upsell:'msgViewUpsell',emergency:'msgViewEmergency'},B={pending:'msgTabPending',log:'msgTabLog',auto:'msgTabAuto',cats:'msgTabCats',cleaners:'msgTabCleaners',clrem:'msgTabClRem',upsell:'msgTabUpsell',emergency:'msgTabEmergency'};
+  const V={pending:'msgViewPending',log:'msgViewLog',cats:'msgViewCats',cleaners:'msgViewCleaners',clrem:'msgViewClRem',upsell:'msgViewUpsell',emergency:'msgViewEmergency'},B={pending:'msgTabPending',log:'msgTabLog',cats:'msgTabCats',cleaners:'msgTabCleaners',clrem:'msgTabClRem',upsell:'msgTabUpsell',emergency:'msgTabEmergency'};
   Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
   Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===w));
-  (w==='log')?msgLoadLog():(w==='auto')?msgLoadAuto():(w==='cats')?msgLoadCats():(w==='cleaners')?msgLoadCleaners():(w==='clrem')?msgLoadClRem():(w==='upsell')?msgLoadUpsell():(w==='emergency')?msgBcastInit():msgLoadPending();
+  (w==='log')?msgLoadLog():(w==='cats')?msgLoadCats():(w==='cleaners')?msgLoadCleaners():(w==='clrem')?msgLoadClRem():(w==='upsell')?msgLoadUpsell():(w==='emergency')?msgBcastInit():msgLoadPending();
 }
 async function msgLoadClRem(){
   const box=document.getElementById('clrList');
@@ -3237,10 +3232,12 @@ async function msgDeleteCleaner(id,name){
   toast('Borrado'); msgLoadCleaners();
 }
 async function msgLoadMode(){
-  const {data,error}=await msgC().from('ops_properties').select('id').eq('msg_auto_reply',true);
-  const n=error?0:(data||[]).length;
   const b=document.getElementById('msgModeBadge'); if(!b)return;
-  b.textContent=n>0?('AUTO-ENVÍO: '+n+' propiedad'+(n>1?'es':'')):'SOLO REVISIÓN';
+  let map={};
+  const {data}=await msgC().from('ops_app_settings').select('value').eq('key','auto_send_categories').maybeSingle();
+  if(data&&data.value){ try{ map=JSON.parse(data.value)||{}; }catch(_e){} }
+  const n=MSG_CAT_LIST.filter(c=>msgCatOn(map,c.key)).length;
+  b.textContent=n>0?('AUTO-ENVÍO: '+n+' clasificaci'+(n>1?'ones':'ón')):'SOLO REVISIÓN';
   b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(n>0?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e');
 }
 
@@ -3473,24 +3470,6 @@ async function tiendaTestSend(){
     res.innerHTML='<div class="note" style="border-color:#16a34a;background:#f0fdf4">✅ Enviado a tu Telegram. Revisa el bot: paga con la <b>4242</b> y aprueba/rechaza ahí.<br><br>O abre el enlace aquí: <a href="'+r.data.payUrl+'" target="_blank" rel="noopener">'+opsEsc(r.data.payUrl)+'</a></div>';
   }catch(e){ btn.disabled=false; res.innerHTML='<span style="color:#b91c1c">'+opsEsc(String((e&&e.message)||e))+'</span>'; }
 }
-async function msgLoadAuto(){
-  const {data,error}=await msgC().from('ops_properties').select('id,name,msg_auto_reply,is_active').order('name');
-  const tb=document.getElementById('msgAutoTable');
-  if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar. ¿Corriste la migración que agrega la columna <code>msg_auto_reply</code>? ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
-  const rows=(data||[]).map(p=>'<tr>'+
-    '<td>'+opsEsc(p.name)+(p.is_active?'':' <span class="muted" style="font-size:12px">(inactiva)</span>')+'</td>'+
-    '<td style="text-align:center"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" '+(p.msg_auto_reply?'checked':'')+' onchange="msgToggleAuto(\''+p.id+'\',this)"> <span style="font-size:12px;font-weight:700;color:'+(p.msg_auto_reply?'#166534':'#92400e')+'">'+(p.msg_auto_reply?'ON':'OFF')+'</span></label></td>'+
-    '</tr>').join('');
-  tb.innerHTML='<thead><tr><th>Propiedad</th><th style="text-align:center">Auto-envío</th></tr></thead><tbody>'+rows+'</tbody>';
-}
-async function msgToggleAuto(id,el){
-  const on=el.checked;
-  if(on&&!confirm('¿Activar AUTO-ENVÍO para esta propiedad?\n\nEl bot responderá SOLO (sin tu revisión) los mensajes de info, luz y agua de esta propiedad. Lo de dinero, quejas o dudoso SIEMPRE escala a ti.')){ el.checked=false; return; }
-  const {error}=await msgC().from('ops_properties').update({msg_auto_reply:on}).eq('id',id);
-  if(error){toast('Error: '+error.message); el.checked=!on; return; }
-  const s=el.parentNode.querySelector('span'); s.textContent=on?'ON':'OFF'; s.style.color=on?'#166534':'#92400e';
-  toast(on?'✅ Auto-envío ACTIVADO para esta propiedad':'Auto-envío apagado'); msgLoadMode();
-}
 // Auto-envío POR CLASIFICACIÓN — refleja AUTO_SEND_CATEGORY_LABELS/DEFAULTS del backend (messaging.ts).
 const MSG_CAT_LIST=[
   {key:'inquiry',label:'Inquiry (consulta sin reservar)',hot:true},
@@ -3521,13 +3500,13 @@ async function msgLoadCats(){
 }
 async function msgToggleCat(key,el){
   const on=el.checked;
-  if(on&&key==='inquiry'&&!confirm('¿Activar AUTO-ENVÍO para INQUIRIES?\n\nEl bot contestará SOLO (sin tu revisión) las consultas de quien aún no ha reservado, con un mensaje cálido que invita a reservar. No cotiza precio ni disponibilidad. Requiere que la propiedad también tenga el auto-envío en ON.')){ el.checked=false; return; }
+  if(on&&!confirm('¿Activar AUTO-ENVÍO para esta clasificación en TODAS las propiedades?\n\nEl bot responderá SOLO (sin tu revisión) los mensajes de esta clasificación en cualquier propiedad. Dinero, quejas y lo dudoso SIEMPRE escalan a ti.')){ el.checked=false; return; }
   const map=Object.assign({},window._msgCatMap||{}); map[key]=on;
   const {error}=await msgC().from('ops_app_settings').upsert({key:'auto_send_categories',value:JSON.stringify(map)},{onConflict:'key'});
   if(error){toast('Error: '+error.message); el.checked=!on; return; }
   window._msgCatMap=map;
   const s=el.parentNode.querySelector('span'); s.textContent=on?'ON':'OFF'; s.style.color=on?'#166534':'#92400e';
-  toast(on?'✅ Auto-envío ACTIVADO para esta clasificación':'Auto-envío apagado para esta clasificación');
+  toast(on?'✅ Auto-envío ACTIVADO en todas las propiedades':'Auto-envío apagado para esta clasificación'); msgLoadMode();
 }
 async function msgLoadProps(){
   const {data,error}=await msgC().from('ops_properties').select('id,name,hostfully_uid');
