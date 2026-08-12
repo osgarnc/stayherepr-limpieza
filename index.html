@@ -3503,13 +3503,21 @@ function msgLearnCell(key){
 async function msgLoadCats(){
   const tb=document.getElementById('msgCatsTable');
   let map={};
-  const {data,error}=await msgC().from('ops_app_settings').select('key,value').in('key',['auto_send_categories','learning_rates']);
+  const {data,error}=await msgC().from('ops_app_settings').select('value').eq('key','auto_send_categories').maybeSingle();
   if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar ('+opsEsc(error.message)+').</td></tr></tbody>';return;}
-  let learn={},updatedAt=null;
-  (data||[]).forEach(r=>{
-    if(r.key==='auto_send_categories'){ try{ map=JSON.parse(r.value)||{}; }catch(_e){} }
-    else if(r.key==='learning_rates'){ try{ const p=JSON.parse(r.value)||{}; learn=p.byCat||{}; updatedAt=p.updatedAt; }catch(_e){} }
+  if(data&&data.value){ try{ map=JSON.parse(data.value)||{}; }catch(_e){} }
+  // % Aprendizaje EN VIVO: aceptadas tal cual ÷ (aceptadas+editadas+reescritas), por categoría.
+  const learn={};
+  const {data:lm}=await msgC().from('ops_messages').select('category,reply_accept_status').in('reply_accept_status',['accepted','edited','rewritten']).limit(5000);
+  (lm||[]).forEach(r=>{
+    const cat=r.category||'other';
+    const g=learn[cat]||(learn[cat]={a:0,e:0,r:0});
+    if(r.reply_accept_status==='accepted')g.a++;
+    else if(r.reply_accept_status==='edited')g.e++;
+    else if(r.reply_accept_status==='rewritten')g.r++;
   });
+  Object.values(learn).forEach(g=>{ g.sug=g.a+g.e+g.r; g.acc=g.sug?Math.round(100*g.a/g.sug):null; });
+  const updatedAt=new Date().toISOString();
   window._msgCatMap=map; window._msgLearn=learn;
   let firstCaution=true;
   const rows=MSG_CAT_LIST.map(c=>{
@@ -3525,7 +3533,7 @@ async function msgLoadCats(){
     '</tr>';}).join('');
   tb.innerHTML='<thead><tr><th>Clasificación</th><th style="text-align:center">Auto-envío</th><th style="text-align:center" title="Sugerencias que enviaste tal cual ÷ total con sugerencia. 🎯 = ≥90% con ≥5 datos, buena candidata a encender.">% Aprendizaje</th></tr></thead><tbody>'+rows+'</tbody>';
   const cap=document.getElementById('msgCatsUpdated');
-  if(cap){ cap.textContent=updatedAt?('Aprendizaje actualizado: '+new Date(updatedAt).toLocaleString('es-PR',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit',hour12:true})+' · se recalcula cada hora'):''; }
+  if(cap){ cap.textContent='% Aprendizaje calculado en vivo ('+new Date(updatedAt).toLocaleString('es-PR',{hour:'numeric',minute:'2-digit',hour12:true})+') — aceptadas tal cual ÷ las que tú/Ingrid revisaron.'; }
 }
 async function msgToggleCat(key,el){
   const on=el.checked;
