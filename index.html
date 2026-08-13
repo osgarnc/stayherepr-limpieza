@@ -806,7 +806,9 @@ function isVideoPath(p){return /\.(mp4|mov|webm|m4v|3gp|avi|mkv|quicktime)(\?|$)
 function evTag(url,style){if(!url)return '';return isVideoPath(url)?'<video src="'+url+'" controls playsinline style="'+style+'"></video>':'<img src="'+url+'" style="'+style+'">';}
 function evOr(url,style,fake){return url?evTag(url,style):'<div class="fakeimg '+fake+'">Sin foto</div>';}
 function isoDaysAgo(n){const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10);}
-function todayISO(){return new Date().toISOString().slice(0,10);}
+// Fecha "hoy" en hora de Puerto Rico (AST, UTC-4). Sin esto, después de las 8pm
+// toISOString() (UTC) ya marca el día siguiente y el calendario mostraba mañana.
+function todayISO(){return new Date(Date.now()-4*3600*1000).toISOString().slice(0,10);}
 function propName(id){if(!id)return '';return (properties.find(p=>p.id===id)||{}).name||id;}
 function staffName(id){return (staff.find(s=>s.id===id)||{}).name||id;}
 function money(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
