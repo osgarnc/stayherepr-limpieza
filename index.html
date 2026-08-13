@@ -195,7 +195,10 @@
         <div id="myEarlyList"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver tus early/late.</p></div>
       </div>
       <div id="paneCalendar" class="hide">
-        <p class="muted" style="font-size:13px;margin:2px 0 10px">Calendario de todas las propiedades (llegadas y salidas). 🔑 = early check-in aprobado · 🕗 = late check-out aprobado.</p>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin:2px 0 10px">
+          <p class="muted" style="font-size:13px;margin:0">Calendario <b>en vivo</b> de todas las propiedades (llegadas y salidas). 🔑 = early check-in aprobado · 🕗 = late check-out aprobado.</p>
+          <button class="btn ghost sm" style="white-space:nowrap" onclick="renderMyCalendar()">🔄</button>
+        </div>
         <div id="calFilterBar" style="position:relative;margin-bottom:10px"></div>
         <div id="myCalendarList"><p class="muted" style="text-align:center;padding:20px">Toca esta pestaña para ver el calendario.</p></div>
       </div>
@@ -941,13 +944,11 @@ async function renderMyEarlyLate(){
 const _attr=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 async function renderMyCalendar(){
   const el=document.getElementById('myCalendarList');if(!el)return;
-  el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Cargando…</p>';
-  const today=todayISO();
-  const {data,error}=await sb.from('ops_reservations')
-    .select('property_name,guest_name,check_in,check_out,early_checkin_approved,late_checkout_approved,status')
-    .or('check_in.gte.'+today+',check_out.gte.'+today).order('check_in',{ascending:true});
-  if(error){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar el calendario (¿corriste <code>fase-ops-reservations.sql</code> y el sync de Hostfully?).</p>';return;}
-  window._calData=data||[];
+  el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Buscando en vivo…</p>';
+  let data;
+  try{ const r=await sb.functions.invoke('ops-calendar-live',{body:{}}); if(r.error)throw r.error; if(!r.data||!r.data.ok)throw new Error('bad'); data=r.data.reservations||[]; }
+  catch(e){ el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar el calendario en vivo. Intenta de nuevo con 🔄.</p>'; return; }
+  window._calData=data;
   // Lista de propiedades presentes en los datos (para el filtro).
   const names=Array.from(new Set(window._calData.map(r=>r.property_name||'—'))).sort();
   window._calNames=names;
