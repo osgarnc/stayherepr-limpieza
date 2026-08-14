@@ -920,6 +920,7 @@ async function renderMyEarlyLate(){
   el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Cargando…</p>';
   const {data,error}=await sb.from('ops_upsell_events')
     .select('kind,property_name,guest_name,event_at,event_time_label,paid_at')
+    .in('kind',['early_checkin','late_checkout'])
     .not('paid_at','is',null).order('event_at',{ascending:true,nullsFirst:false});
   if(error){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo cargar (¿corriste el SQL <code>fase-cleaner-earlylate.sql</code>?).</p>';return;}
   // Solo presentes y futuros: oculta los cuya fecha de evento ya pasó (desde el inicio de hoy).
@@ -3075,7 +3076,7 @@ async function msgLoadUpsell(){
       ci:r.check_in,co:r.check_out,kind:w.kind,time:w.requested_time||e.event_time_label||null,appr:!!w.cleaner_approved,paid:paid,open:!w.resolved_at,reason:w.resolved_reason,paid_at:e.paid_at||null};
   });
   // Pagos directos (Host Co) sin watch → añadir para no perder el historial.
-  (ev.data||[]).forEach(e=>{ if(!(wt.data||[]).some(w=>w.lead_uid===e.lead_uid&&w.kind===e.kind)){ const r=resvBy[e.lead_uid]||{};
+  (ev.data||[]).forEach(e=>{ if(e.kind!=='early_checkin'&&e.kind!=='late_checkout') return; if(!(wt.data||[]).some(w=>w.lead_uid===e.lead_uid&&w.kind===e.kind)){ const r=resvBy[e.lead_uid]||{};
     rows.push({lead:e.lead_uid,guest:e.guest_name||r.guest_name||'—',prop:e.property_name||r.property_name||'—',ci:r.check_in,co:r.check_out,kind:e.kind,time:e.event_time_label,appr:!!e.approved_by_name,paid:true,open:false,reason:'paid',paid_at:e.paid_at}); }});
   // Solo estadías VIGENTES/futuras (check-out hoy o después). Las estadías ya completadas NO se
   // muestran aquí (van al registro histórico en Operaciones → Early/Late).
