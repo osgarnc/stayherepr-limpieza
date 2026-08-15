@@ -80,8 +80,8 @@
   .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
   .tabs button{background:#fff;border:1.5px solid var(--line);color:var(--ink-soft);padding:9px 15px;border-radius:999px;font-weight:600;font-size:14px}
   .tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
-  .maintabs{display:flex;gap:8px;margin-bottom:14px}
-  .maintabs button{flex:1;background:var(--sand);border:1.5px solid var(--line);color:var(--ink-soft);padding:13px;border-radius:12px;font-weight:800;font-size:15px}
+  .maintabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+  .maintabs button{flex:1 1 30%;background:var(--sand);border:1.5px solid var(--line);color:var(--ink-soft);padding:13px;border-radius:12px;font-weight:800;font-size:15px}
   .maintabs button.on{background:var(--sea);color:#fff;border-color:var(--sea)}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:12px;border-bottom:1px solid var(--line);vertical-align:middle}
@@ -244,6 +244,7 @@
   <div class="maintabs">
     <button id="mtOps" class="on" onclick="mainTab('ops')">🧹 Operaciones</button>
     <button id="mtAuto" onclick="mainTab('auto')">🤖 Automatización</button>
+    <button id="mtRec" onclick="mainTab('rec')" style="display:none">🧾 Reconciliación</button>
   </div>
   <div class="tabs" id="navOperaciones">
     <button id="tInbox" class="on" onclick="tabTo('inbox')">📥 Bandeja</button>
@@ -269,6 +270,11 @@
     <button id="tCrons" onclick="tabTo('crons');cronsInit()">⏱️ Crons</button>
     <button id="tWebsite" onclick="tabTo('website');websiteInit()">🌐 Website</button>
     <button id="tCerraduras" onclick="tabTo('cerraduras');cerradurasInit()">🔐 Cerraduras</button>
+  </div>
+  <div class="tabs hide" id="navReconcil">
+    <button id="tRecowners" class="on" onclick="tabTo('recowners')">🏠 Dueños</button>
+    <button id="tRecexpenses" onclick="tabTo('recexpenses')">💸 Gastos por propiedad</button>
+    <button id="tRecreport" onclick="tabTo('recreport')">📆 Reporte fin de mes</button>
   </div>
   <!-- 🛑 Parada de emergencia: detiene TODA la actividad del bot (mismo flag bot_paused que /pausar en Telegram). -->
   <div class="hide" id="emergencyBar" style="margin:10px 0 4px">
@@ -613,6 +619,36 @@
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Envíos que enviaste a la Papelera. <b>Restaurar</b> los devuelve a su lista. <b>Eliminar definitivamente</b> sí es permanente.</p>
     <div style="overflow:auto"><table id="trashTable"></table></div>
   </div>
+  <div id="tabRecowners" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>🏠 Dueños de propiedad</h2></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Crea los dueños, asígnales propiedades y fija el % de comisión de Stay Here por propiedad.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:12px 0">
+      <div class="field" style="margin:0"><label>Nombre del dueño</label><input id="ownName" placeholder="Ej: Juan Pérez"></div>
+      <div class="field" style="margin:0"><label>Email (opcional)</label><input id="ownEmail"></div>
+      <div class="field" style="margin:0"><label>Teléfono (opcional)</label><input id="ownPhone"></div>
+      <button class="btn sm" onclick="addOwner()">➕ Añadir dueño</button>
+    </div>
+    <div style="overflow:auto"><table id="ownersTable"></table></div>
+    <h3 style="font-size:15px;color:var(--brand);margin:20px 0 6px">Asignación de propiedades y comisión</h3>
+    <div style="overflow:auto"><table id="ownAssignTable"></table></div>
+  </div>
+  <div id="tabRecexpenses" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>💸 Gastos por propiedad</h2><span class="muted" id="recExpTotal"></span></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Registra gastos de cada propiedad. Marca <b>facturable</b> (se resta en el reporte del dueño) o no.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:12px 0">
+      <div class="field" style="margin:0"><label>Propiedad</label><select id="expProp"></select></div>
+      <div class="field" style="margin:0"><label>Fecha</label><input id="expDate" type="date"></div>
+      <div class="field" style="margin:0;flex:1;min-width:160px"><label>Descripción</label><input id="expDesc" placeholder="Ej: Reparación A/C"></div>
+      <div class="field" style="margin:0"><label>Monto $</label><input id="expAmt" type="number" step="0.01" style="width:100px"></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;padding-bottom:10px"><input type="checkbox" id="expBillable" checked> Facturable</label>
+      <button class="btn sm" onclick="addPropExpense()">➕ Añadir</button>
+    </div>
+    <div style="overflow:auto"><table id="recExpTable"></table></div>
+  </div>
+  <div id="tabRecreport" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>📆 Reporte de fin de mes</h2></div>
+    <p class="muted" style="font-size:13.5px">Próximamente (Fase 3): por dueño → propiedad — estadías (renta − comisión), cancelaciones, refunds y gastos → <b>pago al dueño</b>.</p>
+  </div>
   <div id="tabOperaciones" class="hide">
     <div id="opsPanel">
       <div class="sectitle"><h2>🏨 Precios dinámicos</h2>
@@ -943,6 +979,7 @@ function applySession(){
   document.getElementById('tMensajes').style.display=(session.role==='owner')?'':'none';
   document.getElementById('tLlamadas').style.display=(session.role==='owner')?'':'none';
   document.getElementById('segNueva').style.display=(session.role==='owner')?'':'none';
+  const mtRec=document.getElementById('mtRec');if(mtRec)mtRec.style.display=session.canReconcile?'':'none';
   currentStaff=session.staffId;
   document.getElementById('cleanerName').textContent=session.name;
   if(isCleaner){ setMode('cleaner',true); renderPropList(); }
@@ -1136,7 +1173,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','earlylate','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website','cerraduras'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','earlylate','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website','cerraduras','recowners','recexpenses','recreport'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -1148,10 +1185,13 @@ function mainTab(m){
   mainView=m;
   document.getElementById('mtOps').classList.toggle('on',m==='ops');
   document.getElementById('mtAuto').classList.toggle('on',m==='auto');
+  const mr=document.getElementById('mtRec');if(mr)mr.classList.toggle('on',m==='rec');
   document.getElementById('navOperaciones').classList.toggle('hide',m!=='ops');
   document.getElementById('navAutomatizacion').classList.toggle('hide',m!=='auto');
+  const nr=document.getElementById('navReconcil');if(nr)nr.classList.toggle('hide',m!=='rec');
   const eb=document.getElementById('emergencyBar'); if(eb){eb.classList.toggle('hide',m!=='auto'); if(m==='auto')emergencyRefresh();}
   if(m==='ops'){tabTo('inbox');}
+  else if(m==='rec'){tabTo('recowners');}
   else{tabTo('operaciones');opsInit();}
 }
 // ⏱️ Crons — administrar las tareas automáticas (pg_cron) vía RPC ops_list_crons / ops_set_cron.
@@ -1579,7 +1619,7 @@ async function submitAll(){
     toast('✉️ Enviado a la administradora');
   } finally { _sending=false; }
 }
-function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();}
+function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();if(session&&session.canReconcile){renderRecOwners();renderRecExpenses();}}
 /* ---------- DASHBOARD POR CONTRATISTA (YTD / mensual / bisemanal) ---------- */
 const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 let dashYear='',dashMonth='',dashBiweek='';
@@ -1669,6 +1709,78 @@ function renderTrash(){
   el.innerHTML='<tr><th>Persona</th><th>Tipo</th><th>Fecha</th><th>Monto</th><th>Papelera</th><th></th></tr>'+
     (rows||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">Papelera vacía</td></tr>');
 }
+/* ---------- RECONCILIACIÓN DE DUEÑOS (back office, solo can_reconcile) ---------- */
+let recOwners=[],recOpsProps=[],recExpenses=[],recPropOwner={};
+const _recEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+async function recLoadProps(){const pr=await sb.from('ops_properties').select('id,name').eq('is_active',true).order('name');recOpsProps=pr.data||[];return recOpsProps;}
+async function renderRecOwners(){
+  const el=document.getElementById('ownersTable');if(!el)return;
+  const [o,po]=await Promise.all([sb.from('ops_owners').select('*').order('name'),sb.from('ops_property_owner').select('*')]);
+  if(o.error){el.innerHTML='<tr><td class="muted" style="padding:16px">No se pudo cargar (¿tienes acceso de reconciliación?).</td></tr>';return;}
+  recOwners=o.data||[];await recLoadProps();
+  recPropOwner={};(po.data||[]).forEach(x=>{recPropOwner[x.property_id]={owner_id:x.owner_id,commission_pct:x.commission_pct};});
+  el.innerHTML='<tr><th>Dueño</th><th>Email</th><th>Teléfono</th><th># props</th><th></th></tr>'+
+    (recOwners.length?recOwners.map(function(ow){const n=Object.values(recPropOwner).filter(function(v){return v.owner_id===ow.id;}).length;
+      return '<tr><td><b>'+_recEsc(ow.name)+'</b></td><td class="muted">'+_recEsc(ow.email||'—')+'</td><td class="muted">'+_recEsc(ow.phone||'—')+'</td><td>'+n+'</td><td style="text-align:right"><button class="btn sm dgr" onclick="deleteOwner(\''+ow.id+'\')">Eliminar</button></td></tr>';
+    }).join(''):'<tr><td colspan="5" class="muted" style="padding:16px;text-align:center">Aún no hay dueños. Añade el primero arriba.</td></tr>');
+  const ae=document.getElementById('ownAssignTable');
+  if(ae)ae.innerHTML='<tr><th>Propiedad</th><th>Dueño</th><th>Comisión</th></tr>'+
+    (recOpsProps.length?recOpsProps.map(function(p){const cur=recPropOwner[p.id]||{};
+      const opts='<option value="">— sin asignar —</option>'+recOwners.map(function(ow){return '<option value="'+ow.id+'" '+(cur.owner_id===ow.id?'selected':'')+'>'+_recEsc(ow.name)+'</option>';}).join('');
+      return '<tr><td>'+_recEsc(p.name)+'</td>'+
+        '<td><select onchange="setPropOwner(\''+p.id+'\',this.value)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px">'+opts+'</select></td>'+
+        '<td><input type="number" step="0.5" value="'+(cur.commission_pct!=null?cur.commission_pct:'')+'" onchange="setPropCommission(\''+p.id+'\',this.value)" placeholder="%" style="width:70px;padding:6px;border:1.5px solid var(--line);border-radius:8px"> %</td></tr>';
+    }).join(''):'<tr><td colspan="3" class="muted" style="padding:16px;text-align:center">No hay propiedades activas.</td></tr>');
+}
+async function addOwner(){
+  const name=(document.getElementById('ownName').value||'').trim();if(!name){toast('Escribe el nombre del dueño');return;}
+  const {error}=await sb.from('ops_owners').insert({name,email:(document.getElementById('ownEmail').value||'').trim()||null,phone:(document.getElementById('ownPhone').value||'').trim()||null});
+  if(error){console.error(error);toast('No se pudo añadir el dueño');return;}
+  document.getElementById('ownName').value='';document.getElementById('ownEmail').value='';document.getElementById('ownPhone').value='';
+  renderRecOwners();toast('Dueño añadido');
+}
+async function deleteOwner(id){if(!confirm('¿Eliminar este dueño? Sus propiedades quedarán sin asignar.'))return;
+  const {error}=await sb.from('ops_owners').delete().eq('id',id);if(error){console.error(error);toast('No se pudo eliminar');return;}
+  renderRecOwners();toast('Dueño eliminado');}
+async function setPropOwner(propId,ownerId){const cur=recPropOwner[propId]||{};
+  const {error}=await sb.from('ops_property_owner').upsert({property_id:propId,owner_id:ownerId||null,commission_pct:(cur.commission_pct!=null?cur.commission_pct:null),updated_at:new Date().toISOString()},{onConflict:'property_id'});
+  if(error){console.error(error);toast('No se pudo asignar');return;}
+  recPropOwner[propId]={owner_id:ownerId||null,commission_pct:cur.commission_pct};renderRecOwners();toast('Asignación guardada');}
+async function setPropCommission(propId,val){const pct=val===''?null:(parseFloat(val)||0);const cur=recPropOwner[propId]||{};
+  const {error}=await sb.from('ops_property_owner').upsert({property_id:propId,owner_id:(cur.owner_id!=null?cur.owner_id:null),commission_pct:pct,updated_at:new Date().toISOString()},{onConflict:'property_id'});
+  if(error){console.error(error);toast('No se pudo guardar la comisión');return;}
+  recPropOwner[propId]={owner_id:cur.owner_id,commission_pct:pct};toast('Comisión guardada');}
+async function renderRecExpenses(){
+  const el=document.getElementById('recExpTable');if(!el)return;
+  if(!recOpsProps.length)await recLoadProps();
+  const sel=document.getElementById('expProp');if(sel)sel.innerHTML=recOpsProps.map(function(p){return '<option value="'+p.id+'">'+_recEsc(p.name)+'</option>';}).join('');
+  const df=document.getElementById('expDate');if(df&&!df.value)df.value=todayISO();
+  const {data,error}=await sb.from('ops_property_expenses').select('*').order('date',{ascending:false});
+  if(error){el.innerHTML='<tr><td class="muted" style="padding:16px">No se pudo cargar.</td></tr>';return;}
+  recExpenses=data||[];const pname={};recOpsProps.forEach(function(p){pname[p.id]=p.name;});
+  const total=recExpenses.reduce(function(a,e){return a+Number(e.amount||0);},0);
+  const bill=recExpenses.filter(function(e){return e.billable;}).reduce(function(a,e){return a+Number(e.amount||0);},0);
+  const tEl=document.getElementById('recExpTotal');if(tEl)tEl.textContent=recExpenses.length+' gasto(s) · '+money(total)+' (facturable '+money(bill)+')';
+  el.innerHTML='<tr><th>Propiedad</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Facturable</th><th></th></tr>'+
+    (recExpenses.length?recExpenses.map(function(e){
+      return '<tr><td>'+_recEsc(pname[e.property_id]||'—')+'</td><td>'+_recEsc(e.date)+'</td><td>'+_recEsc(e.description)+'</td><td><b>'+money(e.amount)+'</b></td>'+
+        '<td>'+(e.billable?'<span class="pill approved">Sí</span>':'<span class="pill pending">No</span>')+'</td>'+
+        '<td style="text-align:right"><button class="btn sm dgr" onclick="deletePropExpense(\''+e.id+'\')">Eliminar</button></td></tr>';
+    }).join(''):'<tr><td colspan="6" class="muted" style="padding:16px;text-align:center">Aún no hay gastos.</td></tr>');
+}
+async function addPropExpense(){
+  const prop=document.getElementById('expProp').value;const date=document.getElementById('expDate').value||todayISO();
+  const desc=(document.getElementById('expDesc').value||'').trim();const amt=parseFloat(document.getElementById('expAmt').value)||0;
+  const billable=!!document.getElementById('expBillable').checked;
+  if(!prop){toast('Elige una propiedad');return;}if(!desc){toast('Escribe una descripción');return;}if(!(amt>0)){toast('Monto inválido');return;}
+  const {error}=await sb.from('ops_property_expenses').insert({property_id:prop,date,description:desc,amount:amt,billable,created_by:(session?session.id:null)});
+  if(error){console.error(error);toast('No se pudo añadir el gasto');return;}
+  document.getElementById('expDesc').value='';document.getElementById('expAmt').value='';
+  renderRecExpenses();toast('Gasto añadido');
+}
+async function deletePropExpense(id){if(!confirm('¿Eliminar este gasto?'))return;
+  const {error}=await sb.from('ops_property_expenses').delete().eq('id',id);if(error){console.error(error);toast('No se pudo eliminar');return;}
+  renderRecExpenses();toast('Gasto eliminado');}
 /* ---------- GASTOS Y REEMBOLSOS (back office) ---------- */
 let expenseView='all';
 function setExpenseView(v){expenseView=v;
