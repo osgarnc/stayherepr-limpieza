@@ -836,7 +836,7 @@ async function loadAll(){
   staff.forEach(s=>{rates[s.id]=rates[s.id]||{};});
   distribution=(distR.data||[]).map(d=>({id:d.id,name:d.label||d.email,email:d.email,active:d.active}));
   if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||'',week_start_day:(compR.data.week_start_day??1),fee_early_checkin:Number(compR.data.fee_early_checkin||0),fee_late_checkout:Number(compR.data.fee_late_checkout||0),fee_extra_guest:Number(compR.data.fee_extra_guest||0),send_dow:Number(compR.data.send_dow??0),send_hour:Number(compR.data.send_hour??9)};
-  users=(profR.data||[]).map(p=>({id:p.id,user:p.email||'',name:p.display_name,role:p.role,staffId:p.staff_id,active:p.active}));
+  users=(profR.data||[]).map(p=>({id:p.id,user:p.email||'',name:p.display_name,role:p.role,staffId:p.staff_id,active:p.active,canReconcile:!!p.can_reconcile}));
   reports=(repR.data||[]).map(r=>({id:r.id,staff:r.professional_id,date:r.date,description:r.description||'',photos:r.photos||[],status:r.status||'pending',pendingNote:r.pending_note||''}));
   const itemsBySub={};
   (itemsR.data||[]).forEach(it=>{(itemsBySub[it.submission_id]=itemsBySub[it.submission_id]||[]).push(it);});
@@ -912,7 +912,7 @@ async function forgotPassword(){
 async function loadSession(authUser){
   const {data:prof}=await sb.from('profiles').select('*').eq('id',authUser.id).maybeSingle();
   if(!prof||!prof.active)return false;
-  session={id:prof.id,user:authUser.email,name:prof.display_name,role:prof.role,staffId:prof.staff_id,active:prof.active};
+  session={id:prof.id,user:authUser.email,name:prof.display_name,role:prof.role,staffId:prof.staff_id,active:prof.active,canReconcile:!!prof.can_reconcile};
   return true;
 }
 async function doLogout(){await sb.auth.signOut();session=null;
@@ -2657,13 +2657,14 @@ function renderUsers(){
       '<td><select onchange="linkStaff('+idx+',this.value)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px"><option value="">— ninguno —</option>'+
         staff.map(s=>'<option value="'+s.id+'" '+(u.staffId===s.id?'selected':'')+'>'+s.name+'</option>').join('')+'</select></td>'+
       '<td>'+(u.active?'<span class="pill approved">Activo</span>':'<span class="pill rejected">Inactivo</span>')+'</td>'+
+      '<td style="text-align:center"><input type="checkbox" '+(u.canReconcile?'checked':'')+' onchange="setReconcile('+idx+',this.checked)" title="Acceso a Reconciliación (dueños, gastos, reporte de fin de mes)"></td>'+
       '<td style="white-space:nowrap">'+
         (isSelf?'':'<button class="btn sm '+(u.active?'dgr':'ok')+'" onclick="toggleActive('+idx+')">'+(u.active?'Desactivar':'Activar')+'</button> ')+
         (isSelf?'<span class="muted" style="font-size:12px">tu cuenta</span>':'<button class="btn sm dgr" onclick="deleteUserAccount(\''+u.id+'\')">Eliminar</button>')+
       '</td></tr>';
   }).join('');
   document.getElementById('usersTable').innerHTML=
-    '<tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Perfil</th><th>Estado</th><th></th></tr>'+rows;
+    '<tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Perfil</th><th>Estado</th><th title="Acceso a Reconciliación">🧾 Recon.</th><th></th></tr>'+rows;
   // link dropdown for new user
   document.getElementById('nuLink').innerHTML='<option value="">— ninguno —</option>'+
     staff.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
@@ -2677,6 +2678,10 @@ async function toggleActive(idx){const u=users[idx];u.active=!u.active;
   const {error}=await sb.from('profiles').update({active:u.active}).eq('id',u.id);
   if(error){console.error(error);toast('No se pudo actualizar');u.active=!u.active;return;}
   toast(u.active?'Usuario activado':'Usuario desactivado');renderUsers();}
+async function setReconcile(idx,on){const u=users[idx];u.canReconcile=on;
+  const {error}=await sb.from('profiles').update({can_reconcile:on}).eq('id',u.id);
+  if(error){console.error(error);toast('No se pudo actualizar el acceso');u.canReconcile=!on;renderUsers();return;}
+  toast(on?'🧾 Acceso a Reconciliación activado':'Acceso a Reconciliación quitado');}
 async function linkStaff(idx,sid){const u=users[idx];u.staffId=sid||null;
   const {error}=await sb.from('profiles').update({staff_id:u.staffId}).eq('id',u.id);
   if(error){console.error(error);toast('No se pudo vincular');return;}
