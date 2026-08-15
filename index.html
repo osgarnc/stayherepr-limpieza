@@ -343,6 +343,10 @@
       <button class="btn ghost sm" id="lockProvBtn" onclick="lockProvisionNow()">⚡ Provisionar próximas estadías ahora</button>
       <span id="lockProvMsg" class="muted" style="font-size:13px"></span>
     </div>
+    <!-- Interruptor de envío al huésped -->
+    <div style="margin:4px 0 12px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="lockSendEnabled" onchange="lockToggleSend()"> <b>📤 Enviar el código al huésped automáticamente</b> <span class="muted">(cuando la reserva esté pagada y falten <span id="lockSendHrs">48</span>h o menos)</span></label>
+    </div>
 
     <!-- Mapeo propiedad ↔ cerradura -->
     <details id="lockMapWrap" style="margin:10px 0">
@@ -3368,8 +3372,10 @@ async function cerradurasLoad(){
   const box=document.getElementById('lockConnBox'), form=document.getElementById('lockConnForm');
   if(st.connected){ box.innerHTML='🟢 <b>Kwikset conectado</b>'+(st.connected_at?' <span class="muted">(desde '+new Date(st.connected_at).toLocaleString()+')</span>':''); form.classList.add('hide'); }
   else{ box.innerHTML='🔴 <b>Kwikset no conectado.</b> Conéctate una vez para empezar.'; form.classList.remove('hide'); }
-  // Interruptor maestro
+  // Interruptores
   document.getElementById('lockEnabled').checked=(st.settings&&st.settings.lock_codes_enabled==='true');
+  document.getElementById('lockSendEnabled').checked=(st.settings&&st.settings.lock_send_codes_enabled==='true');
+  const hrs=(st.settings&&st.settings.lock_send_hours_before)||'48'; const he=document.getElementById('lockSendHrs'); if(he) he.textContent=hrs;
   // Propiedades (para el mapeo)
   const {data:props}=await sb.from('ops_properties').select('id,name').order('name');
   window._lockProps={}; (props||[]).forEach(p=>window._lockProps[p.id]=p.name);
@@ -3421,6 +3427,13 @@ async function lockToggleEnabled(){
   const {error}=await sb.from('ops_app_settings').upsert({key:'lock_codes_enabled',value:on?'true':'false',updated_at:new Date().toISOString()});
   if(error){ toast('No se pudo guardar: '+error.message); document.getElementById('lockEnabled').checked=!on; return; }
   toast(on?'✅ Provisión automática ACTIVA':'Provisión automática apagada');
+}
+async function lockToggleSend(){
+  const on=document.getElementById('lockSendEnabled').checked;
+  if(on&&!confirm('¿Encender el ENVÍO automático del código al huésped? A partir de ahora, cada reserva pagada con check-in en ≤48h recibirá su PIN por Hostfully.')){ document.getElementById('lockSendEnabled').checked=false; return; }
+  const {error}=await sb.from('ops_app_settings').upsert({key:'lock_send_codes_enabled',value:on?'true':'false',updated_at:new Date().toISOString()});
+  if(error){ toast('No se pudo guardar: '+error.message); document.getElementById('lockSendEnabled').checked=!on; return; }
+  toast(on?'📤 Envío automático al huésped ACTIVO':'Envío automático apagado');
 }
 async function lockDiscover(){
   const sel=document.getElementById('lockMapDev'); sel.innerHTML='<option>Buscando…</option>';
