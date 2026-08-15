@@ -268,6 +268,7 @@
     <button id="tLlamadas" onclick="tabTo('llamadas');callInit()">📞 Llamadas</button>
     <button id="tCrons" onclick="tabTo('crons');cronsInit()">⏱️ Crons</button>
     <button id="tWebsite" onclick="tabTo('website');websiteInit()">🌐 Website</button>
+    <button id="tCerraduras" onclick="tabTo('cerraduras');cerradurasInit()">🔐 Cerraduras</button>
   </div>
   <!-- 🛑 Parada de emergencia: detiene TODA la actividad del bot (mismo flag bot_paused que /pausar en Telegram). -->
   <div class="hide" id="emergencyBar" style="margin:10px 0 4px">
@@ -319,6 +320,44 @@
     <div class="sectitle"><h2>🌐 Website — propiedades y ocupación</h2><span class="muted" id="websiteCount"></span></div>
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Controla lo que muestra <b>stayherepr.com</b>. Ajusta la <b>ocupación máxima</b> por propiedad (ej. la casa completa hasta 12, aunque Hostfully tope en 10) y oculta/muestra propiedades. Los cambios salen <b>en vivo</b> en el website.</p>
     <div style="overflow:auto"><table id="websiteTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
+  </div>
+  <div id="tabCerraduras" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>🔐 Cerraduras — códigos de acceso</h2><button onclick="cerradurasLoad()" style="padding:7px 12px;border:1.5px solid var(--line);border-radius:8px;background:#fff;cursor:pointer">↻ Refrescar</button></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Cada reserva recibe un <b>PIN de 4 dígitos</b> que abre la cerradura solo en su ventana (check-in <b>4:00 PM</b> → check-out <b>11:00 AM</b>, ajustada por early/late/noche-extra pagados). Aquí ves las contraseñas de cada huésped.</p>
+
+    <!-- Conexión Kwikset -->
+    <div id="lockConnBox" class="note" style="margin:10px 0;font-size:13.5px"></div>
+    <div id="lockConnForm" class="hide" style="margin:10px 0;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fafafa">
+      <div style="font-weight:600;margin-bottom:6px">Conectar cuenta Kwikset (una sola vez)</div>
+      <p class="muted" style="font-size:12px;margin-top:0">Se usan tus credenciales de la app Kwikset. No se guarda la contraseña, solo la sesión.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div class="field" style="margin:0"><label>Email Kwikset</label><input type="email" id="lockEmail" autocomplete="off"></div>
+        <div class="field" style="margin:0"><label>Contraseña</label><input type="password" id="lockPass" autocomplete="off"></div>
+        <button class="btn" id="lockConnectBtn" onclick="lockConnect()">Conectar</button>
+      </div>
+    </div>
+
+    <!-- Interruptor maestro + provisión -->
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0">
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="lockEnabled" onchange="lockToggleEnabled()"> <b>Provisión automática activa</b> <span class="muted">(cron crea/actualiza los códigos)</span></label>
+      <button class="btn ghost sm" id="lockProvBtn" onclick="lockProvisionNow()">⚡ Provisionar próximas estadías ahora</button>
+      <span id="lockProvMsg" class="muted" style="font-size:13px"></span>
+    </div>
+
+    <!-- Mapeo propiedad ↔ cerradura -->
+    <details id="lockMapWrap" style="margin:10px 0">
+      <summary style="cursor:pointer;font-weight:600;font-size:14px">🔗 Mapear propiedad ↔ cerradura</summary>
+      <div style="padding:10px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div class="field" style="margin:0"><label>Propiedad</label><select id="lockMapProp"></select></div>
+        <div class="field" style="margin:0"><label>Cerradura</label><select id="lockMapDev"><option value="">— descubre primero —</option></select></div>
+        <button class="btn ghost sm" onclick="lockDiscover()">🔍 Descubrir cerraduras</button>
+        <button class="btn sm" onclick="lockMap()">Guardar mapeo</button>
+      </div>
+      <div id="lockDevList" class="muted" style="font-size:12.5px"></div>
+    </details>
+
+    <!-- Tabla de códigos -->
+    <div style="overflow:auto"><table id="lockCodesTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
   </div>
   <div id="tiendaTierModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
     <div class="card" style="max-width:460px;width:100%;max-height:85vh;overflow:auto">
@@ -1077,7 +1116,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','earlylate','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','earlylate','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website','cerraduras'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -3289,6 +3328,100 @@ async function websiteToggleActive(uid,el){
   const {error}=await sb.from('website_properties').update({active:on,updated_at:new Date().toISOString()}).eq('uid',uid);
   if(error){ el.checked=!on; toast('Visible: '+error.message); return; }
   toast(on?'✅ Visible en el website':'Oculta del website'); websiteInit();
+}
+// 🔐 Cerraduras — códigos de acceso Kwikset (Fase 6).
+let cerradurasLoaded=false;
+function cerradurasInit(){ if(!cerradurasLoaded){cerradurasLoaded=true;} cerradurasLoad(); }
+async function lockAdmin(action,extra){
+  const r=await sb.functions.invoke('ops-lock-admin',{body:Object.assign({action},extra||{})});
+  if(r.error) throw r.error;
+  if(!r.data||r.data.ok===false) throw new Error((r.data&&r.data.error)||'error');
+  return r.data;
+}
+function fmtLockDT(iso){
+  if(!iso) return '—';
+  const m=String(iso).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if(!m) return iso;
+  let h=parseInt(m[4],10); const ap=h<12?'AM':'PM'; h=((h+11)%12)+1;
+  return parseInt(m[2],10)+'/'+parseInt(m[3],10)+' '+h+':'+m[5]+' '+ap;
+}
+async function cerradurasLoad(){
+  const tb=document.getElementById('lockCodesTable'); if(!tb)return;
+  tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Cargando…</td></tr></tbody>';
+  let st;
+  try{ st=await lockAdmin('status'); }
+  catch(e){ document.getElementById('lockConnBox').innerHTML='⚠️ No se pudo cargar. ¿Corriste la migración <code>ops_locks</code> y desplegaste <code>ops-lock-admin</code>? ('+opsEsc(String(e.message||e))+')'; tb.innerHTML=''; return; }
+  // Conexión Kwikset
+  const box=document.getElementById('lockConnBox'), form=document.getElementById('lockConnForm');
+  if(st.connected){ box.innerHTML='🟢 <b>Kwikset conectado</b>'+(st.connected_at?' <span class="muted">(desde '+new Date(st.connected_at).toLocaleString()+')</span>':''); form.classList.add('hide'); }
+  else{ box.innerHTML='🔴 <b>Kwikset no conectado.</b> Conéctate una vez para empezar.'; form.classList.remove('hide'); }
+  // Interruptor maestro
+  document.getElementById('lockEnabled').checked=(st.settings&&st.settings.lock_codes_enabled==='true');
+  // Propiedades (para el mapeo)
+  const {data:props}=await sb.from('ops_properties').select('id,name').order('name');
+  window._lockProps={}; (props||[]).forEach(p=>window._lockProps[p.id]=p.name);
+  const psel=document.getElementById('lockMapProp');
+  if(psel) psel.innerHTML=(props||[]).map(p=>'<option value="'+p.id+'">'+opsEsc(p.name)+'</option>').join('');
+  // Cerraduras mapeadas (device_id -> nombre de propiedad)
+  window._lockDevProp={}; (st.devices||[]).forEach(d=>{ window._lockDevProp[d.device_id]=window._lockProps[d.property_id]||d.name||d.device_id; });
+  const mapped=(st.devices||[]).filter(d=>d.active!==false)
+    .map(d=>'🔗 '+opsEsc(window._lockProps[d.property_id]||'(sin propiedad)')+' → <b>'+opsEsc(d.name||d.device_id)+'</b> <span class="muted">('+opsEsc(d.model||'')+')</span>').join('<br>');
+  document.getElementById('lockDevList').innerHTML=mapped||'Ninguna cerradura mapeada todavía.';
+  // Códigos activos
+  const {data:codes,error}=await sb.from('ops_lock_codes').select('*').eq('status','active').order('starts_at',{ascending:true});
+  if(error){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudieron leer los códigos: '+opsEsc(error.message)+'</td></tr></tbody>'; return; }
+  const rows=(codes||[]).map(c=>{
+    const prop=window._lockDevProp[c.device_id]||'—';
+    const kind=c.kind==='staff'?'<span class="muted">staff</span>':'huésped';
+    return '<tr><td>'+opsEsc(c.guest_name||'(sin nombre)')+'</td>'+
+      '<td class="muted">'+opsEsc(prop)+'</td>'+
+      '<td style="text-align:center;font-weight:800;font-size:16px;letter-spacing:2px">'+opsEsc(c.code)+'</td>'+
+      '<td class="muted" style="font-size:12.5px">'+fmtLockDT(c.starts_at)+'</td>'+
+      '<td class="muted" style="font-size:12.5px">'+fmtLockDT(c.ends_at)+'</td>'+
+      '<td style="text-align:center;font-size:12px">'+kind+'</td>'+
+      '<td style="text-align:center;font-size:11px" class="muted">#'+c.slot+(c.error?' ⚠️':'')+'</td></tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Huésped</th><th>Propiedad</th><th style="text-align:center">PIN</th><th>Abre</th><th>Cierra</th><th style="text-align:center">Tipo</th><th style="text-align:center">Slot</th></tr></thead><tbody>'+(rows||'<tr><td class="muted" colspan="7" style="padding:16px">No hay códigos activos. Mapea una cerradura y provisiona las próximas estadías.</td></tr>')+'</tbody>';
+}
+async function lockConnect(){
+  const email=document.getElementById('lockEmail').value.trim();
+  const pass=document.getElementById('lockPass').value;
+  if(!email||!pass){ toast('Escribe email y contraseña'); return; }
+  const btn=document.getElementById('lockConnectBtn'); btn.disabled=true; btn.textContent='Conectando…';
+  try{ await lockAdmin('connect',{email,password:pass}); document.getElementById('lockPass').value=''; toast('🟢 Kwikset conectado'); await cerradurasLoad(); }
+  catch(e){ toast('No conectó: '+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent='Conectar'; }
+}
+async function lockToggleEnabled(){
+  const on=document.getElementById('lockEnabled').checked;
+  const {error}=await sb.from('ops_app_settings').upsert({key:'lock_codes_enabled',value:on?'true':'false',updated_at:new Date().toISOString()});
+  if(error){ toast('No se pudo guardar: '+error.message); document.getElementById('lockEnabled').checked=!on; return; }
+  toast(on?'✅ Provisión automática ACTIVA':'Provisión automática apagada');
+}
+async function lockDiscover(){
+  const sel=document.getElementById('lockMapDev'); sel.innerHTML='<option>Buscando…</option>';
+  try{ const r=await lockAdmin('list_devices');
+    sel.innerHTML=(r.devices||[]).map(d=>'<option value="'+d.deviceId+'" data-home="'+(d.homeId||'')+'" data-name="'+opsEsc(d.name||'')+'" data-model="'+opsEsc(d.model||'')+'">'+opsEsc(d.name||d.deviceId)+' ('+opsEsc(d.model||'')+')</option>').join('')||'<option value="">— ninguna —</option>';
+    toast('Encontré '+((r.devices||[]).length)+' cerradura(s)');
+  }catch(e){ sel.innerHTML='<option value="">— error —</option>'; toast('No pude descubrir: '+(e.message||e)); }
+}
+async function lockMap(){
+  const psel=document.getElementById('lockMapProp'), dsel=document.getElementById('lockMapDev');
+  const property_id=psel.value, opt=dsel.selectedOptions[0];
+  if(!property_id||!opt||!opt.value){ toast('Elige propiedad y cerradura'); return; }
+  try{ await lockAdmin('map',{property_id,device_id:opt.value,home_id:opt.getAttribute('data-home'),name:opt.getAttribute('data-name'),model:opt.getAttribute('data-model')});
+    toast('✅ Mapeo guardado'); await cerradurasLoad();
+  }catch(e){ toast('No se pudo mapear: '+(e.message||e)); }
+}
+async function lockProvisionNow(){
+  const btn=document.getElementById('lockProvBtn'), msg=document.getElementById('lockProvMsg');
+  btn.disabled=true; btn.textContent='Provisionando…'; msg.textContent='';
+  try{ const r=await lockAdmin('provision_upcoming');
+    const tot=(r.summary||[]).reduce((a,s)=>a+s.provisioned,0), fail=(r.summary||[]).reduce((a,s)=>a+s.failed,0);
+    msg.textContent='✅ '+tot+' código(s) provisionado(s)'+(fail?(' · '+fail+' con problema'):'');
+    await cerradurasLoad();
+  }catch(e){ msg.textContent='Error: '+(e.message||e); }
+  finally{ btn.disabled=false; btn.textContent='⚡ Provisionar próximas estadías ahora'; }
 }
 async function tiendaInit(){
   const tb=document.getElementById('tiendaTable'); if(!tb)return;
