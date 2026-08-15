@@ -647,7 +647,12 @@
   </div>
   <div id="tabRecreport" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>📆 Reporte de fin de mes</h2></div>
-    <p class="muted" style="font-size:13.5px">Próximamente (Fase 3): por dueño → propiedad — estadías (renta − comisión), cancelaciones, refunds y gastos → <b>pago al dueño</b>.</p>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Por dueño → propiedad: estadías (renta − comisión) − gastos facturables = <b>pago al dueño</b>. Estadías contadas por <b>check-in</b> del mes. En vivo desde Hostfully.</p>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:12px 0">
+      <div class="field" style="margin:0"><label>Mes</label><input id="recMonth" type="month"></div>
+      <button class="btn sm" onclick="renderRecReport()">📆 Generar reporte</button>
+    </div>
+    <div id="recReportOut"><p class="muted" style="text-align:center;padding:16px">Elige un mes y genera el reporte.</p></div>
   </div>
   <div id="tabOperaciones" class="hide">
     <div id="opsPanel">
@@ -1619,7 +1624,7 @@ async function submitAll(){
     toast('✉️ Enviado a la administradora');
   } finally { _sending=false; }
 }
-function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();if(session&&session.canReconcile){renderRecOwners();renderRecExpenses();}}
+function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();if(session&&session.canReconcile){renderRecOwners();renderRecExpenses();recDefaultMonth();}}
 /* ---------- DASHBOARD POR CONTRATISTA (YTD / mensual / bisemanal) ---------- */
 const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 let dashYear='',dashMonth='',dashBiweek='';
@@ -1781,6 +1786,35 @@ async function addPropExpense(){
 async function deletePropExpense(id){if(!confirm('¿Eliminar este gasto?'))return;
   const {error}=await sb.from('ops_property_expenses').delete().eq('id',id);if(error){console.error(error);toast('No se pudo eliminar');return;}
   renderRecExpenses();toast('Gasto eliminado');}
+function recDefaultMonth(){const rm=document.getElementById('recMonth');if(rm&&!rm.value){rm.value=new Date(Date.now()-4*3600*1000).toISOString().slice(0,7);}}
+async function renderRecReport(){
+  const out=document.getElementById('recReportOut');if(!out)return;
+  recDefaultMonth();
+  const mi=document.getElementById('recMonth');const month=(mi&&mi.value)||new Date(Date.now()-4*3600*1000).toISOString().slice(0,7);
+  out.innerHTML='<p class="muted" style="text-align:center;padding:20px">Generando en vivo desde Hostfully… (puede tardar unos segundos)</p>';
+  let data;
+  try{const r=await sb.functions.invoke('ops-owner-report',{body:{month:month}});if(r.error)throw r.error;if(!r.data||!r.data.ok)throw new Error((r.data&&r.data.error)||'error');data=r.data;}
+  catch(e){out.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo generar el reporte. Intenta de nuevo.</p>';return;}
+  const owners=data.owners||[];const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  if(!owners.length){out.innerHTML='<p class="muted" style="text-align:center;padding:20px">Sin datos para '+esc(month)+'. Asigna propiedades a dueños (con su % de comisión) en la pestaña Dueños.</p>';return;}
+  const grand=owners.reduce((s,o)=>s+Number(o.total_payout||0),0);
+  out.innerHTML='<div class="muted" style="font-size:12px;margin-bottom:8px">Mes '+esc(month)+' · '+owners.length+' dueño(s) · Pago total '+money(grand)+'</div>'+
+    owners.map(function(o){
+      return '<div style="border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><b style="font-size:16px">'+esc(o.name)+'</b><span style="font-weight:800;color:var(--sea);font-size:16px">'+money(o.total_payout)+'</span></div>'+
+        o.properties.map(function(p){
+          const staysRows=(p.stays||[]).map(function(s){return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0"><span>'+esc(s.guest||'—')+' <span class="muted">'+esc(s.check_in)+'</span></span><span>'+money(s.rent)+' <span class="muted">−'+money(s.commission)+'</span> = <b>'+money(s.net)+'</b></span></div>';}).join('');
+          const expRows=(p.expenses||[]).map(function(e){return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:'+(e.billable?'var(--danger)':'var(--ink-soft)')+'"><span>'+esc(e.description)+' <span class="muted">'+esc(e.date)+(e.billable?'':' (no fact.)')+'</span></span><span>'+(e.billable?'−':'')+money(e.amount)+'</span></div>';}).join('');
+          return '<div style="border-top:1px solid var(--line);padding:8px 0">'+
+            '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13.5px">'+esc(p.property_name)+'</b><span class="muted" style="font-size:11px">com '+esc(p.commission_pct)+'% · '+((p.stays||[]).length)+' est.</span></div>'+
+            (staysRows||'<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>')+
+            (expRows?'<div style="margin-top:3px">'+expRows+'</div>':'')+
+            '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px"><span class="muted">Pago propiedad</span><b>'+money(p.payout)+'</b></div>'+
+          '</div>';
+        }).join('')+
+      '</div>';
+    }).join('');
+}
 /* ---------- GASTOS Y REEMBOLSOS (back office) ---------- */
 let expenseView='all';
 function setExpenseView(v){expenseView=v;
