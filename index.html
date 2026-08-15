@@ -356,6 +356,18 @@
       <div id="lockDevList" class="muted" style="font-size:12.5px"></div>
     </details>
 
+    <!-- Códigos permanentes de staff / cleaners -->
+    <details id="lockStaffWrap" style="margin:10px 0">
+      <summary style="cursor:pointer;font-weight:600;font-size:14px">🧹 Códigos permanentes de staff / cleaners</summary>
+      <p class="muted" style="font-size:12.5px;margin:6px 0">PIN fijo (sin expiración) para el personal. Se guarda en un rango de slots aparte (220–250) para no chocar con los de huéspedes.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div class="field" style="margin:0"><label>Propiedad</label><select id="lockStaffProp"></select></div>
+        <div class="field" style="margin:0"><label>Nombre del staff</label><input type="text" id="lockStaffName" placeholder="ej. María (limpieza)"></div>
+        <button class="btn sm" onclick="lockAddStaff()">➕ Crear código de staff</button>
+        <span id="lockStaffMsg" class="muted" style="font-size:13px"></span>
+      </div>
+    </details>
+
     <!-- Tabla de códigos -->
     <div style="overflow:auto"><table id="lockCodesTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
   </div>
@@ -3363,25 +3375,34 @@ async function cerradurasLoad(){
   const psel=document.getElementById('lockMapProp');
   if(psel) psel.innerHTML=(props||[]).map(p=>'<option value="'+p.id+'">'+opsEsc(p.name)+'</option>').join('');
   // Cerraduras mapeadas (device_id -> nombre de propiedad)
-  window._lockDevProp={}; (st.devices||[]).forEach(d=>{ window._lockDevProp[d.device_id]=window._lockProps[d.property_id]||d.name||d.device_id; });
-  const mapped=(st.devices||[]).filter(d=>d.active!==false)
+  window._lockDevProp={}; window._lockDevPropId={};
+  (st.devices||[]).forEach(d=>{ window._lockDevProp[d.device_id]=window._lockProps[d.property_id]||d.name||d.device_id; if(d.active!==false&&d.property_id) window._lockDevPropId[d.device_id]=d.property_id; });
+  const mappedDevs=(st.devices||[]).filter(d=>d.active!==false&&d.property_id);
+  const mapped=mappedDevs
     .map(d=>'🔗 '+opsEsc(window._lockProps[d.property_id]||'(sin propiedad)')+' → <b>'+opsEsc(d.name||d.device_id)+'</b> <span class="muted">('+opsEsc(d.model||'')+')</span>').join('<br>');
   document.getElementById('lockDevList').innerHTML=mapped||'Ninguna cerradura mapeada todavía.';
+  // Dropdown de propiedades con cerradura (para staff)
+  const ssel=document.getElementById('lockStaffProp');
+  if(ssel) ssel.innerHTML=mappedDevs.map(d=>'<option value="'+d.property_id+'">'+opsEsc(window._lockProps[d.property_id]||d.name||d.device_id)+'</option>').join('')||'<option value="">— mapea una cerradura primero —</option>';
   // Códigos activos
   const {data:codes,error}=await sb.from('ops_lock_codes').select('*').eq('status','active').order('starts_at',{ascending:true});
   if(error){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudieron leer los códigos: '+opsEsc(error.message)+'</td></tr></tbody>'; return; }
   const rows=(codes||[]).map(c=>{
     const prop=window._lockDevProp[c.device_id]||'—';
-    const kind=c.kind==='staff'?'<span class="muted">staff</span>':'huésped';
+    const isStaff=c.kind==='staff';
+    const kind=isStaff?'<span class="muted">🧹 staff</span>':'huésped';
+    const propId=window._lockDevPropId[c.device_id]||'';
+    const act=isStaff&&propId?'<button class="btn ghost sm" title="Quitar código de staff" onclick="lockRemoveStaff(\''+c.id+'\',\''+propId+'\')">🗑️</button>':'';
+    const win=isStaff?'<span class="muted">permanente</span>':(fmtLockDT(c.starts_at)+' → '+fmtLockDT(c.ends_at));
     return '<tr><td>'+opsEsc(c.guest_name||'(sin nombre)')+'</td>'+
       '<td class="muted">'+opsEsc(prop)+'</td>'+
       '<td style="text-align:center;font-weight:800;font-size:16px;letter-spacing:2px">'+opsEsc(c.code)+'</td>'+
-      '<td class="muted" style="font-size:12.5px">'+fmtLockDT(c.starts_at)+'</td>'+
-      '<td class="muted" style="font-size:12.5px">'+fmtLockDT(c.ends_at)+'</td>'+
+      '<td class="muted" style="font-size:12.5px">'+win+'</td>'+
       '<td style="text-align:center;font-size:12px">'+kind+'</td>'+
-      '<td style="text-align:center;font-size:11px" class="muted">#'+c.slot+(c.error?' ⚠️':'')+'</td></tr>';
+      '<td style="text-align:center;font-size:11px" class="muted">#'+c.slot+(c.error?' ⚠️':'')+'</td>'+
+      '<td style="text-align:center">'+act+'</td></tr>';
   }).join('');
-  tb.innerHTML='<thead><tr><th>Huésped</th><th>Propiedad</th><th style="text-align:center">PIN</th><th>Abre</th><th>Cierra</th><th style="text-align:center">Tipo</th><th style="text-align:center">Slot</th></tr></thead><tbody>'+(rows||'<tr><td class="muted" colspan="7" style="padding:16px">No hay códigos activos. Mapea una cerradura y provisiona las próximas estadías.</td></tr>')+'</tbody>';
+  tb.innerHTML='<thead><tr><th>Huésped / Staff</th><th>Propiedad</th><th style="text-align:center">PIN</th><th>Ventana</th><th style="text-align:center">Tipo</th><th style="text-align:center">Slot</th><th></th></tr></thead><tbody>'+(rows||'<tr><td class="muted" colspan="7" style="padding:16px">No hay códigos activos. Mapea una cerradura y provisiona las próximas estadías.</td></tr>')+'</tbody>';
 }
 async function lockConnect(){
   const email=document.getElementById('lockEmail').value.trim();
@@ -3422,6 +3443,24 @@ async function lockProvisionNow(){
     await cerradurasLoad();
   }catch(e){ msg.textContent='Error: '+(e.message||e); }
   finally{ btn.disabled=false; btn.textContent='⚡ Provisionar próximas estadías ahora'; }
+}
+async function lockAddStaff(){
+  const property_id=document.getElementById('lockStaffProp').value;
+  const name=document.getElementById('lockStaffName').value.trim();
+  const msg=document.getElementById('lockStaffMsg');
+  if(!property_id){ toast('Mapea una cerradura primero'); return; }
+  if(!name){ toast('Escribe el nombre del staff'); return; }
+  msg.textContent='Creando…';
+  try{ const r=await lockAdmin('add_staff',{property_id,name});
+    msg.textContent='✅ PIN de '+opsEsc(name)+': '+r.pin;
+    document.getElementById('lockStaffName').value='';
+    await cerradurasLoad();
+  }catch(e){ msg.textContent='Error: '+(e.message||e); }
+}
+async function lockRemoveStaff(id,property_id){
+  if(!confirm('¿Quitar este código de staff? El PIN dejará de abrir la puerta.')) return;
+  try{ await lockAdmin('remove_staff',{id,property_id}); toast('🗑️ Código de staff quitado'); await cerradurasLoad(); }
+  catch(e){ toast('No se pudo quitar: '+(e.message||e)); }
 }
 async function tiendaInit(){
   const tb=document.getElementById('tiendaTable'); if(!tb)return;
