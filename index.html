@@ -3387,12 +3387,14 @@ async function cerradurasLoad(){
   // Códigos activos
   const {data:codes,error}=await sb.from('ops_lock_codes').select('*').eq('status','active').order('starts_at',{ascending:true});
   if(error){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudieron leer los códigos: '+opsEsc(error.message)+'</td></tr></tbody>'; return; }
+  window._lockCodesById={}; (codes||[]).forEach(c=>window._lockCodesById[c.id]=c);
   const rows=(codes||[]).map(c=>{
     const prop=window._lockDevProp[c.device_id]||'—';
     const isStaff=c.kind==='staff';
     const kind=isStaff?'<span class="muted">🧹 staff</span>':'huésped';
     const propId=window._lockDevPropId[c.device_id]||'';
-    const act=isStaff&&propId?'<button class="btn ghost sm" title="Quitar código de staff" onclick="lockRemoveStaff(\''+c.id+'\',\''+propId+'\')">🗑️</button>':'';
+    const act=isStaff&&propId?('<button class="btn ghost sm" title="Editar" onclick="lockEditStaff(\''+c.id+'\',\''+propId+'\')">✏️</button> '+
+      '<button class="btn ghost sm" title="Quitar código de staff" onclick="lockRemoveStaff(\''+c.id+'\',\''+propId+'\')">🗑️</button>'):'';
     const win=isStaff?'<span class="muted">permanente</span>':(fmtLockDT(c.starts_at)+' → '+fmtLockDT(c.ends_at));
     return '<tr><td>'+opsEsc(c.guest_name||'(sin nombre)')+'</td>'+
       '<td class="muted">'+opsEsc(prop)+'</td>'+
@@ -3456,6 +3458,20 @@ async function lockAddStaff(){
     document.getElementById('lockStaffName').value='';
     await cerradurasLoad();
   }catch(e){ msg.textContent='Error: '+(e.message||e); }
+}
+async function lockEditStaff(id,property_id){
+  const c=(window._lockCodesById||{})[id]||{};
+  const name=prompt('Nombre del staff:', c.guest_name||'');
+  if(name===null) return; // canceló
+  if(!name.trim()){ toast('El nombre no puede quedar vacío'); return; }
+  const pinIn=prompt('PIN — deja VACÍO para mantener el actual ('+(c.code||'')+'), escribe "nuevo" para generar uno, o escribe un PIN de 4-8 dígitos:', '');
+  if(pinIn===null) return; // canceló
+  const body={id,property_id,name:name.trim()};
+  const t=pinIn.trim().toLowerCase();
+  if(t==='nuevo'||t==='new'||t==='random') body.regenerate=true;
+  else if(pinIn.trim()!==''){ if(!/^\d{4,8}$/.test(pinIn.trim())){ toast('PIN inválido (4-8 dígitos)'); return; } body.code=pinIn.trim(); }
+  try{ const r=await lockAdmin('edit_staff',body); toast('✅ Actualizado — PIN: '+r.pin); await cerradurasLoad(); }
+  catch(e){ toast('No se pudo editar: '+(e.message||e)); }
 }
 async function lockRemoveStaff(id,property_id){
   if(!confirm('¿Quitar este código de staff? El PIN dejará de abrir la puerta.')) return;
