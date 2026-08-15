@@ -3352,10 +3352,11 @@ async function lockAdmin(action,extra){
 }
 function fmtLockDT(iso){
   if(!iso) return '—';
-  const m=String(iso).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if(!m) return iso;
-  let h=parseInt(m[4],10); const ap=h<12?'AM':'PM'; h=((h+11)%12)+1;
-  return parseInt(m[2],10)+'/'+parseInt(m[3],10)+' '+h+':'+m[5]+' '+ap;
+  const ms=Date.parse(iso); if(isNaN(ms)) return iso;
+  // Convertir a hora de Puerto Rico (AST = UTC-4, sin horario de verano).
+  const d=new Date(ms-4*3600*1000);
+  let h=d.getUTCHours(); const ap=h<12?'AM':'PM'; h=((h+11)%12)+1;
+  return (d.getUTCMonth()+1)+'/'+d.getUTCDate()+' '+h+':'+String(d.getUTCMinutes()).padStart(2,'0')+' '+ap;
 }
 async function cerradurasLoad(){
   const tb=document.getElementById('lockCodesTable'); if(!tb)return;
