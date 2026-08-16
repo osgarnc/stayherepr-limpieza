@@ -376,15 +376,16 @@
 
     <!-- Panel: Códigos -->
     <div id="lsub-codigos">
-      <details id="lockStaffWrap" style="margin:12px 0 10px">
-        <summary style="cursor:pointer;font-weight:600;font-size:14px">🧹 Códigos permanentes de staff / cleaners</summary>
-        <p class="muted" style="font-size:12.5px;margin:6px 0">PIN fijo (sin expiración) para el personal. Se guarda en un rango de slots aparte (220–250) para no chocar con los de huéspedes.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-          <div class="field" style="margin:0"><label>Propiedad</label><select id="lockStaffProp"></select></div>
+      <details id="lockStaffWrap" style="margin:12px 0 10px" open>
+        <summary style="cursor:pointer;font-weight:600;font-size:14px">🧹 Códigos de staff UNIVERSALES (todas las propiedades)</summary>
+        <p class="muted" style="font-size:12.5px;margin:6px 0">PIN fijo (sin expiración) para el personal. Cada código se sincroniza <b>automáticamente a TODAS las cerraduras</b> (Justin, Marbella y las que agregues). Agregar/editar/quitar aquí lo aplica en todas.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:8px">
           <div class="field" style="margin:0"><label>Nombre del staff</label><input type="text" id="lockStaffName" placeholder="ej. María (limpieza)"></div>
-          <button class="btn sm" onclick="lockAddStaff()">➕ Crear código de staff</button>
+          <div class="field" style="margin:0"><label>PIN (opcional)</label><input type="text" id="lockStaffPin" inputmode="numeric" placeholder="auto" style="width:90px"></div>
+          <button class="btn sm" onclick="lockAddStaff()">➕ Agregar staff</button>
           <span id="lockStaffMsg" class="muted" style="font-size:13px"></span>
         </div>
+        <div style="overflow:auto"><table id="lockStaffTable"><tbody><tr><td class="muted" style="padding:10px">Cargando…</td></tr></tbody></table></div>
       </details>
       <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
         <input type="search" id="lockSearch" placeholder="🔍 Buscar por huésped, apellido, propiedad o PIN…" oninput="lockRenderCodes()" style="flex:1;max-width:420px;padding:8px 12px;border:1.5px solid var(--line);border-radius:8px">
@@ -3584,9 +3585,6 @@ async function cerradurasLoad(){
   const mapped=mappedDevs
     .map(d=>'🔗 '+opsEsc(window._lockProps[d.property_id]||'(sin propiedad)')+' → <b>'+opsEsc(d.name||d.device_id)+'</b> <span class="muted">('+opsEsc(d.model||'')+')</span>').join('<br>');
   document.getElementById('lockDevList').innerHTML=mapped||'Ninguna cerradura mapeada todavía.';
-  // Dropdown de propiedades con cerradura (para staff)
-  const ssel=document.getElementById('lockStaffProp');
-  if(ssel) ssel.innerHTML=mappedDevs.map(d=>'<option value="'+d.property_id+'">'+opsEsc(window._lockProps[d.property_id]||d.name||d.device_id)+'</option>').join('')||'<option value="">— mapea una cerradura primero —</option>';
   // Códigos activos
   const {data:codes,error}=await sb.from('ops_lock_codes').select('*').eq('status','active').order('starts_at',{ascending:true});
   if(error){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudieron leer los códigos: '+opsEsc(error.message)+'</td></tr></tbody>'; return; }
@@ -3599,8 +3597,51 @@ async function cerradurasLoad(){
   // 🚪 Actividad de la puerta
   try{ const {data:acts}=await sb.from('ops_lock_activity').select('*').order('occurred_at',{ascending:false}).limit(300); window._lockActAll=acts||[]; lockRenderActivity(); }
   catch(_e){ /* si falta la migración de actividad, no rompe el resto */ }
+  // 🧹 Staff universal
+  try{ const {data:stf}=await sb.from('ops_lock_staff').select('id,name,pin,active').eq('active',true).order('name'); window._lockStaffAll=stf||[]; lockRenderStaff(); }
+  catch(_e){ /* si falta la migración del staff, no rompe el resto */ }
   // ⚙️ Configuración (automatización por propiedad)
   lockRenderConfig();
+}
+// 🧹 Render de la lista de staff universal.
+function lockRenderStaff(){
+  const tb=document.getElementById('lockStaffTable'); if(!tb)return;
+  const all=window._lockStaffAll||[];
+  const rows=all.map(s=>'<tr>'+
+    '<td>'+opsEsc(s.name)+'</td>'+
+    '<td style="text-align:center;font-weight:800;font-size:15px;letter-spacing:2px">'+opsEsc(s.pin)+'</td>'+
+    '<td style="text-align:center;white-space:nowrap">'+
+      '<button class="btn ghost sm" title="Editar" onclick="lockEditUniversalStaff('+JSON.stringify(s.id)+','+JSON.stringify(opsEsc(s.name))+')">✏️</button> '+
+      '<button class="btn ghost sm" title="Quitar de TODAS las cerraduras" onclick="lockRemoveUniversalStaff('+JSON.stringify(s.id)+','+JSON.stringify(opsEsc(s.name))+')">🗑️</button>'+
+    '</td></tr>').join('');
+  tb.innerHTML='<thead><tr><th>Staff</th><th style="text-align:center">PIN</th><th style="text-align:center">Acción</th></tr></thead><tbody>'+
+    (rows||'<tr><td class="muted" colspan="3" style="padding:10px">Aún no hay staff. Agrega uno arriba.</td></tr>')+'</tbody>';
+}
+async function lockAddStaff(){
+  const name=(document.getElementById('lockStaffName').value||'').trim();
+  const pin=(document.getElementById('lockStaffPin').value||'').trim();
+  if(!name){ toast('Escribe el nombre del staff'); return; }
+  const msg=document.getElementById('lockStaffMsg'); msg.textContent='Agregando y sincronizando a todas las cerraduras…';
+  try{
+    const r=await lockAdmin('staff_add',{name,pin:pin||undefined});
+    document.getElementById('lockStaffName').value=''; document.getElementById('lockStaffPin').value='';
+    const sy=r.sync||{}; msg.textContent='';
+    toast('✅ '+opsEsc(name)+' agregado (PIN '+opsEsc(r.pin||'')+') · '+(sy.created||0)+' cerradura(s)');
+    await cerradurasLoad();
+  }catch(e){ msg.textContent=''; toast('No se pudo: '+(e.message||e)); }
+}
+async function lockEditUniversalStaff(id,name){
+  const nn=prompt('Nombre del staff:',name); if(nn===null) return;
+  const np=prompt('Nuevo PIN (4-8 díg.) — deja vacío para no cambiarlo:',''); if(np===null) return;
+  try{
+    await lockAdmin('staff_edit',{id,name:nn.trim()||undefined,pin:(np.trim()||undefined)});
+    toast('✅ Actualizado en todas las cerraduras'); await cerradurasLoad();
+  }catch(e){ toast('No se pudo: '+(e.message||e)); }
+}
+async function lockRemoveUniversalStaff(id,name){
+  if(!confirm('¿Quitar «'+name+'» de TODAS las cerraduras? Su PIN dejará de funcionar en todas las propiedades.')) return;
+  try{ const r=await lockAdmin('staff_remove',{id}); toast('🗑️ «'+name+'» quitado ('+((r.sync&&r.sync.removed)||0)+' cerradura[s])'); await cerradurasLoad(); }
+  catch(e){ toast('No se pudo: '+(e.message||e)); }
 }
 // ⚙️ Render de la configuración por propiedad: todas las propiedades + su toggle.
 const PROVIDER_LBL={kwikset:'Kwikset',revolo:'Revolo'};
@@ -3697,9 +3738,7 @@ function lockRenderCodes(){
     const prop=window._lockDevProp[c.device_id]||'—';
     const isStaff=c.kind==='staff';
     const kind=isStaff?'<span class="muted">🧹 staff</span>':'huésped';
-    const propId=window._lockDevPropId[c.device_id]||'';
-    const act=isStaff&&propId?('<button class="btn ghost sm" title="Editar" onclick="lockEditStaff(\''+c.id+'\',\''+propId+'\')">✏️</button> '+
-      '<button class="btn ghost sm" title="Quitar código de staff" onclick="lockRemoveStaff(\''+c.id+'\',\''+propId+'\')">🗑️</button>'):'';
+    const act=isStaff?'<span class="muted" style="font-size:11px" title="Los códigos de staff se gestionan en 🧹 (universal)">universal</span>':'';
     const win=isStaff?'<span class="muted">permanente</span>':(fmtLockDT(c.starts_at)+' → '+fmtLockDT(c.ends_at));
     return '<tr><td>'+opsEsc(c.guest_name||'(sin nombre)')+'</td>'+
       '<td class="muted">'+opsEsc(prop)+'</td>'+
@@ -3758,38 +3797,6 @@ async function lockProvisionNow(){
     await cerradurasLoad();
   }catch(e){ msg.textContent='Error: '+(e.message||e); }
   finally{ btn.disabled=false; btn.textContent='⚡ Provisionar próximas estadías ahora'; }
-}
-async function lockAddStaff(){
-  const property_id=document.getElementById('lockStaffProp').value;
-  const name=document.getElementById('lockStaffName').value.trim();
-  const msg=document.getElementById('lockStaffMsg');
-  if(!property_id){ toast('Mapea una cerradura primero'); return; }
-  if(!name){ toast('Escribe el nombre del staff'); return; }
-  msg.textContent='Creando…';
-  try{ const r=await lockAdmin('add_staff',{property_id,name});
-    msg.textContent='✅ PIN de '+opsEsc(name)+': '+r.pin;
-    document.getElementById('lockStaffName').value='';
-    await cerradurasLoad();
-  }catch(e){ msg.textContent='Error: '+(e.message||e); }
-}
-async function lockEditStaff(id,property_id){
-  const c=(window._lockCodesById||{})[id]||{};
-  const name=prompt('Nombre del staff:', c.guest_name||'');
-  if(name===null) return; // canceló
-  if(!name.trim()){ toast('El nombre no puede quedar vacío'); return; }
-  const pinIn=prompt('PIN — deja VACÍO para mantener el actual ('+(c.code||'')+'), escribe "nuevo" para generar uno, o escribe un PIN de 4-8 dígitos:', '');
-  if(pinIn===null) return; // canceló
-  const body={id,property_id,name:name.trim()};
-  const t=pinIn.trim().toLowerCase();
-  if(t==='nuevo'||t==='new'||t==='random') body.regenerate=true;
-  else if(pinIn.trim()!==''){ if(!/^\d{4,8}$/.test(pinIn.trim())){ toast('PIN inválido (4-8 dígitos)'); return; } body.code=pinIn.trim(); }
-  try{ const r=await lockAdmin('edit_staff',body); toast('✅ Actualizado — PIN: '+r.pin); await cerradurasLoad(); }
-  catch(e){ toast('No se pudo editar: '+(e.message||e)); }
-}
-async function lockRemoveStaff(id,property_id){
-  if(!confirm('¿Quitar este código de staff? El PIN dejará de abrir la puerta.')) return;
-  try{ await lockAdmin('remove_staff',{id,property_id}); toast('🗑️ Código de staff quitado'); await cerradurasLoad(); }
-  catch(e){ toast('No se pudo quitar: '+(e.message||e)); }
 }
 async function tiendaInit(){
   const tb=document.getElementById('tiendaTable'); if(!tb)return;
