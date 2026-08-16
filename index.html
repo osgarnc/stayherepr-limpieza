@@ -366,46 +366,51 @@
       <div id="lockDevList" class="muted" style="font-size:12.5px"></div>
     </details>
 
-    <!-- Códigos permanentes de staff / cleaners -->
-    <details id="lockStaffWrap" style="margin:10px 0">
-      <summary style="cursor:pointer;font-weight:600;font-size:14px">🧹 Códigos permanentes de staff / cleaners</summary>
-      <p class="muted" style="font-size:12.5px;margin:6px 0">PIN fijo (sin expiración) para el personal. Se guarda en un rango de slots aparte (220–250) para no chocar con los de huéspedes.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-        <div class="field" style="margin:0"><label>Propiedad</label><select id="lockStaffProp"></select></div>
-        <div class="field" style="margin:0"><label>Nombre del staff</label><input type="text" id="lockStaffName" placeholder="ej. María (limpieza)"></div>
-        <button class="btn sm" onclick="lockAddStaff()">➕ Crear código de staff</button>
-        <span id="lockStaffMsg" class="muted" style="font-size:13px"></span>
-      </div>
-    </details>
-
-    <!-- Buscador + tabla de códigos -->
-    <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
-      <input type="search" id="lockSearch" placeholder="🔍 Buscar por huésped, apellido, propiedad o PIN…" oninput="lockRenderCodes()" style="flex:1;max-width:420px;padding:8px 12px;border:1.5px solid var(--line);border-radius:8px">
-      <span id="lockCount" class="muted" style="font-size:13px"></span>
+    <!-- Sub-pestañas: Códigos · Registro · Actividad -->
+    <div class="tabs" style="margin-top:14px">
+      <button id="lst-codigos" class="on" onclick="lockSubTab('codigos')">🔑 Códigos</button>
+      <button id="lst-registro" onclick="lockSubTab('registro')">📜 Registro</button>
+      <button id="lst-actividad" onclick="lockSubTab('actividad')">🚪 Actividad</button>
     </div>
-    <div style="overflow:auto"><table id="lockCodesTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
 
-    <!-- 📜 Registro / Log de la cerradura -->
-    <details id="lockLogWrap" style="margin:16px 0 0">
-      <summary style="cursor:pointer;font-weight:600;font-size:14px">📜 Registro — todo lo que pasa con la cerradura</summary>
-      <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
+    <!-- Panel: Códigos -->
+    <div id="lsub-codigos">
+      <details id="lockStaffWrap" style="margin:12px 0 10px">
+        <summary style="cursor:pointer;font-weight:600;font-size:14px">🧹 Códigos permanentes de staff / cleaners</summary>
+        <p class="muted" style="font-size:12.5px;margin:6px 0">PIN fijo (sin expiración) para el personal. Se guarda en un rango de slots aparte (220–250) para no chocar con los de huéspedes.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+          <div class="field" style="margin:0"><label>Propiedad</label><select id="lockStaffProp"></select></div>
+          <div class="field" style="margin:0"><label>Nombre del staff</label><input type="text" id="lockStaffName" placeholder="ej. María (limpieza)"></div>
+          <button class="btn sm" onclick="lockAddStaff()">➕ Crear código de staff</button>
+          <span id="lockStaffMsg" class="muted" style="font-size:13px"></span>
+        </div>
+      </details>
+      <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+        <input type="search" id="lockSearch" placeholder="🔍 Buscar por huésped, apellido, propiedad o PIN…" oninput="lockRenderCodes()" style="flex:1;max-width:420px;padding:8px 12px;border:1.5px solid var(--line);border-radius:8px">
+        <span id="lockCount" class="muted" style="font-size:13px"></span>
+      </div>
+      <div style="overflow:auto"><table id="lockCodesTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
+    </div>
+
+    <!-- Panel: Registro -->
+    <div id="lsub-registro" class="hide">
+      <div style="display:flex;align-items:center;gap:8px;margin:12px 0 8px">
         <input type="search" id="lockLogSearch" placeholder="🔍 Buscar: huésped, fecha (2026-08-16), evento o PIN…" oninput="lockRenderLog()" style="flex:1;max-width:440px;padding:8px 12px;border:1.5px solid var(--line);border-radius:8px">
         <button class="btn ghost sm" onclick="cerradurasLoad()">↻</button>
         <span id="lockLogCount" class="muted" style="font-size:13px"></span>
       </div>
-      <div style="overflow:auto"><table id="lockLogTable"><tbody><tr><td class="muted" style="padding:12px">Abre esta sección para cargar el registro.</td></tr></tbody></table></div>
-    </details>
+      <div style="overflow:auto"><table id="lockLogTable"><tbody><tr><td class="muted" style="padding:12px">Cargando…</td></tr></tbody></table></div>
+    </div>
 
-    <!-- 🚪 Actividad de la puerta (usos reales) -->
-    <details id="lockActWrap" style="margin:14px 0 0" open>
-      <summary style="cursor:pointer;font-weight:600;font-size:14px">🚪 Actividad de la puerta — quién abrió y a qué hora</summary>
-      <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
+    <!-- Panel: Actividad -->
+    <div id="lsub-actividad" class="hide">
+      <div style="display:flex;align-items:center;gap:8px;margin:12px 0 8px">
         <input type="search" id="lockActSearch" placeholder="🔍 Buscar: huésped, fecha (2026-08-16), 'abrió', 'código'…" oninput="lockRenderActivity()" style="flex:1;max-width:440px;padding:8px 12px;border:1.5px solid var(--line);border-radius:8px">
         <button class="btn ghost sm" id="lockActRefresh" onclick="lockRefreshActivity()">↻ Actualizar</button>
         <span id="lockActCount" class="muted" style="font-size:13px"></span>
       </div>
       <div style="overflow:auto"><table id="lockActTable"><tbody><tr><td class="muted" style="padding:12px">Cargando…</td></tr></tbody></table></div>
-    </details>
+    </div>
   </div>
   <div id="tiendaTierModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
     <div class="card" style="max-width:460px;width:100%;max-height:85vh;overflow:auto">
@@ -3525,6 +3530,12 @@ async function websiteToggleActive(uid,el){
 // 🔐 Cerraduras — códigos de acceso Kwikset (Fase 6).
 let cerradurasLoaded=false;
 function cerradurasInit(){ if(!cerradurasLoaded){cerradurasLoaded=true;} cerradurasLoad(); }
+function lockSubTab(n){
+  ['codigos','registro','actividad'].forEach(x=>{
+    document.getElementById('lsub-'+x).classList.toggle('hide', x!==n);
+    document.getElementById('lst-'+x).classList.toggle('on', x===n);
+  });
+}
 async function lockAdmin(action,extra){
   const r=await sb.functions.invoke('ops-lock-admin',{body:Object.assign({action},extra||{})});
   if(r.error) throw r.error;
