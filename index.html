@@ -366,11 +366,12 @@
       <div id="lockDevList" class="muted" style="font-size:12.5px"></div>
     </details>
 
-    <!-- Sub-pestañas: Códigos · Registro · Actividad -->
+    <!-- Sub-pestañas: Códigos · Registro · Actividad · Configuración -->
     <div class="tabs" style="margin-top:14px">
       <button id="lst-codigos" class="on" onclick="lockSubTab('codigos')">🔑 Códigos</button>
       <button id="lst-registro" onclick="lockSubTab('registro')">📜 Registro</button>
       <button id="lst-actividad" onclick="lockSubTab('actividad')">🚪 Actividad</button>
+      <button id="lst-config" onclick="lockSubTab('config')">⚙️ Configuración</button>
     </div>
 
     <!-- Panel: Códigos -->
@@ -410,6 +411,12 @@
         <span id="lockActCount" class="muted" style="font-size:13px"></span>
       </div>
       <div style="overflow:auto"><table id="lockActTable"><tbody><tr><td class="muted" style="padding:12px">Cargando…</td></tr></tbody></table></div>
+    </div>
+
+    <!-- Panel: Configuración (automatización por propiedad) -->
+    <div id="lsub-config" class="hide">
+      <p class="muted" style="font-size:13px;margin:12px 0 4px">Enciende o apaga la <b>automatización por propiedad</b>: crear/actualizar el código del huésped <b>y enviárselo</b>. Apagada, esa propiedad no manda nada sola — puedes probarla con “⚡ Provisionar ahora” sin que llegue mensaje al huésped. Requiere además que los interruptores globales de arriba estén encendidos.</p>
+      <div style="overflow:auto"><table id="lockConfigTable"><tbody><tr><td class="muted" style="padding:12px">Cargando…</td></tr></tbody></table></div>
     </div>
   </div>
   <div id="tiendaTierModal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
@@ -3531,7 +3538,7 @@ async function websiteToggleActive(uid,el){
 let cerradurasLoaded=false;
 function cerradurasInit(){ if(!cerradurasLoaded){cerradurasLoaded=true;} cerradurasLoad(); }
 function lockSubTab(n){
-  ['codigos','registro','actividad'].forEach(x=>{
+  ['codigos','registro','actividad','config'].forEach(x=>{
     document.getElementById('lsub-'+x).classList.toggle('hide', x!==n);
     document.getElementById('lst-'+x).classList.toggle('on', x===n);
   });
@@ -3567,6 +3574,7 @@ async function cerradurasLoad(){
   // Propiedades (para el mapeo)
   const {data:props}=await sb.from('ops_properties').select('id,name').order('name');
   window._lockProps={}; (props||[]).forEach(p=>window._lockProps[p.id]=p.name);
+  window._lockPropsArr=props||[]; window._lockDevices=st.devices||[];
   const psel=document.getElementById('lockMapProp');
   if(psel) psel.innerHTML=(props||[]).map(p=>'<option value="'+p.id+'">'+opsEsc(p.name)+'</option>').join('');
   // Cerraduras mapeadas (device_id -> nombre de propiedad)
@@ -3591,6 +3599,43 @@ async function cerradurasLoad(){
   // 🚪 Actividad de la puerta
   try{ const {data:acts}=await sb.from('ops_lock_activity').select('*').order('occurred_at',{ascending:false}).limit(300); window._lockActAll=acts||[]; lockRenderActivity(); }
   catch(_e){ /* si falta la migración de actividad, no rompe el resto */ }
+  // ⚙️ Configuración (automatización por propiedad)
+  lockRenderConfig();
+}
+// ⚙️ Render de la configuración por propiedad: todas las propiedades + su toggle.
+const PROVIDER_LBL={kwikset:'Kwikset',revolo:'Revolo'};
+function lockRenderConfig(){
+  const tb=document.getElementById('lockConfigTable'); if(!tb)return;
+  const props=window._lockPropsArr||[];
+  const devs=window._lockDevices||[];
+  // Cerradura activa por propiedad (para saber cuáles tienen toggle real).
+  const devByProp={}; devs.forEach(d=>{ if(d.active!==false&&d.property_id) devByProp[d.property_id]=d; });
+  const rows=props.map(p=>{
+    const d=devByProp[p.id];
+    if(!d){
+      return '<tr><td>'+opsEsc(p.name)+'</td><td class="muted" style="font-size:12.5px">—</td>'+
+        '<td class="muted" style="font-size:12.5px;text-align:center">sin cerradura</td></tr>';
+    }
+    const on=d.auto_enabled!==false;
+    const prov=PROVIDER_LBL[(d.provider||'kwikset')]||d.provider||'';
+    const toggle='<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">'+
+      '<input type="checkbox" '+(on?'checked':'')+' onchange="lockToggleAuto(\''+d.device_id+'\',this.checked,'+JSON.stringify(opsEsc(p.name))+')">'+
+      '<b style="color:'+(on?'#166534':'#b91c1c')+'">'+(on?'Automática ON':'En pausa')+'</b></label>';
+    return '<tr><td>'+opsEsc(p.name)+'</td>'+
+      '<td class="muted" style="font-size:12.5px">🔒 '+opsEsc(d.name||d.device_id)+' <span class="muted">('+opsEsc(prov)+')</span></td>'+
+      '<td style="text-align:center">'+toggle+'</td></tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Propiedad</th><th>Cerradura</th><th style="text-align:center">Provisión + envío automático</th></tr></thead><tbody>'+
+    (rows||'<tr><td class="muted" colspan="3" style="padding:12px">No hay propiedades.</td></tr>')+'</tbody>';
+}
+async function lockToggleAuto(device_id,enabled,propName){
+  if(enabled&&!confirm('¿Encender la automatización de «'+propName+'»?\n\nLa provisión del código Y el envío al huésped pasarán a ser automáticos (con los interruptores globales encendidos).')){ lockRenderConfig(); return; }
+  try{
+    await lockAdmin('set_auto',{device_id,enabled});
+    const d=(window._lockDevices||[]).find(x=>x.device_id===device_id); if(d) d.auto_enabled=enabled;
+    lockRenderConfig();
+    toast(enabled?('✅ «'+propName+'» automática ACTIVA'):('⏸️ «'+propName+'» en pausa'));
+  }catch(e){ toast('No se pudo guardar: '+(e.message||e)); lockRenderConfig(); }
 }
 const ACT_METHOD={'Keypad':'código','Mobile ( WiFi, LTE, ETC)':'app','Manual (Turn Piece, Key)':'llave/manual','Unknown Source':'—'};
 function lockRenderActivity(){
