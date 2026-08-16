@@ -345,13 +345,13 @@
 
     <!-- Interruptor maestro + provisión -->
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0">
-      <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="lockEnabled" onchange="lockToggleEnabled()"> <b>Provisión automática activa</b> <span class="muted">(cron crea/actualiza los códigos)</span></label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="lockEnabled" onchange="lockToggleEnabled()"> <b>🌐 Global — Provisión automática</b> <span class="muted">(maestro de TODAS las propiedades; el cron crea/actualiza los códigos)</span></label>
       <button class="btn ghost sm" id="lockProvBtn" onclick="lockProvisionNow()">⚡ Provisionar próximas estadías ahora</button>
       <span id="lockProvMsg" class="muted" style="font-size:13px"></span>
     </div>
     <!-- Interruptor de envío al huésped -->
     <div style="margin:4px 0 12px">
-      <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="lockSendEnabled" onchange="lockToggleSend()"> <b>📤 Enviar el código al huésped automáticamente</b> <span class="muted">(cuando la reserva esté pagada y falten <span id="lockSendHrs">48</span>h o menos)</span></label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="lockSendEnabled" onchange="lockToggleSend()"> <b>🌐 Global — Enviar el código al huésped</b> <span class="muted">(maestro de TODAS las propiedades; cuando la reserva esté pagada y falten <span id="lockSendHrs">48</span>h o menos)</span></label>
     </div>
 
     <!-- Mapeo propiedad ↔ cerradura -->
