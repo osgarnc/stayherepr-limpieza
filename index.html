@@ -4022,7 +4022,7 @@ async function msgLoadLog(){
   if(error){toast('Mensajes: '+error.message);return;}
   const tb=document.getElementById('msgLogTable');
   if(!data.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay mensajes registrados.</td></tr></tbody>';return;}
-  const ACT={escalated:'escaló',auto_replied:'auto-respondió',ignored:'ignorado'};
+  const ACT={escalated:'escaló',auto_replied:'auto-respondió',acknowledged:'atendido (cortesía omitida)',ignored:'ignorado'};
   const rows=data.map(m=>'<tr>'+
     '<td class="muted" style="white-space:nowrap">'+msgFmtDate(m.received_at||m.created_at)+'</td>'+
     '<td>'+opsEsc(m.guest_name||'—')+'</td>'+
