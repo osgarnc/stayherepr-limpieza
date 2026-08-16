@@ -11,8 +11,9 @@
 //   ops-sync-reservations/index.ts   y despliégala con verify_jwt DESACTIVADO.
 // ============================================================================
 
-import { createDbClient } from "../_shared/db.ts";
+import { createDbClient, isBotPaused } from "../_shared/db.ts";
 import { HostfullyClient } from "../_shared/hostfully.ts";
+import { syncReservationLead } from "../_shared/reservations.ts";
 import { env } from "../_shared/run.ts";
 
 const cors = {
@@ -30,12 +31,13 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
     // Si CRON_SECRET está configurado, exige el header (igual que otras funciones cron).
-    const cronSecret = (env("CRON_SECRET") ?? "").trim();
+    const cronSecret = (Deno.env.get("CRON_SECRET") ?? "").trim();
     if (cronSecret && req.headers.get("x-cron-secret") !== cronSecret) {
       return json({ ok: false, error: "No autorizado" }, 401);
     }
 
     const db = createDbClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"));
+    if (await isBotPaused(db)) return json({ ok: true, paused: true }, 200);
     const hostfully = new HostfullyClient({
       apiKey: env("HOSTFULLY_API_KEY"),
       baseUrl: env("HOSTFULLY_BASE_URL"),
@@ -64,43 +66,76 @@ Deno.serve(async (req) => {
       }
 
       for (const l of leads) {
-        const checkOut = (l.checkOutISO || "").slice(0, 10);
-        const checkIn = (l.checkInISO || "").slice(0, 10);
-        if (!l.uid || !checkOut) continue;
-        if (checkOut < today) continue; // el calendario solo muestra presentes/futuros
-
-        // Early/Late pagados por Host Co (leídos de las notas de la reserva en Hostfully).
-        let early = false, late = false;
+        // Misma lógica compartida con el webhook hostfully-bookings (insert-o-update atómico +
+        // anuncio único). Idempotente: si el webhook ya la insertó, aquí solo se actualiza.
         try {
-          const up = await hostfully.getHostCoUpsells(l.uid);
-          early = up.earlyCheckin;
-          late = up.lateCheckout;
-        } catch (_) { /* si falla, quedan en false */ }
-
-        const { error: uErr } = await db.from("ops_reservations").upsert({
-          lead_uid: l.uid,
-          property_id: p.id,
-          hostfully_property_uid: p.hostfully_uid,
-          property_name: p.name,
-          guest_name: l.firstName ?? null,
-          check_in: checkIn || null,
-          check_out: checkOut,
-          status: "BOOKED",
-          source: l.channel ?? null,
-          early_checkin_approved: early,
-          late_checkout_approved: late,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "lead_uid" });
-        if (uErr) { problems.push({ lead: l.uid, error: uErr.message }); continue; }
-        upserts++;
+          const r = await syncReservationLead(db, hostfully, p, l, today);
+          if (r.upserted) upserts++;
+        } catch (e) {
+          problems.push({ lead: l.uid, error: e instanceof Error ? e.message : String(e) });
+        }
       }
+    }
+
+    // Fuente ADICIONAL: huéspedes que nos ESCRIBIERON (ops_messages) cuya reserva el endpoint /leads
+    // NO devuelve — Hostfully solo retorna una ventana limitada (~20 leads/propiedad, muchos bloqueos),
+    // así que reservas creadas hace días quedan fuera aunque el huésped esté hospedado (caso Fritz).
+    // Verificamos su lead y lo sincronizamos si está BOOKED con check-out futuro.
+    try {
+      const propByUid = new Map<string, { id: string; name: string; hostfully_uid: string }>();
+      for (const p of (props ?? []) as Array<{ id: string; name: string; hostfully_uid: string }>) {
+        propByUid.set(p.hostfully_uid, p);
+      }
+      const since = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: msgs } = await db.from("ops_messages").select("lead_uid")
+        .gte("created_at", since).not("lead_uid", "is", null);
+      const distinct = [...new Set(((msgs ?? []) as Array<{ lead_uid: string | null }>).map((m) => m.lead_uid).filter(Boolean))] as string[];
+      for (const leadUid of distinct) {
+        const { data: ex } = await db.from("ops_reservations").select("lead_uid").eq("lead_uid", leadUid).maybeSingle();
+        if (ex) continue; // ya está (se refresca/verifica abajo)
+        const lead = await hostfully.getReservationLead(leadUid).catch(() => null);
+        if (!lead || lead.status !== "BOOKED" || !lead.propertyUid) continue;
+        const prop = propByUid.get(lead.propertyUid);
+        if (!prop) continue;
+        try {
+          const r = await syncReservationLead(db, hostfully, prop, {
+            uid: lead.uid,
+            firstName: lead.firstName,
+            channel: lead.channel,
+            checkInISO: lead.checkInISO,
+            checkOutISO: lead.checkOutISO,
+          }, today);
+          if (r.upserted) upserts++;
+        } catch (e) {
+          problems.push({ lead: leadUid, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+    } catch (e) {
+      problems.push({ source: "ops_messages", error: e instanceof Error ? e.message : String(e) });
     }
 
     // Limpieza:
     //  1) borra reservas ya pasadas (check_out < hoy).
     await db.from("ops_reservations").delete().lt("check_out", today);
-    //  2) borra futuras que NO se tocaron en esta corrida (cancelaciones/cambios).
-    await db.from("ops_reservations").delete().gte("check_out", today).lt("updated_at", runStart);
+    //  2) futuras NO tocadas esta corrida: NO se borran a ciegas. El endpoint /leads de Hostfully tiene
+    //     una ventana limitada y puede NO devolver reservas VÁLIDAS (caso Fritz), así que borrar a ciegas
+    //     eliminaría huéspedes reales. Verificamos cada una: solo se borra si su lead ya NO está BOOKED.
+    const { data: stale } = await db.from("ops_reservations")
+      .select("lead_uid").gte("check_out", today).lt("updated_at", runStart);
+    for (const s of (stale ?? []) as Array<{ lead_uid: string }>) {
+      // GET /leads/{uid} SÍ devuelve reservas de canal (Booking.com) que el LIST omite (caso Dario).
+      const lead = await hostfully.getReservationLead(s.lead_uid).catch(() => null);
+      // Solo borramos cuando CONFIRMAMOS que ya no está viva. Si el GET falla (null = blip de API),
+      // NO borramos (evita perder una reserva válida por un error transitorio); se reevalúa la próxima corrida.
+      if (!lead) continue;
+      const gone = lead.status !== "BOOKED" || (lead.checkOutISO || "").slice(0, 10) < today;
+      if (gone) {
+        await db.from("ops_reservations").delete().eq("lead_uid", s.lead_uid);
+      } else {
+        // Viva pero el LIST no la devolvió → refresca updated_at para no reevaluarla cada corrida.
+        await db.from("ops_reservations").update({ updated_at: new Date().toISOString() }).eq("lead_uid", s.lead_uid);
+      }
+    }
 
     return json({ ok: true, upserts, properties: (props ?? []).length, problems });
   } catch (err) {
