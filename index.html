@@ -3738,8 +3738,10 @@ function lockRenderCodes(){
     const prop=window._lockDevProp[c.device_id]||'—';
     const isStaff=c.kind==='staff';
     const kind=isStaff?'<span class="muted">🧹 staff</span>':'huésped';
-    const act=isStaff?'<span class="muted" style="font-size:11px" title="Los códigos de staff se gestionan en 🧹 (universal)">universal</span>':'';
-    const win=isStaff?'<span class="muted">permanente</span>':(fmtLockDT(c.starts_at)+' → '+fmtLockDT(c.ends_at));
+    const act=isStaff?'<span class="muted" style="font-size:11px" title="Los códigos de staff se gestionan en 🧹 (universal)">universal</span>':
+      ('<button class="btn ghost sm" title="Editar fechas de acceso (entrar antes/después)" onclick="lockEditCodeWindow('+JSON.stringify(c.id)+')">📅</button>'+
+       (c.manual_window?' <button class="btn ghost sm" title="Volver a automático (recalcula desde la reserva)" onclick="lockClearCodeWindow('+JSON.stringify(c.id)+')">↺</button>':''));
+    const win=isStaff?'<span class="muted">permanente</span>':(fmtLockDT(c.starts_at)+' → '+fmtLockDT(c.ends_at)+(c.manual_window?' <span title="Fechas fijadas a mano" style="color:#b45309;font-weight:600;font-size:11px">✎ manual</span>':''));
     return '<tr><td>'+opsEsc(c.guest_name||'(sin nombre)')+'</td>'+
       '<td class="muted">'+opsEsc(prop)+'</td>'+
       '<td style="text-align:center;font-weight:800;font-size:16px;letter-spacing:2px">'+opsEsc(c.code)+'</td>'+
@@ -3750,6 +3752,24 @@ function lockRenderCodes(){
   }).join('');
   const empty=q?'No hay resultados para «'+opsEsc(q)+'».':'No hay códigos activos. Mapea una cerradura y provisiona las próximas estadías.';
   tb.innerHTML='<thead><tr><th>Huésped / Staff</th><th>Propiedad</th><th style="text-align:center">PIN</th><th>Ventana</th><th style="text-align:center">Tipo</th><th style="text-align:center">Slot</th><th></th></tr></thead><tbody>'+(rows||'<tr><td class="muted" colspan="7" style="padding:16px">'+empty+'</td></tr>')+'</tbody>';
+}
+// 📅 Editar la ventana (fechas) de un código de huésped a mano.
+function _fmtAstInput(iso){ if(!iso) return ''; const d=new Date(Date.parse(iso)-4*3600*1000); const p=n=>String(n).padStart(2,'0'); return d.getUTCFullYear()+'-'+p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate())+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes()); }
+function _parseAstInput(s){ const m=/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/.exec((s||'').trim()); return m?(m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':00-04:00'):null; }
+async function lockEditCodeWindow(id){
+  const c=(window._lockCodesById||{})[id]||{};
+  const ns=prompt('ENTRADA — hora de Puerto Rico (formato: YYYY-MM-DD HH:MM, 24h):', _fmtAstInput(c.starts_at)); if(ns===null) return;
+  const ne=prompt('SALIDA — hora de Puerto Rico (formato: YYYY-MM-DD HH:MM, 24h):', _fmtAstInput(c.ends_at)); if(ne===null) return;
+  const si=_parseAstInput(ns), ei=_parseAstInput(ne);
+  if(!si||!ei){ toast('Formato inválido. Usa YYYY-MM-DD HH:MM (ej. 2026-08-16 13:00)'); return; }
+  if(Date.parse(si)>=Date.parse(ei)){ toast('La entrada debe ser antes que la salida'); return; }
+  try{ const r=await lockAdmin('set_code_window',{id,starts_at:si,ends_at:ei}); if(r.ok===false) throw new Error(r.error||'error'); toast('📅 Fechas actualizadas en la cerradura'); await cerradurasLoad(); }
+  catch(e){ toast('No se pudo: '+(e.message||e)); }
+}
+async function lockClearCodeWindow(id){
+  if(!confirm('¿Volver este código a AUTOMÁTICO? Recalcula las fechas desde la reserva (incluyendo early/late/noche extra).')) return;
+  try{ await lockAdmin('clear_code_window',{id}); toast('↺ Volvió a automático'); await cerradurasLoad(); }
+  catch(e){ toast('No se pudo: '+(e.message||e)); }
 }
 async function lockConnect(){
   const email=document.getElementById('lockEmail').value.trim();
