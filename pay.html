@@ -78,6 +78,7 @@
   var qs = new URLSearchParams(location.search);
   var token = qs.get("token") || "";
   var status = qs.get("status") || "";
+  var urlKind = qs.get("kind") || "";
   var body = document.getElementById("body");
 
   // Diccionario bilingüe. El idioma llega del backend (info.language); default en.
@@ -93,6 +94,7 @@
       secure:"Secured by Stripe · we never see your card",
       okTitle:"Thank you!",
       okMsg:"Your payment is authorized. We’ll confirm your service as soon as our team approves it. 🙂",
+      okImmediate:"Your payment is confirmed — you’re all set. Thank you! 🙂",
       cancelTitle:"Payment not completed",
       cancelMsg:"No problem — you can complete it whenever you’re ready.",
       retry:"Try again",
@@ -111,6 +113,7 @@
       secure:"Protegido por Stripe · nunca vemos tu tarjeta",
       okTitle:"¡Gracias!",
       okMsg:"Tu pago quedó autorizado. Confirmamos tu servicio en cuanto el equipo lo apruebe. 🙂",
+      okImmediate:"Tu pago quedó confirmado. ¡Gracias! 🙂",
       cancelTitle:"Pago no completado",
       cancelMsg:"Sin problema — puedes completarlo cuando gustes.",
       retry:"Reintentar",
@@ -121,6 +124,9 @@
     }
   };
   function t(){ return T[L]; }
+  // full_booking / extra_guest / pet_fee: cobro inmediato (sin aprobación) → mensaje de "confirmado".
+  function isImmediateKind(k){ return k==='full_booking'||k==='extra_guest'||k==='pet_fee'; }
+  function okMsgFor(k){ return isImmediateKind(k) ? t().okImmediate : t().okMsg; }
 
   function money(cents, cur){
     try{ return new Intl.NumberFormat(L==="es"?"es-PR":"en-US",{style:"currency",currency:(cur||"usd").toUpperCase()}).format(cents/100); }
@@ -200,7 +206,7 @@
   if(!token){ showMsg("🔗", "Stay Here PR", T.en.badToken, false); return; }
 
   // Pantallas de retorno: se muestran de inmediato (el pago ya ocurrió; no dependen de la red).
-  if(status==="success"){ showMsg("✅", t().okTitle, t().okMsg, false); return; }
+  if(status==="success"){ showMsg("✅", t().okTitle, okMsgFor(urlKind), false); return; }
   if(status==="cancel"){ showMsg("↩️", t().cancelTitle, t().cancelMsg, true); return; }
 
   // Vista principal: pedimos idioma + detalles para mostrar servicio y precio antes de pagar.
@@ -213,7 +219,7 @@
       return;
     }
     L = info.language==="es" ? "es" : "en"; document.documentElement.lang=L;
-    if(info.payStatus==="authorized"||info.payStatus==="captured"){ showMsg("✅", t().okTitle, t().okMsg, false); return; }
+    if(info.payStatus==="authorized"||info.payStatus==="captured"){ showMsg("✅", t().okTitle, okMsgFor(info.kind), false); return; }
     renderForm(info);
   }).catch(function(){ showMsg("⚠️","Stay Here PR", t().genErr, false); });
 })();
