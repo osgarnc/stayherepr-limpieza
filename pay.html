@@ -84,7 +84,7 @@
   var L = "en";
   var T = {
     en:{
-      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Extra night"},
+      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Extra night", extra_guest:"Extra guest", pet_fee:"Pet fee"},
       each:"one-time",
       hold:"You’ll only be <b>authorized</b> now — we charge the card <b>only when our team approves</b>. If we can’t accommodate it, the hold is released and you’re not charged.",
       timeLabel:{early_checkin:"Desired check-in time", late_checkout:"Desired check-out time", extra_night:"Note (optional)"},
@@ -102,7 +102,7 @@
       genErr:"Something went wrong. Please try again in a moment."
     },
     es:{
-      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Noche extra"},
+      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Noche extra", extra_guest:"Huésped adicional", pet_fee:"Tarifa de mascota"},
       each:"pago único",
       hold:"Por ahora solo se <b>autoriza</b> — cobramos la tarjeta <b>únicamente cuando el equipo aprueba</b>. Si no podemos acomodarlo, la retención se libera y no se te cobra.",
       timeLabel:{early_checkin:"Hora de entrada deseada", late_checkout:"Hora de salida deseada", extra_night:"Nota (opcional)"},
@@ -144,7 +144,7 @@
 
   function renderForm(info){
     var kind = info.kind;
-    var isFull = kind === 'full_booking'; // cobro del TOTAL: monto fijo, sin hora, cobro inmediato
+    var isFull = kind === 'full_booking' || kind === 'extra_guest' || kind === 'pet_fee'; // monto fijo, sin hora, cobro inmediato
     var tl = t().timeLabel[kind] || t().timeLabel.late_checkout;
     var cur = info.currency || 'usd';
     var tiers = (info.tiers && info.tiers.length) ? info.tiers : null;

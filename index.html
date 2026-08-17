@@ -315,6 +315,12 @@
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Precio de cada servicio <b>por propiedad</b>, en dólares. El huésped paga en una página propia con Stripe (retención; se cobra solo cuando el cleaner aprueba). Deja un campo <b>vacío</b> si esa propiedad no ofrece ese servicio.</p>
     <div class="note" style="margin:10px 0;border-color:#f59e0b;background:#fffbeb">⚠️ <b>Columna "Checkout":</b> pon una propiedad en <b>Propio</b> (Stripe) solo cuando estés en <b>producción</b> — llaves reales de Stripe y política de la plataforma confirmada. Con llaves de prueba, mantenla en <b>Host Co</b> para no afectar a huéspedes reales.</div>
     <div style="overflow:auto"><table id="tiendaTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
+    <div class="sectitle" style="margin-top:20px"><h3 style="margin:0;font-size:15px">🧾 Cargos fijos (todas las propiedades)</h3></div>
+    <p class="muted" style="font-size:13px;margin-top:2px">Precio único global, editable. Se envían a mano desde Telegram con <b>/stripe → 👤 Extra guest</b> o <b>🐾 Pet fee</b>. Se cobran de una al pagar (sin aprobación de cleaner).</p>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;max-width:520px">
+      <div class="field" style="margin:0;flex:1;min-width:180px"><label>👤 Extra guest — pago único ($)</label><input id="feeExtraGuest" type="number" inputmode="decimal" min="0" step="0.01" onchange="tiendaSaveFee('fee_extra_guest_cents',this.value)"></div>
+      <div class="field" style="margin:0;flex:1;min-width:180px"><label>🐾 Pet fee — pago único ($)</label><input id="feePet" type="number" inputmode="decimal" min="0" step="0.01" onchange="tiendaSaveFee('fee_pet_cents',this.value)"></div>
+    </div>
   </div>
   <div id="tabCrons" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>⏱️ Tareas automáticas (crons)</h2><button onclick="cronsLoad()" style="padding:7px 12px;border:1.5px solid var(--line);border-radius:8px;background:#fff;cursor:pointer">↻ Refrescar</button></div>
@@ -1955,7 +1961,7 @@ function renderEarlyLateHist(){
   // 1) Store: early/late que el huésped pagó por el enlace.
   (_elStore||[]).forEach(e=>rows.push({
     fecha:String(e.paid_at||e.event_at||'').slice(0,10), origen:'🛒 Store (huésped)',
-    tipo:e.kind==='early_checkin'?'🔑 Early':(e.kind==='extra_night'?'🌙 Noche extra':'🕗 Late'), prop:e.property_name||'—',
+    tipo:e.kind==='early_checkin'?'🔑 Early':e.kind==='extra_night'?'🌙 Noche extra':e.kind==='extra_guest'?'👤 Extra guest':e.kind==='pet_fee'?'🐾 Pet fee':'🕗 Late', prop:e.property_name||'—',
     quien:e.guest_name||'—', hora:e.event_time_label||'', monto:e.amount_cents?money(e.amount_cents/100):'', nota:e.approved_by_name||e.source||''
   }));
   // 2) Cleaner: early/late que el personal aplicó en servicios y ya están FACTURADOS (billed).
@@ -3818,8 +3824,28 @@ async function lockProvisionNow(){
   }catch(e){ msg.textContent='Error: '+(e.message||e); }
   finally{ btn.disabled=false; btn.textContent='⚡ Provisionar próximas estadías ahora'; }
 }
+// Cargos fijos globales (extra guest / pet fee) — guardados en ops_app_settings como centavos.
+async function tiendaSaveFee(key,val){
+  const dollars=parseFloat(val);
+  if(!isFinite(dollars)||dollars<0){ toast('Monto inválido'); return; }
+  const cents=Math.round(dollars*100);
+  const {error}=await tiendaC().from('ops_app_settings').upsert({key,value:String(cents)},{onConflict:'key'});
+  if(error){ toast('No se pudo guardar: '+error.message); return; }
+  toast('Cargo guardado ($'+dollars.toFixed(2)+')');
+}
+async function tiendaLoadFees(){
+  const eg=document.getElementById('feeExtraGuest'), pf=document.getElementById('feePet');
+  if(!eg||!pf) return;
+  try{
+    const {data}=await tiendaC().from('ops_app_settings').select('key,value').in('key',['fee_extra_guest_cents','fee_pet_cents']);
+    const m={}; for(const r of (data||[])) m[r.key]=parseInt(r.value,10);
+    eg.value=((isFinite(m['fee_extra_guest_cents'])?m['fee_extra_guest_cents']:4000)/100).toFixed(2);
+    pf.value=((isFinite(m['fee_pet_cents'])?m['fee_pet_cents']:5000)/100).toFixed(2);
+  }catch(e){ eg.value='40.00'; pf.value='50.00'; }
+}
 async function tiendaInit(){
   const tb=document.getElementById('tiendaTable'); if(!tb)return;
+  tiendaLoadFees();
   tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Cargando…</td></tr></tbody>';
   const [{data:props,error:pe},{data:prices,error:qe},{data:tiers,error:te}]=await Promise.all([
     tiendaC().from('ops_properties').select('id,name,use_own_checkout').order('name'),
