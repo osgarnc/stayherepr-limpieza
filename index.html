@@ -344,6 +344,22 @@
       </div>
     </div>
 
+    <!-- Conexión Yale (August) -->
+    <div id="yaleConnBox" style="margin:10px 0;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fafafa">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div><b>🟡 Yale (August)</b> <span id="yaleStatusLine" class="muted" style="font-size:13px">…</span></div>
+        <button class="btn ghost sm" id="yaleFormBtn" onclick="yaleToggleForm()">Conectar / renovar token</button>
+      </div>
+      <div id="yaleConnForm" class="hide" style="margin-top:10px">
+        <p class="muted" style="font-size:12px;margin-top:0">El login de Yale pide un código SMS (2FA), así que se hace <b>una sola vez, local</b>, con el script <code>yale_access.py</code>. Pega aquí el <b>token</b> y el <b>installId</b> que quedan en <code>ya_token.json</code>. El token dura ~30 días y se renueva solo con el uso.</p>
+        <div class="field" style="margin:0 0 8px"><label>Token (x-august-access-token)</label><textarea id="yaleToken" rows="3" style="width:100%;font-family:monospace;font-size:11px;box-sizing:border-box" autocomplete="off"></textarea></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+          <div class="field" style="margin:0;flex:1;min-width:220px"><label>installId</label><input id="yaleInstall" autocomplete="off"></div>
+          <button class="btn" id="yaleConnectBtn" onclick="yaleConnect()">Sembrar token</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Interruptor maestro + provisión -->
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0">
       <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="lockEnabled" onchange="lockToggleEnabled()"> <b>🌐 Global — Provisión automática</b> <span class="muted">(maestro de TODAS las propiedades; el cron crea/actualiza los códigos)</span></label>
@@ -3564,6 +3580,7 @@ function fmtLockDT(iso){
 async function cerradurasLoad(){
   const tb=document.getElementById('lockCodesTable'); if(!tb)return;
   tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Cargando…</td></tr></tbody>';
+  yaleStatusLoad(); // estado de la sesión Yale (independiente de Kwikset)
   let st;
   try{ st=await lockAdmin('status'); }
   catch(e){ document.getElementById('lockConnBox').innerHTML='⚠️ No se pudo cargar. ¿Corriste la migración <code>ops_locks</code> y desplegaste <code>ops-lock-admin</code>? ('+opsEsc(String(e.message||e))+')'; tb.innerHTML=''; return; }
@@ -3647,7 +3664,7 @@ async function lockRemoveUniversalStaff(id,name){
   catch(e){ toast('No se pudo: '+(e.message||e)); }
 }
 // ⚙️ Render de la configuración por propiedad: todas las propiedades + su toggle.
-const PROVIDER_LBL={kwikset:'Kwikset',revolo:'Revolo'};
+const PROVIDER_LBL={kwikset:'Kwikset',revolo:'Revolo',yale:'Yale'};
 function lockRenderConfig(){
   const tb=document.getElementById('lockConfigTable'); if(!tb)return;
   const props=window._lockPropsArr||[];
@@ -3782,6 +3799,31 @@ async function lockConnect(){
   try{ await lockAdmin('connect',{email,password:pass}); document.getElementById('lockPass').value=''; toast('🟢 Kwikset conectado'); await cerradurasLoad(); }
   catch(e){ toast('No conectó: '+(e.message||e)); }
   finally{ btn.disabled=false; btn.textContent='Conectar'; }
+}
+// ── Yale (August): estado + sembrar/renovar el token (del login local 2FA) ──
+async function yaleStatusLoad(){
+  const line=document.getElementById('yaleStatusLine'); if(!line) return;
+  try{
+    const r=await lockAdmin('yale_status');
+    if(r&&r.connected){ const h=r.hoursLeft; line.innerHTML='🟢 conectado'+(h!=null?' — '+(h>=48?Math.round(h/24)+' días':h+'h')+' restantes':''); }
+    else line.innerHTML='🔴 sin sesión — siembra el token';
+  }catch(e){ line.textContent='(no se pudo leer el estado)'; }
+}
+function yaleToggleForm(){ document.getElementById('yaleConnForm').classList.toggle('hide'); }
+async function yaleConnect(){
+  const token=document.getElementById('yaleToken').value.trim();
+  const install_id=document.getElementById('yaleInstall').value.trim();
+  if(!token){ toast('Pega el token de Yale'); return; }
+  const btn=document.getElementById('yaleConnectBtn'); btn.disabled=true; btn.textContent='Sembrando…';
+  try{
+    const r=await lockAdmin('set_yale_token',{token,install_id:install_id||undefined});
+    if(r.ok===false) throw new Error(r.error||'error');
+    document.getElementById('yaleToken').value='';
+    toast('🟡 Token Yale sembrado'); await yaleStatusLoad();
+    document.getElementById('yaleConnForm').classList.add('hide');
+  }
+  catch(e){ toast('No sembró: '+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent='Sembrar token'; }
 }
 async function lockToggleEnabled(){
   const on=document.getElementById('lockEnabled').checked;
