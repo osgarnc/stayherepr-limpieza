@@ -685,7 +685,7 @@
   </div>
   <div id="tabRecreport" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>📆 Reporte de fin de mes</h2></div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Por dueño → propiedad: estadías (renta − comisión) − gastos facturables = <b>pago al dueño</b>. Estadías contadas por <b>check-in</b> del mes. En vivo desde Hostfully.</p>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Por dueño → propiedad: estadías (renta − comisión) − gastos facturables = <b>pago al dueño</b>. Estadías por <b>check-in</b> del mes. <b>Airbnb no cuadra comisión</b> (Airbnb paga directo). En vivo desde Hostfully.</p>
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:12px 0">
       <div class="field" style="margin:0"><label>Mes</label><input id="recMonth" type="month"></div>
       <button class="btn sm" onclick="renderRecReport()">📆 Generar reporte</button>
@@ -1841,7 +1841,7 @@ async function renderRecReport(){
       return '<div style="border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><b style="font-size:16px">'+esc(o.name)+'</b><span style="font-weight:800;color:var(--sea);font-size:16px">'+money(o.total_payout)+'</span></div>'+
         o.properties.map(function(p){
-          const staysRows=(p.stays||[]).map(function(s){return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0"><span>'+esc(s.guest||'—')+' <span class="muted">'+esc(s.check_in)+'</span></span><span>'+money(s.rent)+' <span class="muted">−'+money(s.commission)+'</span> = <b>'+money(s.net)+'</b></span></div>';}).join('');
+          const staysRows=(p.stays||[]).map(function(s){var right=s.airbnb?'<span class="muted" style="font-size:11px">Airbnb · pago directo</span>':(money(s.rent)+' <span class="muted">−'+money(s.commission)+'</span> = <b>'+money(s.net)+'</b>');return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0'+(s.airbnb?';opacity:.65':'')+'"><span>'+esc(s.guest||'—')+' <span class="muted">'+esc(s.check_in)+'</span></span><span>'+right+'</span></div>';}).join('');
           const expRows=(p.expenses||[]).map(function(e){return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:'+(e.billable?'var(--danger)':'var(--ink-soft)')+'"><span>'+esc(e.description)+' <span class="muted">'+esc(e.date)+(e.billable?'':' (no fact.)')+'</span></span><span>'+(e.billable?'−':'')+money(e.amount)+'</span></div>';}).join('');
           return '<div style="border-top:1px solid var(--line);padding:8px 0">'+
             '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13.5px">'+esc(p.property_name)+'</b><span class="muted" style="font-size:11px">com '+esc(p.commission_pct)+'% · '+((p.stays||[]).length)+' est.</span></div>'+

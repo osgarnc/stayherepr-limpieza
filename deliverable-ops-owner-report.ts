@@ -57,21 +57,26 @@ Deno.serve(async (req) => {
       const inMonth = leads.filter((l) => (l.checkInISO || "").slice(0, 7) === month);
       const stays = await Promise.all(inMonth.map(async (l) => {
         let rent = 0, guest = l.firstName || "", ci = (l.checkInISO || "").slice(0, 10), co = (l.checkOutISO || "").slice(0, 10);
+        let channel = l.channel || "";
         try {
           const inv = await hostfully.getInvoiceData(l.uid);
-          if (inv) { rent = inv.rent || 0; guest = inv.guestFullName || guest; ci = (inv.checkInISO || ci).slice(0, 10); co = (inv.checkOutISO || co).slice(0, 10); }
+          if (inv) { rent = inv.rent || 0; guest = inv.guestFullName || guest; ci = (inv.checkInISO || ci).slice(0, 10); co = (inv.checkOutISO || co).slice(0, 10); channel = inv.channel || channel; }
         } catch { /* keep defaults */ }
-        const commission = rent * (a.commission_pct / 100);
-        return { guest, check_in: ci, check_out: co, rent: r2(rent), commission: r2(commission), net: r2(rent - commission) };
+        // Airbnb: NO se cuadra comisión (Airbnb paga directo al dueño y a Stay Here). No suma al pago.
+        const airbnb = /airbnb/i.test(channel);
+        const commission = airbnb ? 0 : rent * (a.commission_pct / 100);
+        const net = airbnb ? 0 : rent - commission;
+        return { guest, check_in: ci, check_out: co, channel, airbnb, rent: r2(rent), commission: r2(commission), net: r2(net) };
       }));
-      const staysRent = stays.reduce((s, x) => s + x.rent, 0);
+      const staysRent = stays.filter((s) => !s.airbnb).reduce((s, x) => s + x.rent, 0); // renta que cuadra (no Airbnb)
       const staysComm = stays.reduce((s, x) => s + x.commission, 0);
+      const staysNet = stays.reduce((s, x) => s + x.net, 0);
       const exps = (expByProp[pid] ?? []).map((e: any) => ({ date: e.date, description: e.description, amount: Number(e.amount) || 0, billable: !!e.billable }));
       const billableExp = exps.filter((e) => e.billable).reduce((s, e) => s + e.amount, 0);
       return {
         owner_id: a.owner_id, property_name: p.name, commission_pct: a.commission_pct,
-        stays, stays_rent: r2(staysRent), stays_commission: r2(staysComm), stays_net: r2(staysRent - staysComm),
-        expenses: exps, billable_expense: r2(billableExp), payout: r2(staysRent - staysComm - billableExp),
+        stays, stays_rent: r2(staysRent), stays_commission: r2(staysComm), stays_net: r2(staysNet),
+        expenses: exps, billable_expense: r2(billableExp), payout: r2(staysNet - billableExp),
       };
     }));
 
