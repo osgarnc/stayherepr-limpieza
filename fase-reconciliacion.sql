@@ -60,3 +60,58 @@ grant all on ops_owners, ops_property_owner, ops_property_expenses to authentica
 -- ============================================================
 --  FIN
 -- ============================================================
+
+-- ============================================================
+--  FASE 4 — Completar el reporte (reservas de canal + cancelaciones)
+-- ============================================================
+
+-- 1) LEDGER DURABLE de reservas: lo llena el webhook/cron (syncReservationLead)
+--    y NUNCA se purga. El reporte de fin de mes lo une con /leads de Hostfully
+--    para no perder reservas de canal iCal (Booking.com) que ya hicieron
+--    check-out (ops_reservations sí se purga; /leads no las devuelve).
+create table if not exists ops_reservations_ledger (
+  lead_uid    text primary key,
+  property_id uuid references ops_properties(id),
+  guest_name  text,
+  source      text,
+  check_in    date,
+  check_out   date,
+  first_seen  timestamptz default now(),
+  updated_at  timestamptz default now()
+);
+create index if not exists idx_rled_checkin on ops_reservations_ledger(check_in);
+alter table ops_reservations_ledger enable row level security;
+drop policy if exists p_rled_rec on ops_reservations_ledger;
+create policy p_rled_rec on ops_reservations_ledger
+  for select to authenticated using (can_reconcile());
+grant select on ops_reservations_ledger to service_role, authenticated;
+
+-- Backfill inicial desde las reservas vivas actuales.
+insert into ops_reservations_ledger(lead_uid,property_id,guest_name,source,check_in,check_out,updated_at)
+  select lead_uid,property_id,guest_name,source,check_in,check_out,now() from ops_reservations
+  on conflict (lead_uid) do update set guest_name=excluded.guest_name, source=excluded.source,
+    check_in=excluded.check_in, check_out=excluded.check_out, updated_at=now();
+
+-- 2) CANCELACIONES: las registra ops-sync-reservations al detectar que un lead
+--    ya no está BOOKED, ANTES de borrarlo de ops_reservations.
+create table if not exists ops_cancellations (
+  id          uuid primary key default gen_random_uuid(),
+  lead_uid    text,
+  property_id uuid references ops_properties(id),
+  guest_name  text,
+  source      text,
+  check_in    date,
+  check_out   date,
+  status      text,
+  cancelled_at timestamptz default now()
+);
+create index if not exists idx_canc_checkin on ops_cancellations(check_in);
+alter table ops_cancellations enable row level security;
+drop policy if exists p_cancel_rec on ops_cancellations;
+create policy p_cancel_rec on ops_cancellations
+  for select to authenticated using (can_reconcile());
+grant select on ops_cancellations to service_role, authenticated;
+
+-- ============================================================
+--  FIN Fase 4
+-- ============================================================

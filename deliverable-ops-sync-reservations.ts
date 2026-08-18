@@ -130,6 +130,18 @@ Deno.serve(async (req) => {
       if (!lead) continue;
       const gone = lead.status !== "BOOKED" || (lead.checkOutISO || "").slice(0, 10) < today;
       if (gone) {
+        // Si NO está BOOKED (cancelada/cerrada), la registramos en ops_cancellations para el reporte
+        // de fin de mes ANTES de borrarla (una reserva pasada normal no llega aquí: la borra el paso 1).
+        if (lead.status !== "BOOKED") {
+          const { data: row } = await db.from("ops_reservations")
+            .select("lead_uid,property_id,guest_name,source,check_in,check_out").eq("lead_uid", s.lead_uid).maybeSingle();
+          if (row) {
+            await db.from("ops_cancellations").insert({
+              lead_uid: row.lead_uid, property_id: row.property_id, guest_name: row.guest_name,
+              source: row.source, check_in: row.check_in, check_out: row.check_out, status: lead.status,
+            });
+          }
+        }
         await db.from("ops_reservations").delete().eq("lead_uid", s.lead_uid);
       } else {
         // Viva pero el LIST no la devolvió → refresca updated_at para no reevaluarla cada corrida.
