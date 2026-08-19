@@ -1645,22 +1645,35 @@ async function submitAll(){
     const date=document.getElementById('svcDate').value||todayISO();
     const cleaned=ids.filter(pid=>selection[pid].cleaning&&selection[pid].beforeFile&&selection[pid].afterFile);
     // 1) Servicio (una sola factura con todas las propiedades limpiadas)
+    //    IMPORTANTE: subimos TODAS las fotos primero y creamos el servicio + sus ítems al FINAL,
+    //    juntos. Antes el servicio se creaba primero y, si la conexión se caía o se cerraba la app
+    //    durante la subida (lento en celular), quedaba un servicio SIN ítems = factura en blanco.
     if(cleaned.length){
-      const {data:sub,error}=await sb.from('submissions').insert({type:'service',professional_id:currentStaff,date}).select().single();
-      if(error){console.error(error);toast('Error al crear el servicio');return;}
+      const token=Date.now().toString(36)+'-'+Math.floor(Math.random()*1e9).toString(36);
+      const pendingItems=[];
       for(const pid of cleaned){
-        const s=selection[pid];const base=currentStaff+'/'+sub.id+'/'+pid;
+        const s=selection[pid];const base=currentStaff+'/'+token+'/'+pid;
         const pb=await upload(base+'_antes'+extOf(s.beforeFile),s.beforeFile);
         const pa=await upload(base+'_despues'+extOf(s.afterFile),s.afterFile);
+        if(!pb||!pa){toast('No se pudieron subir las fotos de '+propName(pid)+'. Revisa tu conexión e intenta de nuevo.');return;}
         const dmgPaths=[];
         if(s.damageOn){for(let k=0;k<(s.damageFiles||[]).length;k++){const dp=await upload(base+'_dano'+(k+1)+extOf(s.damageFiles[k]),s.damageFiles[k]);if(dp)dmgPaths.push(dp);}}
-        const {error:ie}=await sb.from('submission_items').insert({submission_id:sub.id,property_id:pid,
+        pendingItems.push({property_id:pid,
           rate_applied:(rates[currentStaff]||{})[pid]||0,
           photo_before:pb,photo_after:pa,damage_note:(s.damageOn?s.damage.trim():'')||null,damage_photo:dmgPaths[0]||null,damage_photos:dmgPaths,
           early_checkin:s.earlyCheckin?(company.fee_early_checkin||0.01):0,
           late_checkout:s.lateCheckout?(company.fee_late_checkout||0.01):0,
           extra_guest:s.extraGuest?(company.fee_extra_guest||0.01):0});
-        if(ie)console.error(ie);
+      }
+      const {data:sub,error}=await sb.from('submissions').insert({type:'service',professional_id:currentStaff,date}).select().single();
+      if(error){console.error(error);toast('Error al crear el servicio');return;}
+      const {error:ie}=await sb.from('submission_items').insert(pendingItems.map(it=>({submission_id:sub.id,...it})));
+      if(ie){
+        console.error(ie);
+        // Backstop: si fallan los ítems, borrar el servicio para NO dejar una factura en blanco.
+        await sb.from('submissions').delete().eq('id',sub.id);
+        toast('No se pudo guardar el servicio. Intenta de nuevo.');
+        return;
       }
     }
     // 2) Gastos (un envío de gasto por cada gasto de cada propiedad)
