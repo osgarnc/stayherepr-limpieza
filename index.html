@@ -476,6 +476,8 @@
         <option value="extra_night">Noche extra</option>
         <option value="extra_guest">👤 Extra guest</option>
         <option value="pet_fee">🐾 Pet fee</option>
+        <option value="early_11am">🌅 Early 11 AM ($60)</option>
+        <option value="late_4pm">⏰ Late 4 PM ($60)</option>
       </select></div>
       <div class="field" id="tstHourRow"><label>Hora</label><select id="tstHour"></select></div>
       <div id="tstResult" style="margin:8px 0"></div>
@@ -2033,7 +2035,7 @@ function renderEarlyLateHist(){
   // 1) Store: early/late que el huésped pagó por el enlace.
   (_elStore||[]).forEach(e=>rows.push({
     fecha:String(e.paid_at||e.event_at||'').slice(0,10), origen:'🛒 Store (huésped)',
-    tipo:e.kind==='early_checkin'?'🔑 Early':e.kind==='extra_night'?'🌙 Noche extra':e.kind==='extra_guest'?'👤 Extra guest':e.kind==='pet_fee'?'🐾 Pet fee':'🕗 Late', prop:e.property_name||'—',
+    tipo:e.kind==='early_checkin'?'🔑 Early':e.kind==='extra_night'?'🌙 Noche extra':e.kind==='extra_guest'?'👤 Extra guest':e.kind==='pet_fee'?'🐾 Pet fee':e.kind==='early_11am'?'🌅 Early 11AM':e.kind==='late_4pm'?'⏰ Late 4PM':'🕗 Late', prop:e.property_name||'—',
     quien:e.guest_name||'—', hora:e.event_time_label||'', monto:e.amount_cents?money(e.amount_cents/100):'', nota:e.approved_by_name||e.source||''
   }));
   // 2) Cleaner: early/late que el personal aplicó en servicios y ya están FACTURADOS (billed).
@@ -4072,7 +4074,7 @@ function tiendaTestClose(){ document.getElementById('tiendaTestModal').classList
 function tiendaTestHours(){
   const pid=document.getElementById('tstProp').value, kind=document.getElementById('tstKind').value;
   const row=document.getElementById('tstHourRow'), sel=document.getElementById('tstHour');
-  if(kind==='extra_night'||kind==='extra_guest'||kind==='pet_fee'){ row.style.display='none'; sel.innerHTML=''; return; }
+  if(kind==='extra_night'||kind==='extra_guest'||kind==='pet_fee'||kind==='early_11am'||kind==='late_4pm'){ row.style.display='none'; sel.innerHTML=''; return; }
   row.style.display='';
   const mine=(window._tiendaTiers||[]).filter(t=>t.property_id===pid&&t.kind===kind&&t.active!==false).sort((a,b)=>a.minutes-b.minutes);
   if(!mine.length){ sel.innerHTML='<option value="">(sin horarios — configúralos primero)</option>'; return; }
@@ -4116,7 +4118,7 @@ async function tiendaExtTest(action){
 async function tiendaTestSend(){
   const pid=document.getElementById('tstProp').value, kind=document.getElementById('tstKind').value;
   let minutes=null;
-  if(kind!=='extra_night'&&kind!=='extra_guest'&&kind!=='pet_fee'){ const v=document.getElementById('tstHour').value; if(v===''){ toast('Configura y elige una hora'); return; } minutes=parseInt(v,10); }
+  if(kind!=='extra_night'&&kind!=='extra_guest'&&kind!=='pet_fee'&&kind!=='early_11am'&&kind!=='late_4pm'){ const v=document.getElementById('tstHour').value; if(v===''){ toast('Configura y elige una hora'); return; } minutes=parseInt(v,10); }
   const btn=document.getElementById('tstSendBtn'); btn.disabled=true;
   const res=document.getElementById('tstResult'); res.innerHTML='<span class="muted">Enviando…</span>';
   try{
