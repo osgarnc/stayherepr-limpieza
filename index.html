@@ -323,7 +323,13 @@
     <div style="overflow:auto"><table id="dashBiweekTable"></table></div>
   </div>
   <div id="tabInbox" class="card" style="padding:18px">
-    <div class="sectitle"><h2>Bandeja de aprobación</h2><span class="muted" id="inboxCount"></span></div>
+    <div class="sectitle"><h2>Bandeja de aprobación</h2>
+      <span style="display:flex;align-items:center;gap:10px;margin-left:auto">
+        <span class="muted" id="officeRefreshTs" style="font-size:12px"></span>
+        <button id="officeRefreshBtn" class="btn sm ghost" onclick="refreshOfficeLive(true)">🔄 Actualizar</button>
+        <span class="muted" id="inboxCount"></span>
+      </span></div>
+    <p class="muted" style="font-size:12px;margin:-4px 0 8px">Se actualiza solo cada 30s. Si un monto se ve raro (ej. $0), toca <b>Actualizar</b>.</p>
     <div style="overflow:auto"><table id="inboxTable"></table></div>
   </div>
   <!-- tienda: extra_guest + pet_fee (tester + columnas) -->
@@ -1088,7 +1094,7 @@ function setMode(m,force){
   document.getElementById('viewOffice').classList.toggle('hide',m!=='office');
   document.getElementById('mCleaner').classList.toggle('on',m==='cleaner');
   document.getElementById('mOffice').classList.toggle('on',m==='office');
-  if(m==='office')renderOffice();
+  if(m==='office'){renderOffice();startOfficeAutoRefresh();}
   if(m==='cleaner'){
     if(session&&session.role!=='cleaner'){const me=users.find(u=>u.id===session.id);currentStaff=me?me.staffId:session.staffId;}
     renderPropList();
@@ -1737,6 +1743,43 @@ async function submitAll(){
   } finally { _sending=false; progDone(); }
 }
 function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();if(session&&session.canReconcile){renderRecOwners();renderRecExpenses();recDefaultMonth();}}
+/* ---------- AUTO-REFRESH DEL BACK OFFICE ----------
+   La app no tenía actualización en vivo: si dos personas la abrían, una podía quedarse con
+   datos viejos (ej. un servicio recién enviado que aún no tenía sus ítems → se veía en $0).
+   Aquí refrescamos SOLO las tablas de datos (no los formularios) cada 30s, con guardas para
+   no interrumpir a quien esté editando. */
+let _officeTimer=null;
+async function refreshOfficeLive(manual){
+  const btn=document.getElementById('officeRefreshBtn');
+  if(btn&&manual){btn.disabled=true;btn.textContent='⏳ Actualizando…';}
+  try{
+    await loadAll();
+    // Solo paneles de solo-lectura (sin inputs que el usuario pueda estar llenando).
+    renderStats();renderDash();renderInbox();renderInvoices();renderRejected();
+    renderDamage();renderCharges();renderEarlyLateHist();renderReports();renderExpenses();renderTrash();
+  }catch(e){console.error('refreshOfficeLive',e);}
+  finally{ if(btn){btn.disabled=false;btn.textContent='🔄 Actualizar';} _officeStamp(); }
+}
+function _officeStamp(){const el=document.getElementById('officeRefreshTs');if(el){const d=new Date();el.textContent='Actualizado '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');}}
+function officeLiveTick(){
+  // No refrescar si: no es back office, pestaña oculta, enviando, hay un modal abierto,
+  // o el usuario está escribiendo en un campo (para no pisar lo que edita).
+  if(!session||session.role!=='owner')return;
+  if(document.getElementById('viewOffice')&&document.getElementById('viewOffice').classList.contains('hide'))return;
+  if(document.hidden)return;
+  if(_sending)return;
+  if(document.querySelector('.overlay'))return;
+  const up=document.getElementById('uplay');if(up&&up.classList.contains('show'))return;
+  const fixed=['opsModal','msgReplyModal','clPropsModal','tiendaTierModal','tiendaTestModal','tiendaExtTestModal'];
+  for(const id of fixed){const m=document.getElementById(id);if(m&&!m.classList.contains('hide'))return;}
+  const ae=document.activeElement;
+  if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return;
+  refreshOfficeLive(false);
+}
+function startOfficeAutoRefresh(){
+  if(_officeTimer)return;
+  _officeTimer=setInterval(officeLiveTick,30000);
+}
 /* ---------- DASHBOARD POR CONTRATISTA (YTD / mensual / bisemanal) ---------- */
 const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 let dashYear='',dashMonth='',dashBiweek='';
@@ -2150,12 +2193,15 @@ function renderInbox(){
   const rows=pend.map(s=>{
     if(s.type==='service'){
       const detail=s.items.map(i=>propName(i.prop)+(i.damage?' ⚠️':'')).join(', ');
+      // Servicio pendiente SIN ítems = todavía procesándose (o quedó incompleto): no mostrar "$0.00"
+      // como si fuera el monto real; el auto-refresh o "Actualizar" lo corrige al llegar los ítems.
+      const amountCell=(s.items&&s.items.length)?('<b>'+money(subTotal(s))+'</b>'):'<span class="muted" style="font-size:12px">⏳ procesando…</span>';
       return '<tr>'+
         '<td><span class="avatar">'+initials(staffName(s.staff))+'</span>'+staffName(s.staff)+'</td>'+
         '<td><b>Servicio</b><br><span class="muted" style="font-size:13px">'+detail+'</span></td>'+
         '<td>'+s.date+'</td>'+
         '<td><span class="proof-link" onclick="viewService(\''+s.id+'\')">Ver fotos</span><br><span class="proof-link" onclick="previewOne(\''+s.id+'\')">📄 Vista previa</span></td>'+
-        '<td><b>'+money(subTotal(s))+'</b></td>'+
+        '<td>'+amountCell+'</td>'+
         '<td style="white-space:nowrap"><button class="btn sm ghost" onclick="editSubmission(\''+s.id+'\')">✏️ Editar</button> <button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
     } else {
       return '<tr>'+
