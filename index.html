@@ -109,6 +109,15 @@
   .fakeimg.damage{background:linear-gradient(135deg,#f0cfc5,#e0a795);color:#7a3524}
   .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:13px 20px;border-radius:12px;box-shadow:var(--shadow);z-index:80;font-size:14px;font-weight:600;opacity:0;transition:.25s;pointer-events:none}
   .toast.show{opacity:1;bottom:34px}
+  .uplay{position:fixed;inset:0;background:rgba(18,38,31,.55);backdrop-filter:blur(2px);z-index:120;display:none;align-items:center;justify-content:center;padding:24px}
+  .uplay.show{display:flex}
+  .upcard{background:var(--card);border-radius:18px;box-shadow:var(--shadow);padding:22px 22px 24px;width:100%;max-width:340px;text-align:center}
+  .upcard .uptitle{font-size:16px;font-weight:800;color:var(--ink)}
+  .upcard .upsub{font-size:13px;color:var(--ink-soft);margin-top:4px;min-height:18px}
+  .upbar{height:12px;border-radius:99px;background:var(--sand);border:1.5px solid var(--line);overflow:hidden;margin-top:14px}
+  .upbar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--sea),var(--sea-deep));border-radius:99px;transition:width .3s ease}
+  .uppct{font-size:12px;font-weight:700;color:var(--sea-deep);margin-top:8px}
+  .upwarn{font-size:12px;color:var(--coral);font-weight:700;margin-top:10px}
   .note{font-size:12.5px;color:var(--ink-soft);background:#FBF7EC;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
   .userchip{margin-left:auto;display:flex;align-items:center;gap:10px}
   .userchip .role{font-family:Arial,sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 9px;border-radius:999px}
@@ -879,6 +888,13 @@
 </div>
 
 <div id="toast" class="toast"></div>
+<div id="uplay" class="uplay"><div class="upcard">
+  <div class="uptitle">📤 Enviando…</div>
+  <div id="upSub" class="upsub">Preparando…</div>
+  <div class="upbar"><i id="upBarFill"></i></div>
+  <div id="upPct" class="uppct">0%</div>
+  <div class="upwarn">⚠️ No cierres la app hasta que termine</div>
+</div></div>
 
 <script>
 const sb = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
@@ -968,6 +984,18 @@ function staffName(id){return (staff.find(s=>s.id===id)||{}).name||id;}
 function money(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function initials(n){return n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2600);}
+/* ---------- OVERLAY DE PROGRESO DE SUBIDA ---------- */
+let _upDone=0,_upTotal=0;
+function progStart(total,label){_upDone=0;_upTotal=Math.max(1,total|0);
+  const o=document.getElementById('uplay');if(o)o.classList.add('show');
+  progRender(label||'Preparando…');}
+function progStep(label){_upDone=Math.min(_upTotal,_upDone+1);progRender(label);}
+function progRender(label){
+  const pct=Math.round(_upDone/_upTotal*100);
+  const f=document.getElementById('upBarFill');if(f)f.style.width=pct+'%';
+  const p=document.getElementById('upPct');if(p)p.textContent=pct+'%';
+  const s=document.getElementById('upSub');if(s&&label!=null)s.textContent=label;}
+function progDone(){const o=document.getElementById('uplay');if(o)o.classList.remove('show');}
 const BIWEEK_ANCHOR='2026-07-12'; // domingo, inicio de la 1ª bisemana
 function weekKey(iso){const anchor=new Date(BIWEEK_ANCHOR+'T00:00:00Z');const d=new Date(iso+'T00:00:00Z');const period=Math.floor((d.getTime()-anchor.getTime())/(14*86400000));const start=new Date(anchor);start.setUTCDate(start.getUTCDate()+period*14);return start.toISOString().slice(0,10);}
 function weekLabel(mon){const s=new Date(mon+'T00:00:00Z');const e=new Date(s);e.setUTCDate(e.getUTCDate()+13);const f=x=>x.toLocaleDateString('es-PR',{day:'numeric',month:'short',timeZone:'UTC'});return 'Bisemana '+f(s)+' – '+f(e);}
@@ -1640,10 +1668,15 @@ async function submitAll(){
     }
     if(!hasClean&&gastos.length===0){toast(propName(pid)+' no tiene limpieza ni gastos');return;}
   }
-  _sending=true;toast('Subiendo… no cierres la app');
+  _sending=true;
   try{
     const date=document.getElementById('svcDate').value||todayISO();
     const cleaned=ids.filter(pid=>selection[pid].cleaning&&selection[pid].beforeFile&&selection[pid].afterFile);
+    // Total de subidas para la barra de progreso: fotos (antes+después+daños) + recibos de gastos.
+    let _tot=0;
+    cleaned.forEach(pid=>{const s=selection[pid];_tot+=2+((s.damageOn&&s.damageFiles)?s.damageFiles.length:0);});
+    ids.forEach(pid=>{_tot+=(selection[pid].gastos||[]).filter(g=>(parseFloat(g.amount)||0)>0&&g.receiptFile).length;});
+    progStart(_tot,'Preparando…');
     // 1) Servicio (una sola factura con todas las propiedades limpiadas)
     //    IMPORTANTE: subimos TODAS las fotos primero y creamos el servicio + sus ítems al FINAL,
     //    juntos. Antes el servicio se creaba primero y, si la conexión se caía o se cerraba la app
@@ -1653,11 +1686,12 @@ async function submitAll(){
       const pendingItems=[];
       for(const pid of cleaned){
         const s=selection[pid];const base=currentStaff+'/'+token+'/'+pid;
-        const pb=await upload(base+'_antes'+extOf(s.beforeFile),s.beforeFile);
-        const pa=await upload(base+'_despues'+extOf(s.afterFile),s.afterFile);
-        if(!pb||!pa){toast('No se pudieron subir las fotos de '+propName(pid)+'. Revisa tu conexión e intenta de nuevo.');return;}
+        const lbl='Subiendo fotos · '+propName(pid);
+        const pb=await upload(base+'_antes'+extOf(s.beforeFile),s.beforeFile);progStep(lbl);
+        const pa=await upload(base+'_despues'+extOf(s.afterFile),s.afterFile);progStep(lbl);
+        if(!pb||!pa){progDone();toast('No se pudieron subir las fotos de '+propName(pid)+'. Revisa tu conexión e intenta de nuevo.');return;}
         const dmgPaths=[];
-        if(s.damageOn){for(let k=0;k<(s.damageFiles||[]).length;k++){const dp=await upload(base+'_dano'+(k+1)+extOf(s.damageFiles[k]),s.damageFiles[k]);if(dp)dmgPaths.push(dp);}}
+        if(s.damageOn){for(let k=0;k<(s.damageFiles||[]).length;k++){const dp=await upload(base+'_dano'+(k+1)+extOf(s.damageFiles[k]),s.damageFiles[k]);if(dp)dmgPaths.push(dp);progStep('Subiendo daños · '+propName(pid));}}
         pendingItems.push({property_id:pid,
           rate_applied:(rates[currentStaff]||{})[pid]||0,
           photo_before:pb,photo_after:pa,damage_note:(s.damageOn?s.damage.trim():'')||null,damage_photo:dmgPaths[0]||null,damage_photos:dmgPaths,
@@ -1665,14 +1699,15 @@ async function submitAll(){
           late_checkout:s.lateCheckout?(company.fee_late_checkout||0.01):0,
           extra_guest:s.extraGuest?(company.fee_extra_guest||0.01):0});
       }
+      progRender('Guardando servicio…');
       const {data:sub,error}=await sb.from('submissions').insert({type:'service',professional_id:currentStaff,date}).select().single();
-      if(error){console.error(error);toast('Error al crear el servicio');return;}
+      if(error){console.error(error);progDone();toast('Error al crear el servicio');return;}
       const {error:ie}=await sb.from('submission_items').insert(pendingItems.map(it=>({submission_id:sub.id,...it})));
       if(ie){
         console.error(ie);
         // Backstop: si fallan los ítems, borrar el servicio para NO dejar una factura en blanco.
         await sb.from('submissions').delete().eq('id',sub.id);
-        toast('No se pudo guardar el servicio. Intenta de nuevo.');
+        progDone();toast('No se pudo guardar el servicio. Intenta de nuevo.');
         return;
       }
     }
@@ -1681,15 +1716,16 @@ async function submitAll(){
       const gastos=(selection[pid].gastos||[]).filter(g=>(parseFloat(g.amount)||0)>0);
       for(const g of gastos){
         const path=currentStaff+'/gasto-'+Date.now()+'-'+Math.floor(Math.random()*100000)+extOf(g.receiptFile);
-        const rp=await upload(path,g.receiptFile);
+        const rp=await upload(path,g.receiptFile);progStep('Subiendo recibo · '+propName(pid));
         if(!rp){toast('No se pudo subir un recibo');continue;}
         const {error:ge}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,total:parseFloat(g.amount)||0,expense_desc:g.desc.trim(),property_id:pid,receipt_photo:rp});
         if(ge)console.error(ge);
       }
     }
+    progRender('¡Listo!');
     selection={};await loadAll();renderPropList();
     toast('✉️ Enviado a la administradora');
-  } finally { _sending=false; }
+  } finally { _sending=false; progDone(); }
 }
 function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();if(session&&session.canReconcile){renderRecOwners();renderRecExpenses();recDefaultMonth();}}
 /* ---------- DASHBOARD POR CONTRATISTA (YTD / mensual / bisemanal) ---------- */
