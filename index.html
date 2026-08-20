@@ -354,6 +354,15 @@
     <div class="sectitle"><h2>🔐 Cerraduras — códigos de acceso</h2><button onclick="cerradurasLoad()" style="padding:7px 12px;border:1.5px solid var(--line);border-radius:8px;background:#fff;cursor:pointer">↻ Refrescar</button></div>
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Cada reserva recibe un <b>PIN de 4 dígitos</b> que abre la cerradura solo en su ventana (check-in <b>3:00 PM</b> → check-out <b>11:00 AM</b>, ajustada por early/late/noche-extra pagados). Aquí ves las contraseñas de cada huésped.</p>
 
+    <!-- Estado por propiedad: conexión + batería -->
+    <div id="lockStatusTable" style="margin:12px 0"><span class="muted" style="font-size:13px">Cargando estado…</span></div>
+
+    <!-- Conexiones de proveedores (colapsable; solo para conectar / renovar token) -->
+    <div style="margin:6px 0 10px;font-size:13px">
+      <a onclick="lockToggleConn()" style="cursor:pointer;color:#2563eb;font-weight:600">⚙️ Conexiones de proveedores</a>
+      <span id="lockConnWarn" style="margin-left:8px"></span>
+    </div>
+    <div id="lockConnAdvanced" class="hide">
     <!-- Conexión Kwikset -->
     <div id="lockConnBox" class="note" style="margin:10px 0;font-size:13.5px"></div>
     <div id="lockConnForm" class="hide" style="margin:10px 0;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fafafa">
@@ -381,6 +390,8 @@
         </div>
       </div>
     </div>
+
+    </div><!-- /lockConnAdvanced -->
 
     <!-- Interruptor maestro + provisión -->
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0">
@@ -3736,10 +3747,13 @@ async function cerradurasLoad(){
   let st;
   try{ st=await lockAdmin('status'); }
   catch(e){ document.getElementById('lockConnBox').innerHTML='⚠️ No se pudo cargar. ¿Corriste la migración <code>ops_locks</code> y desplegaste <code>ops-lock-admin</code>? ('+opsEsc(String(e.message||e))+')'; tb.innerHTML=''; return; }
-  // Conexión Kwikset
+  // Conexión Kwikset — sin mensaje "conectado" (el estado por propiedad va en la tabla
+  // de arriba). Solo se muestra un aviso + el formulario si NO hay sesión.
   const box=document.getElementById('lockConnBox'), form=document.getElementById('lockConnForm');
-  if(st.connected){ box.innerHTML='🟢 <b>Kwikset conectado</b>'+(st.connected_at?' <span class="muted">(desde '+new Date(st.connected_at).toLocaleString()+')</span>':''); form.classList.add('hide'); }
-  else{ box.innerHTML='🔴 <b>Kwikset no conectado.</b> Conéctate una vez para empezar.'; form.classList.remove('hide'); }
+  if(st.connected){ box.innerHTML=''; form.classList.add('hide'); window._kwiksetDown=false; }
+  else{ box.innerHTML='🔴 <b>Kwikset no conectado.</b> Conéctate una vez para empezar.'; form.classList.remove('hide'); window._kwiksetDown=true; }
+  lockConnWarnUpdate();
+  lockRenderStatus();
   // Interruptores
   document.getElementById('lockEnabled').checked=(st.settings&&st.settings.lock_codes_enabled==='true');
   document.getElementById('lockSendEnabled').checked=(st.settings&&st.settings.lock_send_codes_enabled==='true');
@@ -3964,9 +3978,44 @@ async function yaleStatusLoad(){
   const line=document.getElementById('yaleStatusLine'); if(!line) return;
   try{
     const r=await lockAdmin('yale_status');
-    if(r&&r.connected){ const h=r.hoursLeft; line.innerHTML='🟢 conectado'+(h!=null?' — '+(h>=48?Math.round(h/24)+' días':h+'h')+' restantes':''); }
-    else line.innerHTML='🔴 sin sesión — siembra el token';
-  }catch(e){ line.textContent='(no se pudo leer el estado)'; }
+    if(r&&r.connected){ const h=r.hoursLeft; line.innerHTML='<span class="muted">token válido'+(h!=null?' ~'+(h>=48?Math.round(h/24)+' días':h+'h'):'')+'</span>'; window._yaleDown=(h!=null&&h<120); }
+    else{ line.innerHTML='🔴 sin sesión — siembra el token'; window._yaleDown=true; }
+  }catch(e){ line.textContent='(no se pudo leer el estado)'; window._yaleDown=false; }
+  lockConnWarnUpdate();
+}
+function lockToggleConn(){ document.getElementById('lockConnAdvanced').classList.toggle('hide'); }
+function lockConnWarnUpdate(){
+  const warn=document.getElementById('lockConnWarn'); if(!warn) return;
+  const down=[]; if(window._kwiksetDown) down.push('Kwikset'); if(window._yaleDown) down.push('Yale token');
+  if(down.length){ warn.innerHTML='<span style="color:#b91c1c;font-weight:600">🔴 Revisa: '+down.join(' · ')+'</span>'; const a=document.getElementById('lockConnAdvanced'); if(a) a.classList.remove('hide'); }
+  else warn.innerHTML='<span class="muted">todo en orden</span>';
+}
+// Tabla compacta por propiedad: estado de conexión + batería (acción lock_status).
+async function lockRenderStatus(){
+  const box=document.getElementById('lockStatusTable'); if(!box) return;
+  let statuses;
+  try{ const r=await lockAdmin('lock_status'); statuses=(r&&r.statuses)||[]; }
+  catch(e){ box.innerHTML='<span class="muted" style="font-size:13px">No se pudo leer el estado de las cerraduras.</span>'; return; }
+  if(!statuses.length){ box.innerHTML='<span class="muted" style="font-size:13px">No hay cerraduras conectadas.</span>'; return; }
+  const propName=(s)=>(window._lockProps&&window._lockProps[s.propertyId])||s.deviceName||s.deviceId;
+  const connCell=(on)=> on===true?'<span style="color:#166534;font-weight:600">🟢 En línea</span>'
+    : on===false?'<span style="color:#b91c1c;font-weight:600">🔴 Sin conexión</span>'
+    : '<span class="muted">⚪ s/d</span>';
+  const battCell=(p)=>{
+    if(p===null||p===undefined) return '<span class="muted">⚪ n/d</span>';
+    const col=p<=15?'#b91c1c':(p<=30?'#b45309':'#166534');
+    const bar='<span style="display:inline-block;width:52px;height:8px;border-radius:4px;background:#e5e7eb;vertical-align:middle;overflow:hidden"><span style="display:block;height:100%;width:'+Math.max(4,Math.min(100,p))+'%;background:'+col+'"></span></span>';
+    return bar+' <span style="color:'+col+';font-weight:600">'+p+'%</span>';
+  };
+  const rows=statuses.slice().sort((a,b)=>(a.percent==null?999:a.percent)-(b.percent==null?999:b.percent)).map(s=>
+    '<tr style="border-top:1px solid var(--line)">'+
+    '<td style="padding:7px 10px;font-weight:600">'+opsEsc(propName(s))+'</td>'+
+    '<td style="padding:7px 10px;text-align:center">'+connCell(s.online)+'</td>'+
+    '<td style="padding:7px 10px;white-space:nowrap">'+battCell(s.percent)+'</td>'+
+    '</tr>').join('');
+  box.innerHTML='<table style="border-collapse:collapse;width:100%;max-width:520px;font-size:13.5px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden">'+
+    '<thead><tr style="background:#f8fafc"><th style="padding:8px 10px;text-align:left">🔐 Propiedad</th><th style="padding:8px 10px;text-align:center">Conexión</th><th style="padding:8px 10px;text-align:left">Batería</th></tr></thead>'+
+    '<tbody>'+rows+'</tbody></table>';
 }
 function yaleToggleForm(){ document.getElementById('yaleConnForm').classList.toggle('hide'); }
 async function yaleConnect(){
