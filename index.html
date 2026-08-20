@@ -3412,7 +3412,11 @@ async function msgBcastPreview(){
   document.getElementById('bcastResult').classList.remove('hide');
 }
 function msgBcastAll(on){ document.querySelectorAll('.bcastPropChk').forEach(c=>c.checked=on); }
-/* ---------- FOTOS DEL AVISO DE EMERGENCIA (bucket público 'broadcast') ---------- */
+/* ---------- FOTOS DEL AVISO DE EMERGENCIA (bucket público 'broadcast') ----------
+   El enlace se sirve desde el DOMINIO PROPIO (www.stayherepr.com/p/<archivo>), que
+   es un reverse-proxy a Supabase Storage (rewrite en el repo del sitio). Un dominio
+   real tiene mejor chance de pasar el filtro de enlaces de Airbnb que *.supabase.co. */
+const BCAST_IMG_BASE='https://www.stayherepr.com/p/';
 let bcastPhotos=[]; // [{url, path, name}]
 function bcastExt(file){const n=(file&&file.name)||'';const m=n.match(/\.([a-z0-9]+)$/i);return m?'.'+m[1].toLowerCase():'.jpg';}
 async function bcastAddPhotos(files){
@@ -3426,8 +3430,8 @@ async function bcastAddPhotos(files){
     const path='emg/'+Date.now()+'-'+Math.floor(Math.random()*1e9).toString(36)+bcastExt(f);
     const {error}=await msgC().storage.from('broadcast').upload(path,f,{upsert:true,contentType:f.type||'image/jpeg'});
     if(error){console.error('bcast upload',error);toast('No se pudo subir '+f.name);continue;}
-    const {data:pub}=msgC().storage.from('broadcast').getPublicUrl(path);
-    bcastPhotos.push({url:pub.publicUrl,path:path,name:f.name});
+    // Enlace con dominio propio (proxy /p/* → bucket). Miniatura local con blob (más rápida).
+    bcastPhotos.push({url:BCAST_IMG_BASE+path,path:path,name:f.name,thumb:URL.createObjectURL(f)});
   }
   bcastRenderPhotos();
   if(bcastPhotos.length)toast('✓ '+bcastPhotos.length+' foto(s) lista(s)');
@@ -3435,7 +3439,7 @@ async function bcastAddPhotos(files){
 function bcastRenderPhotos(){
   const box=document.getElementById('bcastPhotos');if(!box)return;
   box.innerHTML=bcastPhotos.map(function(p,i){return '<div style="position:relative;width:74px;height:74px;border-radius:10px;overflow:hidden;border:1.5px solid var(--line)">'+
-    '<img src="'+p.url+'" style="width:100%;height:100%;object-fit:cover">'+
+    '<img src="'+(p.thumb||p.url)+'" style="width:100%;height:100%;object-fit:cover">'+
     '<span onclick="bcastRemovePhoto('+i+')" title="Quitar" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;line-height:1">✕</span>'+
   '</div>';}).join('');
 }
