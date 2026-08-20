@@ -3998,9 +3998,13 @@ async function lockRenderStatus(){
   catch(e){ box.innerHTML='<span class="muted" style="font-size:13px">No se pudo leer el estado de las cerraduras.</span>'; return; }
   if(!statuses.length){ box.innerHTML='<span class="muted" style="font-size:13px">No hay cerraduras conectadas.</span>'; return; }
   const propName=(s)=>(window._lockProps&&window._lockProps[s.propertyId])||s.deviceName||s.deviceId;
-  const connCell=(on)=> on===true?'<span style="color:#166534;font-weight:600">🟢 En línea</span>'
-    : on===false?'<span style="color:#b91c1c;font-weight:600">🔴 Sin conexión</span>'
-    : '<span class="muted">⚪ s/d</span>';
+  const lockAgo=(sec)=>{ if(!sec) return ''; const m=Math.max(0,Math.floor((Date.now()/1000-sec)/60)); if(m<60) return 'hace '+m+' min'; const h=Math.floor(m/60); return h<24?'hace '+h+'h':'hace '+Math.floor(h/24)+'d'; };
+  const connCell=(on,seen)=>{
+    const ago=seen?' <span class="muted" style="font-size:11px">· últ. '+lockAgo(seen)+'</span>':'';
+    if(on===true) return '<span style="color:#166534;font-weight:600">🟢 En línea</span>';
+    if(on===false) return '<span style="color:#b91c1c;font-weight:600">🔴 Sin conexión</span>'+ago;
+    return '<span class="muted">⚪ s/d</span>'+ago;
+  };
   const battCell=(p)=>{
     if(p===null||p===undefined) return '<span class="muted">⚪ n/d</span>';
     const col=p<=15?'#b91c1c':(p<=30?'#b45309':'#166534');
@@ -4010,7 +4014,7 @@ async function lockRenderStatus(){
   const rows=statuses.slice().sort((a,b)=>(a.percent==null?999:a.percent)-(b.percent==null?999:b.percent)).map(s=>
     '<tr style="border-top:1px solid var(--line)">'+
     '<td style="padding:7px 10px;font-weight:600">'+opsEsc(propName(s))+'</td>'+
-    '<td style="padding:7px 10px;text-align:center">'+connCell(s.online)+'</td>'+
+    '<td style="padding:7px 10px;text-align:center">'+connCell(s.online,s.lastSeen)+'</td>'+
     '<td style="padding:7px 10px;white-space:nowrap">'+battCell(s.percent)+'</td>'+
     '</tr>').join('');
   box.innerHTML='<table style="border-collapse:collapse;width:100%;max-width:520px;font-size:13.5px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden">'+
