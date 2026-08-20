@@ -850,6 +850,12 @@
       <p class="muted" style="font-size:13px;margin-top:0">Aviso <b>masivo</b> a los huéspedes de las propiedades que elijas (ej. crisis de agua). Llega a los <b>hospedados ahora</b> y a los que <b>llegan hasta la fecha</b> que escojas. Escribe el borrador, <b>púlelo</b>, revisa el texto y las propiedades, y ponlo en cola. Te llega <b>una tarjeta a Telegram</b> con la vista previa y <b>~2 min</b> para cancelar todo o enviar ya (si no haces nada, sale solo). Cada huésped lo recibe en su idioma.</p>
       <label style="font-weight:600;font-size:13px">Borrador del aviso</label>
       <textarea id="bcastDraft" style="width:100%;min-height:110px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px;margin:6px 0 10px" placeholder="Ej.: Les avisamos que hay una interrupción del servicio de agua en el área. Tenemos agua embotellada disponible; escríbannos si necesitan algo."></textarea>
+      <label style="font-weight:600;font-size:13px">Fotos (opcional)</label>
+      <div style="margin:6px 0 12px">
+        <label class="btn ghost sm" style="cursor:pointer">📷 Añadir fotos<input id="bcastPhotoInput" type="file" accept="image/*" multiple style="display:none" onchange="bcastAddPhotos(this.files);this.value='';"></label>
+        <span class="muted" style="font-size:12px;margin-left:8px">Se envían como <b>enlace</b> al pie del mensaje (Hostfully no permite adjuntar imágenes). Airbnb puede bloquearlas.</span>
+        <div id="bcastPhotos" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+      </div>
       <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px">
         <div><label style="font-weight:600;font-size:13px">Incluir llegadas con check-in hasta</label><br>
           <input type="date" id="bcastUntil" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-family:inherit;font-size:14px"></div>
@@ -3406,6 +3412,38 @@ async function msgBcastPreview(){
   document.getElementById('bcastResult').classList.remove('hide');
 }
 function msgBcastAll(on){ document.querySelectorAll('.bcastPropChk').forEach(c=>c.checked=on); }
+/* ---------- FOTOS DEL AVISO DE EMERGENCIA (bucket público 'broadcast') ---------- */
+let bcastPhotos=[]; // [{url, path, name}]
+function bcastExt(file){const n=(file&&file.name)||'';const m=n.match(/\.([a-z0-9]+)$/i);return m?'.'+m[1].toLowerCase():'.jpg';}
+async function bcastAddPhotos(files){
+  const list=[...(files||[])];
+  if(!list.length)return;
+  for(const f of list){
+    if(bcastPhotos.length>=6){toast('Máximo 6 fotos por aviso');break;}
+    if(!/^image\//.test(f.type||'')){toast('Solo imágenes');continue;}
+    if(f.size>25*1024*1024){toast('Foto muy grande (máx 25MB): '+f.name);continue;}
+    toast('Subiendo foto…');
+    const path='emg/'+Date.now()+'-'+Math.floor(Math.random()*1e9).toString(36)+bcastExt(f);
+    const {error}=await msgC().storage.from('broadcast').upload(path,f,{upsert:true,contentType:f.type||'image/jpeg'});
+    if(error){console.error('bcast upload',error);toast('No se pudo subir '+f.name);continue;}
+    const {data:pub}=msgC().storage.from('broadcast').getPublicUrl(path);
+    bcastPhotos.push({url:pub.publicUrl,path:path,name:f.name});
+  }
+  bcastRenderPhotos();
+  if(bcastPhotos.length)toast('✓ '+bcastPhotos.length+' foto(s) lista(s)');
+}
+function bcastRenderPhotos(){
+  const box=document.getElementById('bcastPhotos');if(!box)return;
+  box.innerHTML=bcastPhotos.map(function(p,i){return '<div style="position:relative;width:74px;height:74px;border-radius:10px;overflow:hidden;border:1.5px solid var(--line)">'+
+    '<img src="'+p.url+'" style="width:100%;height:100%;object-fit:cover">'+
+    '<span onclick="bcastRemovePhoto('+i+')" title="Quitar" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;line-height:1">✕</span>'+
+  '</div>';}).join('');
+}
+async function bcastRemovePhoto(i){
+  const p=bcastPhotos[i];if(!p)return;
+  bcastPhotos.splice(i,1);bcastRenderPhotos();
+  try{ await msgC().storage.from('broadcast').remove([p.path]); }catch(e){ console.error('bcast remove',e); }
+}
 async function msgBcastSend(){
   const es=document.getElementById('bcastEs').value.trim();
   const en=document.getElementById('bcastEn').value.trim();
@@ -3413,14 +3451,17 @@ async function msgBcastSend(){
   const ids=[...document.querySelectorAll('.bcastPropChk:checked')].map(c=>c.value);
   if(!ids.length){toast('Marca al menos una propiedad');return;}
   const untilDate=document.getElementById('bcastUntil').value||undefined;
-  if(!confirm('🚨 ¿Poner en cola el aviso para los huéspedes de '+ids.length+' propiedad(es)?\n\nTe llega UNA tarjeta a Telegram con la vista previa; tienes ~2 min para cancelar o enviar ya. Si no haces nada, sale solo.')) return;
+  const photoUrls=bcastPhotos.map(p=>p.url);
+  const fotoNota=photoUrls.length?('\n\n📷 '+photoUrls.length+' foto(s) van como ENLACE al pie (Airbnb puede bloquearlas).'):'';
+  if(!confirm('🚨 ¿Poner en cola el aviso para los huéspedes de '+ids.length+' propiedad(es)?'+fotoNota+'\n\nTe llega UNA tarjeta a Telegram con la vista previa; tienes ~2 min para cancelar o enviar ya. Si no haces nada, sale solo.')) return;
   const btn=document.getElementById('bcastSendBtn'); btn.disabled=true; const old=btn.textContent; btn.textContent='Encolando…';
-  const {data,error}=await msgC().functions.invoke('ops-broadcast',{body:{mode:'send',es,en,untilDate,propertyIds:ids}});
+  const {data,error}=await msgC().functions.invoke('ops-broadcast',{body:{mode:'send',es,en,untilDate,propertyIds:ids,photoUrls:photoUrls}});
   btn.disabled=false; btn.textContent=old;
   if(error||!data||!data.ok){toast('Error: '+((data&&data.error)||(error&&error.message)||'falló'));return;}
   toast('⏳ En cola para '+(data.queued||0)+' huésped(es). Revisa Telegram: tienes ~'+(data.holdMinutes||2)+' min para cancelar o enviar ya.');
   document.getElementById('bcastResult').classList.add('hide');
   document.getElementById('bcastDraft').value='';
+  bcastPhotos=[];bcastRenderPhotos();
 }
 function msgUpToday(){ const d=new Date(Date.now()-4*3600*1000); return d.toISOString().slice(0,10); }
 async function msgLoadUpsell(){
