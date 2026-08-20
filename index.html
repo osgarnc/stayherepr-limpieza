@@ -3762,6 +3762,9 @@ async function cerradurasLoad(){
   if(error){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudieron leer los códigos: '+opsEsc(error.message)+'</td></tr></tbody>'; return; }
   window._lockCodesById={}; (codes||[]).forEach(c=>window._lockCodesById[c.id]=c);
   window._lockCodesAll=codes||[];
+  // Gracia de check-out (min) — SOLO para mostrar en esta tabla la ventana real del
+  // código (el huésped nunca la ve). Fuente: ops_app_settings.lock_grace_minutes.
+  try{ const {data:gs}=await sb.from('ops_app_settings').select('value').eq('key','lock_grace_minutes').maybeSingle(); window._lockGraceMin=Number(gs?.value)||15; }catch(_e){ window._lockGraceMin=15; }
   lockRenderCodes();
   // 📜 Registro
   try{ const {data:logs}=await sb.from('ops_lock_log').select('*').order('created_at',{ascending:false}).limit(300); window._lockLogAll=logs||[]; lockRenderLog(); }
@@ -3913,7 +3916,11 @@ function lockRenderCodes(){
     const act=isStaff?'<span class="muted" style="font-size:11px" title="Los códigos de staff se gestionan en 🧹 (universal)">universal</span>':
       ('<button class="btn ghost sm" title="Editar fechas de acceso (entrar antes/después)" onclick="lockEditCodeWindow('+JSON.stringify(c.id)+')">📅</button>'+
        (c.manual_window?' <button class="btn ghost sm" title="Volver a automático (recalcula desde la reserva)" onclick="lockClearCodeWindow('+JSON.stringify(c.id)+')">↺</button>':''));
-    const win=isStaff?'<span class="muted">permanente</span>':(fmtLockDT(c.starts_at)+' → '+fmtLockDT(c.ends_at)+(c.manual_window?' <span title="Fechas fijadas a mano" style="color:#b45309;font-weight:600;font-size:11px">✎ manual</span>':''));
+    const g=window._lockGraceMin||0;
+    const endMs=Date.parse(c.ends_at);
+    const endEff=(g>0&&!isNaN(endMs))?new Date(endMs+g*60000).toISOString():c.ends_at; // fin real (con gracia)
+    const graceTag=(g>0&&c.ends_at)?' <span title="Incluye '+g+' min de gracia tras el check-out. El huésped NUNCA lo ve." style="color:#0891b2;font-weight:600;font-size:11px">+'+g+'m gracia</span>':'';
+    const win=isStaff?'<span class="muted">permanente</span>':(fmtLockDT(c.starts_at)+' → '+fmtLockDT(endEff)+graceTag+(c.manual_window?' <span title="Fechas fijadas a mano" style="color:#b45309;font-weight:600;font-size:11px">✎ manual</span>':''));
     return '<tr><td>'+opsEsc(c.guest_name||'(sin nombre)')+'</td>'+
       '<td class="muted">'+opsEsc(prop)+'</td>'+
       '<td style="text-align:center;font-weight:800;font-size:16px;letter-spacing:2px">'+opsEsc(c.code)+'</td>'+
