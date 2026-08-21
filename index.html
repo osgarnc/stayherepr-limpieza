@@ -4306,6 +4306,16 @@ function msgCatOn(map,key){ return (map&&Object.prototype.hasOwnProperty.call(ma
 // Celda de "% aprendizaje" (aceptadas tal cual ÷ sugeridas) por categoría. Verde+🎯 al llegar a 90%
 // con datos suficientes (≥5). "inquiry" no tiene datos propios (cae en 'other'). Umbral de auto-envío.
 function msgLearnCell(key){
+  if(key==='inquiry'){
+    // Inquiry no es categoría (cae en 'other'); y como AUTO-CONTESTA, casi no genera "aceptación".
+    // Mostramos COBERTURA (auto-contestados ÷ total) como señal de confianza, + aceptación si hay revisados.
+    const q=window._msgInquiry;
+    if(!q||!q.tot){ return '<span class="muted" style="font-size:12px">— <small>sin datos aún</small></span>'; }
+    const cov=q.cover, col=cov>=90?'#166534':(cov>=70?'#a16207':'#6b7280');
+    let s='<span style="font-weight:700;color:'+col+'">'+cov+'% <small>auto</small></span> <small class="muted">('+q.tot+')</small>';
+    if(q.sug>=3){ s+=' <small class="muted">· '+q.acc+'% acept ('+q.sug+')</small>'; }
+    return s;
+  }
   const lr=(window._msgLearn||{})[key];
   if(!lr||!lr.sug){ return '<span class="muted" style="font-size:12px">— <small>sin datos</small></span>'; }
   const acc=lr.acc, ready=acc>=90&&lr.sug>=5;
@@ -4329,6 +4339,16 @@ async function msgLoadCats(){
     else if(r.reply_accept_status==='rewritten')g.r++;
   });
   Object.values(learn).forEach(g=>{ g.sug=g.a+g.e+g.r; g.acc=g.sug?Math.round(100*g.a/g.sug):null; });
+  // Inquiry (prospecto): mide COBERTURA (auto-contestados ÷ total) + aceptación de los revisados.
+  window._msgInquiry=null;
+  try{
+    const {data:inq}=await msgC().from('ops_messages').select('action,reply_accept_status').eq('is_inquiry',true).limit(5000);
+    let tot=0,auto=0,a=0,e=0,r=0;
+    (inq||[]).forEach(x=>{ tot++; if(x.action==='auto_replied')auto++;
+      if(x.reply_accept_status==='accepted')a++; else if(x.reply_accept_status==='edited')e++; else if(x.reply_accept_status==='rewritten')r++; });
+    const sug=a+e+r;
+    window._msgInquiry={tot,auto,sug,acc:sug?Math.round(100*a/sug):null,cover:tot?Math.round(100*auto/tot):null};
+  }catch(_e){ /* si falta la columna is_inquiry, la fila muestra "sin datos aún" */ }
   const updatedAt=new Date().toISOString();
   window._msgCatMap=map; window._msgLearn=learn;
   let firstCaution=true;
