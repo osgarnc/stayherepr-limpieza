@@ -821,6 +821,7 @@
       <button id="msgTabPending" class="on" onclick="msgTab('pending')">Pendientes <span id="msgPendCount"></span></button>
       <button id="msgTabLog" onclick="msgTab('log')">Historial</button>
       <button id="msgTabCats" onclick="msgTab('cats')">⚙️ Auto-envío</button>
+      <button id="msgTabCorr" onclick="msgTab('corr')">📝 Correcciones</button>
       <button id="msgTabCleaners" onclick="msgTab('cleaners')">🧹 Cleaners</button>
       <button id="msgTabClRem" onclick="msgTab('clrem')">⏰ Recordatorios</button>
       <button id="msgTabUpsell" onclick="msgTab('upsell')">💰 Early/Late</button>
@@ -836,6 +837,10 @@
       <p class="muted" style="font-size:13px;margin-top:0">Enciende el <b>auto-envío por clasificación</b>. Cada interruptor aplica a <b>TODAS las propiedades</b>: con ON, el bot <b>responde solo</b> (sin tu revisión) los mensajes de esa clasificación en cualquier propiedad; con OFF, esos mensajes te llegan para que los revises. Así, si quieres que <b>una sola</b> clasificación se auto-envíe, la enciendes y dejas las demás en OFF.<br><br><b>🔥 Inquiry</b> = consultas de quien <b>aún no ha reservado</b> (leads en caliente): con ON el bot contesta con un mensaje cálido que invita a reservar, sin precios.<br><br>Las <b>⚠️ sensibles</b> (mantenimiento, pago, queja, equipaje, pre-arrival) vienen <b>apagadas</b>: por defecto te escalan para que las revises. Puedes encender cualquiera si decides que el bot la conteste sola — con la ventana de 2 min como red de seguridad.<br><br>La columna <b>% Aprendizaje</b> mide, por categoría, cuántas de mis sugerencias enviaste <b>tal cual</b> (÷ las que tenían sugerencia). Cuando una pase de <b>90% 🎯</b> con suficientes datos, ya aprendí tu estilo en ese tema y es buena candidata para encender el auto-envío.</p>
       <div style="overflow:auto"><table id="msgCatsTable"></table></div>
       <p id="msgCatsUpdated" class="muted" style="font-size:11px;margin:8px 2px 0"></p>
+    </div>
+    <div id="msgViewCorrections" class="card hide" style="padding:14px">
+      <p class="muted" style="font-size:13px;margin-top:0">Casos donde el <b>bot auto-envió</b> una respuesta y <b>tú/Ingrid</b> tuvieron que <b>escribir a mano</b> después (una corrección). Es donde el bot está más flojo — cada corrección tuya se aprende. Compara lado a lado para ajustar. Últimos 30 días.</p>
+      <div style="overflow:auto"><table id="msgCorrTable"></table></div>
     </div>
     <div id="msgViewCleaners" class="card hide" style="padding:14px">
       <p class="muted" style="font-size:13px;margin-top:0">Cleaners que reciben las solicitudes de <b>late check-out / early check-in</b> por Telegram para aprobar. Solo se les envía a los que estén <b>Activos</b>. <br>Para el <b>Telegram ID</b>: el cleaner le escribe cualquier mensaje al bot y este le responde su ID; pégalo aquí.<br><b>Host Co 💳</b>: marca a la única persona que <b>acepta los cargos</b> en Host Co (Ingrid). La aprobación del servicio la da cualquier cleaner asignado, pero la tarjeta de aceptar el cargo va solo al Manager.</p>
@@ -3342,10 +3347,48 @@ function msgWouldChip(would){return would?'<span style="display:inline-block;pad
 function msgFmtDate(s){return s?new Date(s).toLocaleString():'—';}
 async function msgInit(){ await Promise.all([msgLoadMode(), msgLoadProps()]); msgTab('pending'); }
 function msgTab(w){
-  const V={pending:'msgViewPending',log:'msgViewLog',cats:'msgViewCats',cleaners:'msgViewCleaners',clrem:'msgViewClRem',upsell:'msgViewUpsell',emergency:'msgViewEmergency'},B={pending:'msgTabPending',log:'msgTabLog',cats:'msgTabCats',cleaners:'msgTabCleaners',clrem:'msgTabClRem',upsell:'msgTabUpsell',emergency:'msgTabEmergency'};
+  const V={pending:'msgViewPending',log:'msgViewLog',cats:'msgViewCats',corr:'msgViewCorrections',cleaners:'msgViewCleaners',clrem:'msgViewClRem',upsell:'msgViewUpsell',emergency:'msgViewEmergency'},B={pending:'msgTabPending',log:'msgTabLog',cats:'msgTabCats',corr:'msgTabCorr',cleaners:'msgTabCleaners',clrem:'msgTabClRem',upsell:'msgTabUpsell',emergency:'msgTabEmergency'};
   Object.keys(V).forEach(k=>document.getElementById(V[k]).classList.toggle('hide',k!==w));
   Object.keys(B).forEach(k=>document.getElementById(B[k]).classList.toggle('on',k===w));
-  (w==='log')?msgLoadLog():(w==='cats')?msgLoadCats():(w==='cleaners')?msgLoadCleaners():(w==='clrem')?msgLoadClRem():(w==='upsell')?msgLoadUpsell():(w==='emergency')?msgBcastInit():msgLoadPending();
+  (w==='log')?msgLoadLog():(w==='cats')?msgLoadCats():(w==='corr')?msgLoadCorrections():(w==='cleaners')?msgLoadCleaners():(w==='clrem')?msgLoadClRem():(w==='upsell')?msgLoadUpsell():(w==='emergency')?msgBcastInit():msgLoadPending();
+}
+// 📝 Vista "Correcciones": el bot AUTO-ENVIÓ una respuesta y luego un HUMANO escribió a mano al mismo
+// lead (kind manual_reply) sin otro auto en medio, dentro de ~48h → una corrección. Señal de dónde el
+// bot está flojo (y qué se está aprendiendo). Últimos 30 días.
+async function msgLoadCorrections(){
+  const tb=document.getElementById('msgCorrTable');
+  tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Cargando…</td></tr></tbody>';
+  const since=new Date(Date.now()-30*24*3600*1000).toISOString();
+  const {data,error}=await msgC().from('ops_outbound_queue')
+    .select('lead_uid,guest_name,body,kind,created_at')
+    .in('kind',['auto_reply','manual_reply']).in('status',['sent','pending'])
+    .gte('created_at',since).order('created_at',{ascending:true}).limit(4000);
+  if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Error: '+opsEsc(error.message)+'</td></tr></tbody>';return;}
+  const byLead={};
+  (data||[]).forEach(r=>{ if(r.lead_uid)(byLead[r.lead_uid]=byLead[r.lead_uid]||[]).push(r); });
+  const corr=[];
+  Object.values(byLead).forEach(rows=>{
+    for(let i=0;i<rows.length;i++){
+      if(rows[i].kind!=='auto_reply')continue;
+      for(let j=i+1;j<rows.length;j++){
+        if(rows[j].kind==='auto_reply')break; // otro auto antes de la corrección → este no fue corregido
+        if(rows[j].kind==='manual_reply'){
+          const dt=Date.parse(rows[j].created_at)-Date.parse(rows[i].created_at);
+          if(dt>0&&dt<48*3600*1000){ corr.push({guest:rows[i].guest_name,at:rows[j].created_at,bot:rows[i].body,fix:rows[j].body}); }
+          break;
+        }
+      }
+    }
+  });
+  corr.sort((a,b)=>Date.parse(b.at)-Date.parse(a.at));
+  if(!corr.length){ tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Sin correcciones en los últimos 30 días 🎉 (el bot no tuvo que ser corregido tras auto-enviar).</td></tr></tbody>'; return; }
+  const rows=corr.slice(0,100).map(c=>
+    '<tr>'+
+    '<td style="white-space:nowrap;vertical-align:top;font-size:12px">'+opsEsc(c.guest||'—')+'<br><span class="muted">'+new Date(c.at).toLocaleDateString('es-PR',{day:'numeric',month:'short'})+'</span></td>'+
+    '<td style="vertical-align:top;font-size:12px;color:#92400e;max-width:340px"><b>🤖 Auto-envió:</b><br>'+opsEsc((c.bot||'').slice(0,320))+'</td>'+
+    '<td style="vertical-align:top;font-size:12px;color:#166534;max-width:340px"><b>✍️ Corregiste:</b><br>'+opsEsc((c.fix||'').slice(0,320))+'</td>'+
+    '</tr>').join('');
+  tb.innerHTML='<thead><tr><th>Huésped</th><th>🤖 Auto-respuesta del bot</th><th>✍️ Tu corrección</th></tr></thead><tbody>'+rows+'</tbody>';
 }
 async function msgLoadClRem(){
   const box=document.getElementById('clrList');
