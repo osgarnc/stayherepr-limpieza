@@ -2089,7 +2089,7 @@ let _elStore=[];
 async function loadElStore(){
   try{
     const {data}=await sb.from('ops_upsell_events')
-      .select('kind,property_name,guest_name,event_at,event_time_label,paid_at,approved_by_name,source,amount_cents').not('paid_at','is',null);
+      .select('kind,property_name,guest_name,event_at,event_time_label,paid_at,approved_by_name,approved_at,source,amount_cents').not('paid_at','is',null);
     _elStore=data||[];
   }catch(e){ _elStore=[]; }
   renderEarlyLateHist();
@@ -2101,7 +2101,7 @@ function renderEarlyLateHist(){
   (_elStore||[]).forEach(e=>rows.push({
     fecha:String(e.paid_at||e.event_at||'').slice(0,10), origen:'🛒 Store (huésped)',
     tipo:e.kind==='early_checkin'?'🔑 Early':e.kind==='extra_night'?'🌙 Noche extra':e.kind==='extra_guest'?'👤 Extra guest':e.kind==='pet_fee'?'🐾 Pet fee':e.kind==='early_11am'?'🌅 Early 11AM':e.kind==='late_4pm'?'⏰ Late 4PM':'🕗 Late', prop:e.property_name||'—',
-    quien:e.guest_name||'—', hora:e.event_time_label||'', monto:e.amount_cents?money(e.amount_cents/100):'', nota:e.approved_by_name||e.source||''
+    quien:e.guest_name||'—', hora:e.event_time_label||'', monto:e.amount_cents?money(e.amount_cents/100):'', nota:(e.approved_by_name||e.source||'')+(e.approved_at?(' · aprobó '+String(e.approved_at).slice(0,10)):'')
   }));
   // 2) Cleaner: early/late que el personal aplicó en servicios y ya están FACTURADOS (billed).
   (subs||[]).filter(s=>s.type==='service').forEach(s=>(s.items||[]).forEach(i=>{
