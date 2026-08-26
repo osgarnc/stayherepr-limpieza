@@ -115,3 +115,10 @@ grant select on ops_cancellations to service_role, authenticated;
 -- ============================================================
 --  FIN Fase 4
 -- ============================================================
+
+-- Lectura del ledger para mostrar la ESTADÍA (check-in/out) del huésped en el
+-- histórico de Early/Late (back office). Mismo tipo de dato que ops_reservations
+-- (que ya es legible por todos los autenticados) pero durable (no se purga).
+drop policy if exists p_rled_read on ops_reservations_ledger;
+create policy p_rled_read on ops_reservations_ledger
+  for select to authenticated using (true);

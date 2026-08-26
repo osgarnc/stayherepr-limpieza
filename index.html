@@ -2086,45 +2086,62 @@ async function setChargeStatus(itemId,key,val){
 }
 /* ---------- EARLY/LATE — registro histórico combinado (store pagado + cargos del cleaner facturados) ---------- */
 let _elStore=[];
+let _elStayByLead={}; // lead_uid -> {ci, co} (para mostrar la estadía del huésped)
 async function loadElStore(){
   try{
     const {data}=await sb.from('ops_upsell_events')
-      .select('kind,property_name,guest_name,event_at,event_time_label,paid_at,approved_by_name,approved_at,source,amount_cents').not('paid_at','is',null);
+      .select('lead_uid,kind,property_name,guest_name,event_at,event_time_label,paid_at,approved_by_name,approved_at,source,amount_cents').not('paid_at','is',null);
     _elStore=data||[];
   }catch(e){ _elStore=[]; }
+  // Estadía (check-in/out) por lead: el LEDGER es durable (no se purga) y cubre pasadas;
+  // ops_reservations cubre las vivas con la fecha más fresca. Se combinan (reservas gana).
+  try{
+    const leads=[...new Set((_elStore||[]).map(e=>e.lead_uid).filter(Boolean))];
+    _elStayByLead={};
+    if(leads.length){
+      const [led,resv]=await Promise.all([
+        sb.from('ops_reservations_ledger').select('lead_uid,check_in,check_out').in('lead_uid',leads),
+        sb.from('ops_reservations').select('lead_uid,check_in,check_out').in('lead_uid',leads)
+      ]);
+      (led.data||[]).forEach(r=>{ if(r.lead_uid) _elStayByLead[r.lead_uid]={ci:r.check_in,co:r.check_out}; });
+      (resv.data||[]).forEach(r=>{ if(r.lead_uid) _elStayByLead[r.lead_uid]={ci:r.check_in,co:r.check_out}; });
+    }
+  }catch(e){ _elStayByLead={}; }
   renderEarlyLateHist();
 }
 function renderEarlyLateHist(){
   const tb=document.getElementById('elHistTable');if(!tb)return;
   const rows=[];
   // 1) Store: early/late que el huésped pagó por el enlace.
-  (_elStore||[]).forEach(e=>rows.push({
+  (_elStore||[]).forEach(e=>{const st=_elStayByLead[e.lead_uid]||{};rows.push({
     fecha:String(e.paid_at||e.event_at||'').slice(0,10), origen:'🛒 Store (huésped)',
     tipo:e.kind==='early_checkin'?'🔑 Early':e.kind==='extra_night'?'🌙 Noche extra':e.kind==='extra_guest'?'👤 Extra guest':e.kind==='pet_fee'?'🐾 Pet fee':e.kind==='early_11am'?'🌅 Early 11AM':e.kind==='late_4pm'?'⏰ Late 4PM':'🕗 Late', prop:e.property_name||'—',
-    quien:e.guest_name||'—', hora:e.event_time_label||'', monto:e.amount_cents?money(e.amount_cents/100):'', nota:(e.approved_by_name||e.source||'')+(e.approved_at?(' · aprobó '+String(e.approved_at).slice(0,10)):'')
-  }));
+    quien:e.guest_name||'—', ci:st.ci||'', co:st.co||'', hora:e.event_time_label||'', monto:e.amount_cents?money(e.amount_cents/100):'', nota:(e.approved_by_name||e.source||'')+(e.approved_at?(' · aprobó '+String(e.approved_at).slice(0,10)):'')
+  });});
   // 2) Cleaner: early/late que el personal aplicó en servicios y ya están FACTURADOS (billed).
   (subs||[]).filter(s=>s.type==='service').forEach(s=>(s.items||[]).forEach(i=>{
     [['🔑 Early',i.earlyCheckin,i.earlyStatus],['🕗 Late',i.lateCheckout,i.lateStatus]].forEach(function(c){
       if((c[1]||0)>0 && c[2]==='billed') rows.push({
         fecha:s.date||'', origen:'🧹 Cleaner', tipo:c[0], prop:propName(i.prop),
-        quien:staffName(s.staff), hora:'', monto:money(c[1]), nota:'facturado'
+        quien:staffName(s.staff), ci:'', co:'', hora:'', monto:money(c[1]), nota:'facturado'
       });
     });
   }));
   rows.sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
   const q=(document.getElementById('elSearch')&&document.getElementById('elSearch').value||'').trim().toLowerCase();
-  const list=q?rows.filter(r=>(r.fecha+' '+r.origen+' '+r.tipo+' '+r.prop+' '+r.quien+' '+r.hora+' '+r.monto+' '+r.nota).toLowerCase().indexOf(q)>-1):rows;
+  const list=q?rows.filter(r=>(r.fecha+' '+r.origen+' '+r.tipo+' '+r.prop+' '+r.quien+' '+(r.ci||'')+' '+(r.co||'')+' '+r.hora+' '+r.monto+' '+r.nota).toLowerCase().indexOf(q)>-1):rows;
   const cnt=document.getElementById('elCount');if(cnt)cnt.textContent=list.length+(q?(' de '+rows.length):'')+' registro'+(list.length===1?'':'s');
-  if(!rows.length){tb.innerHTML='<tbody><tr><td colspan="7" class="muted" style="padding:24px;text-align:center">Aún no hay early/late facturados.</td></tr></tbody>';return;}
-  if(!list.length){tb.innerHTML='<thead><tr><th>Fecha</th><th>Origen</th><th>Tipo</th><th>Propiedad</th><th>Huésped / Personal</th><th>Hora</th><th>Monto</th></tr></thead><tbody><tr><td colspan="7" class="muted" style="padding:20px;text-align:center">Sin resultados para «'+opsEsc(q)+'».</td></tr></tbody>';return;}
-  tb.innerHTML='<thead><tr><th>Fecha</th><th>Origen</th><th>Tipo</th><th>Propiedad</th><th>Huésped / Personal</th><th>Hora</th><th>Monto</th></tr></thead><tbody>'+
+  const estadia=r=>r.ci?('<span style="white-space:nowrap">'+opsEsc(r.ci)+'</span> → <span style="white-space:nowrap">'+opsEsc(r.co||'?')+'</span>'):'<span class="muted">—</span>';
+  if(!rows.length){tb.innerHTML='<tbody><tr><td colspan="8" class="muted" style="padding:24px;text-align:center">Aún no hay early/late facturados.</td></tr></tbody>';return;}
+  if(!list.length){tb.innerHTML='<thead><tr><th>Fecha</th><th>Origen</th><th>Tipo</th><th>Propiedad</th><th>Huésped / Personal</th><th>Estadía (check-in → check-out)</th><th>Hora</th><th>Monto</th></tr></thead><tbody><tr><td colspan="8" class="muted" style="padding:20px;text-align:center">Sin resultados para «'+opsEsc(q)+'».</td></tr></tbody>';return;}
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Origen</th><th>Tipo</th><th>Propiedad</th><th>Huésped / Personal</th><th>Estadía (check-in → check-out)</th><th>Hora</th><th>Monto</th></tr></thead><tbody>'+
     list.map(r=>'<tr>'+
       '<td class="muted" style="font-size:12px;white-space:nowrap">'+opsEsc(r.fecha||'—')+'</td>'+
       '<td style="white-space:nowrap">'+opsEsc(r.origen)+'</td>'+
       '<td style="white-space:nowrap">'+r.tipo+'</td>'+
       '<td>'+opsEsc(r.prop)+'</td>'+
       '<td>'+opsEsc(r.quien)+'</td>'+
+      '<td style="font-size:12.5px">'+estadia(r)+'</td>'+
       '<td>'+opsEsc(r.hora||'—')+'</td>'+
       '<td style="white-space:nowrap"><b>'+(r.monto||'—')+'</b>'+(r.nota?' <span class="muted" style="font-size:11px">'+opsEsc(r.nota)+'</span>':'')+'</td>'+
     '</tr>').join('')+'</tbody>';
