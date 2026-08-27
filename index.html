@@ -2555,12 +2555,16 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
   const svcExtraRows=svcExtra.map(e=>'<tr><td>'+e.date+'</td><td>Servicio — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+catTxt(e.cat)+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
   const expRows=expenses.map(e=>'<tr><td>'+e.date+'</td><td>Reembolso — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+catTxt(e.cat)+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
   const rows=propRows+svcExtraRows+expRows;
-  // Subtotales por categoría (de los renglones de factura libre que la traen).
-  const catTotals={};svcExtra.concat(expenses).forEach(function(e){if(e.cat)catTotals[e.cat]=(catTotals[e.cat]||0)+Number(e.amount||0);});
-  const catKeys=Object.keys(catTotals).sort();
-  const catBlock=catKeys.length?(
-    '<table style="margin-top:-4px"><thead><tr><th>Subtotales por categoría</th><th class="r" style="width:110px">Monto</th></tr></thead><tbody>'+
-    catKeys.map(function(c){return '<tr><td>'+esc(c)+'</td><td class="r">'+money(catTotals[c])+'</td></tr>';}).join('')+
+  // Subtotales por PROPIEDAD y categoría (de los renglones de factura libre que la traen),
+  // para entrarlos fácil al programa de contabilidad.
+  const byPropCat={};svcExtra.concat(expenses).forEach(function(e){if(e.cat){var pk=e.prop||'(Sin propiedad)';(byPropCat[pk]=byPropCat[pk]||{})[e.cat]=(byPropCat[pk][e.cat]||0)+Number(e.amount||0);}});
+  const propKeys=Object.keys(byPropCat).sort();
+  const catBlock=propKeys.length?(
+    '<table style="margin-top:-4px"><thead><tr><th>Subtotales por propiedad y categoría</th><th class="r" style="width:110px">Monto</th></tr></thead><tbody>'+
+    propKeys.map(function(pk){var cats=byPropCat[pk];var cks=Object.keys(cats).sort();var sub=cks.reduce(function(a,c){return a+cats[c];},0);
+      return '<tr><td style="font-weight:700;background:#F3EEE3">'+esc(pk)+'</td><td class="r" style="font-weight:700;background:#F3EEE3">'+money(sub)+'</td></tr>'+
+        cks.map(function(c){return '<tr><td style="padding-left:26px;color:#3A5249">'+esc(c)+'</td><td class="r">'+money(cats[c])+'</td></tr>';}).join('');
+    }).join('')+
     '</tbody></table>'):'';
   const doc=
 '<!doctype html><html lang="es"><head><meta charset="utf-8"><title>'+invoiceNo(wk,p.name)+'</title><style>'+
