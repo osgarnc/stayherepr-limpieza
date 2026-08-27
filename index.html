@@ -3135,19 +3135,24 @@ async function viewReceipt(id){const s=subs.find(x=>x.id===id);
   if(s.customLines){
     const cl=s.customLines;const lines=(cl.lines||[]);
     const flSvc=expServices(s),flMat=expMaterials(s),flTax=flSvc*0.10,flNet=flSvc+flMat-flTax;
-    // Agrupar por PROPIEDAD; dentro, separar Servicios y Materiales; mostrar la categoría por renglón.
-    const groups={};
-    lines.forEach(function(l){var k=l.prop||'__none__';(groups[k]=groups[k]||{name:l.prop?propName(l.prop):'(Sin propiedad)',svc:[],mat:[],sub:0});(l.svc?groups[k].svc:groups[k].mat).push(l);groups[k].sub+=Number(l.amount||0);});
+    // Agrupar por PROPIEDAD; dentro, separar Servicios y Materiales; subtotales por categoría.
+    const groups={};const catAll={};
+    lines.forEach(function(l){var k=l.prop||'__none__';var g=(groups[k]=groups[k]||{name:l.prop?propName(l.prop):'(Sin propiedad)',svc:[],mat:[],sub:0,cats:{}});(l.svc?g.svc:g.mat).push(l);var amt=Number(l.amount||0);g.sub+=amt;var cat=l.category||'(Sin categoría)';g.cats[cat]=(g.cats[cat]||0)+amt;catAll[cat]=(catAll[cat]||0)+amt;});
     const keys=Object.keys(groups).sort(function(a,b){return String(groups[a].name).localeCompare(String(groups[b].name));});
     const catChip=function(c){return c?' <span style="background:#eef1f4;color:#3A5249;font-size:10.5px;padding:1px 7px;border-radius:999px;white-space:nowrap">'+esc(c)+'</span>':'';};
     const lineRow=function(l){return '<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;font-size:13px"><span>'+esc(l.desc)+catChip(l.category)+(l.date?' <span class="muted" style="font-size:11px">'+esc(l.date)+'</span>':'')+'</span><span style="white-space:nowrap">'+money(l.amount)+'</span></div>';};
     const section=function(title,arr,color){return arr.length?('<div style="margin-top:4px"><div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:'+color+'">'+title+'</div>'+arr.map(lineRow).join('')+'</div>'):'';};
+    const catSubLine=function(cats){var ks=Object.keys(cats).sort();return ks.length?('<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line);font-size:11.5px;color:var(--ink-soft)"><b>Por categoría:</b> '+ks.map(function(c){return esc(c)+' <b>'+money(cats[c])+'</b>';}).join(' · ')+'</div>'):'';};
     const groupsHtml=keys.map(function(k){var g=groups[k];return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13.5px">'+esc(g.name)+'</b><span class="muted" style="font-size:12px">Subtotal '+money(g.sub)+'</span></div>'+
-      section('Servicios',g.svc,'#0E7C7B')+section('Materiales',g.mat,'#3A5249')+
+      section('Servicios',g.svc,'#0E7C7B')+section('Materiales',g.mat,'#3A5249')+catSubLine(g.cats)+
     '</div>';}).join('');
+    const catKeys=Object.keys(catAll).sort();
+    const catTotalsHtml=catKeys.length?('<div style="border:1.5px solid var(--sea);border-radius:10px;padding:10px;margin-bottom:8px">'+
+      '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--sea)">Totales por categoría (toda la factura)</div>'+
+      catKeys.map(function(c){return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:2px 0"><span>'+esc(c)+'</span><span style="white-space:nowrap"><b>'+money(catAll[c])+'</b></span></div>';}).join('')+'</div>'):'';
     const body='<div style="font-weight:700;margin-bottom:8px">Factura libre'+(s.desc&&s.desc!=='Factura libre'?': '+esc(s.desc):'')+'</div>'+
-      groupsHtml+
+      groupsHtml+catTotalsHtml+
       '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px">'+
         (flSvc>0?'<tr><td style="padding:4px 0">Servicios (bruto)</td><td style="text-align:right">'+money(flSvc)+'</td></tr>'+
           '<tr><td style="padding:4px 0;color:var(--danger)">Retención −10% (servicios)</td><td style="text-align:right;color:var(--danger)">−'+money(flTax)+'</td></tr>':'')+
