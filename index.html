@@ -2555,6 +2555,13 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
   const svcExtraRows=svcExtra.map(e=>'<tr><td>'+e.date+'</td><td>Servicio — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+catTxt(e.cat)+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
   const expRows=expenses.map(e=>'<tr><td>'+e.date+'</td><td>Reembolso — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+catTxt(e.cat)+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
   const rows=propRows+svcExtraRows+expRows;
+  // Subtotales por categoría (de los renglones de factura libre que la traen).
+  const catTotals={};svcExtra.concat(expenses).forEach(function(e){if(e.cat)catTotals[e.cat]=(catTotals[e.cat]||0)+Number(e.amount||0);});
+  const catKeys=Object.keys(catTotals).sort();
+  const catBlock=catKeys.length?(
+    '<table style="margin-top:-4px"><thead><tr><th>Subtotales por categoría</th><th class="r" style="width:110px">Monto</th></tr></thead><tbody>'+
+    catKeys.map(function(c){return '<tr><td>'+esc(c)+'</td><td class="r">'+money(catTotals[c])+'</td></tr>';}).join('')+
+    '</tbody></table>'):'';
   const doc=
 '<!doctype html><html lang="es"><head><meta charset="utf-8"><title>'+invoiceNo(wk,p.name)+'</title><style>'+
 '*{box-sizing:border-box}body{font-family:Georgia,serif;color:#12261F;margin:0;padding:44px;background:#fff;font-size:14px}'+
@@ -2594,6 +2601,7 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
 '<div class="line">'+esc(company.phone)+'</div><div class="line">'+esc(company.email)+'</div></div>'+
 '</div>'+
 '<table><thead><tr><th style="width:110px">Fecha</th><th>Descripción</th><th class="r" style="width:110px">Monto</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+catBlock+
 '<div class="sub"><table>'+
 '<tr><td>Subtotal servicios (bruto)</td><td class="r">'+money(servicesGross)+'</td></tr>'+
 '<tr><td style="color:#C0492E">Taxes (−10% servicios)</td><td class="r" style="color:#C0492E">−'+money(tax)+'</td></tr>'+
