@@ -1009,12 +1009,46 @@ async function loadAll(){
       amount:Number(s.total),receipt:s.receipt_photo,customLines:s.custom_lines||null,status:s.status,paid:s.paid,archivedAt:s.archived_at};
   });
 }
+// Comprime/redimensiona una imagen antes de subir (baja MUCHO el egress y el storage).
+// Videos y formatos no decodificables pasan sin tocar. Si por algo falla, usa el original.
+async function compressImage(file,maxDim,quality){
+  try{
+    const t=(file&&file.type)||'';
+    if(!/^image\//.test(t)||/gif|svg/.test(t))return file; // no comprimir videos/gif/svg
+    const bmp=await createImageBitmap(file,{imageOrientation:'from-image'}).catch(()=>null);
+    if(!bmp)return file; // navegador no pudo decodificar (ej. HEIC) → original
+    const scale=Math.min(1,maxDim/Math.max(bmp.width,bmp.height));
+    const w=Math.max(1,Math.round(bmp.width*scale)),h=Math.max(1,Math.round(bmp.height*scale));
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+    cv.getContext('2d').drawImage(bmp,0,0,w,h);
+    const blob=await new Promise(function(res){cv.toBlob(res,'image/jpeg',quality);});
+    if(bmp.close)bmp.close();
+    if(!blob||blob.size>=file.size)return file; // si no reduce, quédate con el original
+    return blob;
+  }catch(e){console.error('compressImage',e);return file;}
+}
 async function upload(path,file){
-  const {error}=await sb.storage.from('evidence').upload(path,file,{upsert:true,contentType:file.type||'image/jpeg'});
+  let body=file,ctype=(file&&file.type)||'image/jpeg';
+  if(/^image\//.test(ctype)&&!/gif|svg/.test(ctype)){
+    const c=await compressImage(file,2000,0.8); // 2000px máx · JPEG 0.8: nítido para limpieza, daños y recibos
+    if(c!==file){body=c;ctype='image/jpeg';}
+  }
+  const {error}=await sb.storage.from('evidence').upload(path,body,{upsert:true,contentType:ctype});
   if(error){console.error('upload',error);toast('Error subiendo foto');return null;}
   return path;
 }
-async function signedUrl(path){if(!path)return null;const {data}=await sb.storage.from('evidence').createSignedUrl(path,3600);return data?data.signedUrl:null;}
+// Cache de URLs firmadas por sesión: reusar la MISMA URL deja que el navegador cachee la imagen
+// (deja de re-descargarla en cada vista → gran ahorro de egress). Se renueva antes de expirar (1h).
+const _signedCache={};
+async function signedUrl(path){
+  if(!path)return null;
+  const c=_signedCache[path];
+  if(c&&(Date.now()-c.t)<50*60*1000)return c.u;
+  const {data}=await sb.storage.from('evidence').createSignedUrl(path,3600);
+  const u=data?data.signedUrl:null;
+  if(u)_signedCache[path]={u:u,t:Date.now()};
+  return u;
+}
 function extOf(file){const t=(file&&file.type)||'';if(t.indexOf('video/')===0)return '.'+((t.split('/')[1]||'mp4').replace('quicktime','mov'));const n=(file&&file.name)||'';const m=n.match(/\.([a-z0-9]+)$/i);return m?'.'+m[1].toLowerCase():'.jpg';}
 function isVideoPath(p){return /\.(mp4|mov|webm|m4v|3gp|avi|mkv|quicktime)(\?|$)/i.test(p||'');}
 function evTag(url,style){if(!url)return '';return isVideoPath(url)?'<video src="'+url+'" controls playsinline style="'+style+'"></video>':'<img src="'+url+'" style="'+style+'">';}
@@ -1826,7 +1860,7 @@ function officeLiveTick(){
 }
 function startOfficeAutoRefresh(){
   if(_officeTimer)return;
-  _officeTimer=setInterval(officeLiveTick,30000);
+  _officeTimer=setInterval(officeLiveTick,90000);
 }
 /* ---------- DASHBOARD POR CONTRATISTA (YTD / mensual / bisemanal) ---------- */
 const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -3557,8 +3591,9 @@ async function bcastAddPhotos(files){
     if(!/^image\//.test(f.type||'')){toast('Solo imágenes');continue;}
     if(f.size>25*1024*1024){toast('Foto muy grande (máx 25MB): '+f.name);continue;}
     toast('Subiendo foto…');
-    const path='emg/'+Date.now()+'-'+Math.floor(Math.random()*1e9).toString(36)+bcastExt(f);
-    const {error}=await msgC().storage.from('broadcast').upload(path,f,{upsert:true,contentType:f.type||'image/jpeg'});
+    const body=await compressImage(f,2000,0.82); // comprimir antes de subir (menos egress)
+    const path='emg/'+Date.now()+'-'+Math.floor(Math.random()*1e9).toString(36)+(body!==f?'.jpg':bcastExt(f));
+    const {error}=await msgC().storage.from('broadcast').upload(path,body,{upsert:true,contentType:(body!==f?'image/jpeg':(f.type||'image/jpeg'))});
     if(error){console.error('bcast upload',error);toast('No se pudo subir '+f.name);continue;}
     // Enlace con dominio propio (proxy /p/* → bucket). Miniatura local con blob (más rápida).
     bcastPhotos.push({url:BCAST_IMG_BASE+path,path:path,name:f.name,thumb:URL.createObjectURL(f)});
