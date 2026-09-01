@@ -1719,7 +1719,7 @@ function renderPropList(){
         '</label>'+
         (s.cleaning?(
           '<div class="muted" style="font-size:12px;font-weight:600;margin-bottom:2px">🛏️ Foto(s) obligatoria(s): la(s) cama(s) arreglada(s)</div>'+
-          '<div class="muted" style="font-size:11.5px;margin-bottom:6px">Debe verse claramente la cama tendida. Si no es satisfactoria, la factura será rechazada.</div>'+
+          '<div style="font-size:12px;margin-bottom:6px;color:var(--danger);font-weight:700">⚠️ Debe verse claramente la cama tendida. Si no es satisfactoria, la factura será rechazada.</div>'+
           '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">'+
             (s.bedFiles||[]).map((f,idx)=>'<span style="display:inline-flex;align-items:center;gap:6px;background:#F1F9F8;border:1.5px solid var(--sea);color:var(--sea-deep);border-radius:10px;padding:6px 10px;font-size:12.5px">🛏️ Cama '+(idx+1)+' <b style="cursor:pointer" onclick="removeBedPhoto(\''+p.id+'\','+idx+')">✕</b></span>').join('')+
           '</div>'+
