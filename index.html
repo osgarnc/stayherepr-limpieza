@@ -1774,6 +1774,7 @@ async function submitAll(){
   try{
     const date=document.getElementById('svcDate').value||todayISO();
     const cleaned=ids.filter(pid=>selection[pid].cleaning&&selection[pid].bedFiles&&selection[pid].bedFiles.length);
+    const sent={date:date,services:[],expenses:[]}; // resumen para la confirmación post-envío
     // Total de subidas para la barra de progreso: fotos de camas + fotos de daños + recibos de gastos.
     let _tot=0;
     cleaned.forEach(pid=>{const s=selection[pid];_tot+=(s.bedFiles?s.bedFiles.length:0)+((s.damageOn&&s.damageFiles)?s.damageFiles.length:0);});
@@ -1800,6 +1801,7 @@ async function submitAll(){
           early_checkin:s.earlyCheckin?(company.fee_early_checkin||0.01):0,
           late_checkout:s.lateCheckout?(company.fee_late_checkout||0.01):0,
           extra_guest:s.extraGuest?(company.fee_extra_guest||0.01):0});
+        sent.services.push({prop:propName(pid),total:propServiceTotal(pid),bedFiles:(s.bedFiles||[]).slice(),damage:s.damageOn?(s.damage||'').trim():'',damageFiles:(s.damageFiles||[]).slice(),early:!!s.earlyCheckin,late:!!s.lateCheckout,guest:!!s.extraGuest});
       }
       progRender('Guardando servicio…');
       const {data:sub,error}=await sb.from('submissions').insert({type:'service',professional_id:currentStaff,date}).select().single();
@@ -1822,12 +1824,43 @@ async function submitAll(){
         if(!rp){toast('No se pudo subir un recibo');continue;}
         const {error:ge}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,total:parseFloat(g.amount)||0,expense_desc:g.desc.trim(),property_id:pid,receipt_photo:rp});
         if(ge)console.error(ge);
+        else sent.expenses.push({prop:propName(pid),desc:g.desc.trim(),amount:parseFloat(g.amount)||0,receiptFile:g.receiptFile});
       }
     }
     progRender('¡Listo!');
     selection={};await loadAll();renderPropList();
+    progDone();
     toast('✉️ Enviado a la administradora');
+    showSentConfirmation(sent);
   } finally { _sending=false; progDone(); }
+}
+// Confirmación post-envío: le muestra al personal EXACTAMENTE lo que mandó (con las fotos locales,
+// sin descargar nada) para asegurarse de que se envió y quedó bien. Queda pendiente de aprobación.
+function showSentConfirmation(sent){
+  if(!sent||(!sent.services.length&&!sent.expenses.length))return;
+  const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const st='width:calc(33% - 4px);height:92px;object-fit:cover;border-radius:8px';
+  const thumb=f=>{try{const u=URL.createObjectURL(f);return /^video\//.test((f&&f.type)||'')?'<video src="'+u+'" style="'+st+'" muted playsinline></video>':'<img src="'+u+'" style="'+st+'">';}catch(e){return '';}};
+  let body='<div style="background:#E1F3E9;border:1.5px solid var(--ok);border-radius:10px;padding:10px;margin-bottom:10px;font-weight:800;color:var(--ok)">✅ Enviado a la administradora · '+esc(sent.date)+'</div>'+
+    '<div class="muted" style="font-size:12.5px;margin-bottom:12px">Esto fue lo que enviaste. Quedó <b>pendiente de aprobación</b>. Revisa que las fotos se vean bien; si algo salió mal, avisa.</div>';
+  sent.services.forEach(function(sv){
+    const ex=[];if(sv.early)ex.push('Early Check-in');if(sv.late)ex.push('Late Check-out');if(sv.guest)ex.push('Extra huésped');
+    body+='<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">'+
+      '<div style="display:flex;justify-content:space-between;font-weight:700"><span>🧹 '+esc(sv.prop)+'</span><span>'+money(sv.total)+'</span></div>'+
+      (ex.length?'<div class="muted" style="font-size:12px;margin-top:2px">'+ex.join(' · ')+'</div>':'')+
+      '<div class="muted" style="font-size:11px;font-weight:600;margin:8px 0 3px">🛏️ Cama(s) enviada(s): '+sv.bedFiles.length+'</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:6px">'+sv.bedFiles.map(thumb).join('')+'</div>'+
+      (sv.damage||(sv.damageFiles&&sv.damageFiles.length)?'<div class="note" style="margin-top:8px;border-color:#e5b6a6;background:#fbeee8;font-size:12.5px"><b style="color:var(--coral)">⚠️ Daño:</b> '+esc(sv.damage||'')+'</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+(sv.damageFiles||[]).map(thumb).join('')+'</div>':'')+
+    '</div>';
+  });
+  sent.expenses.forEach(function(e){
+    body+='<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">'+
+      '<div style="display:flex;justify-content:space-between;font-weight:700"><span>🧾 Gasto · '+esc(e.prop)+'</span><span>'+money(e.amount)+'</span></div>'+
+      '<div class="muted" style="font-size:12.5px;margin-top:2px">'+esc(e.desc)+'</div>'+
+      (e.receiptFile?'<div style="margin-top:6px">'+thumb(e.receiptFile)+'</div>':'')+
+    '</div>';
+  });
+  openModal('✅ Enviado — revisa lo que mandaste',body);
 }
 function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();if(session&&session.canReconcile){renderRecOwners();renderRecExpenses();recDefaultMonth();}}
 /* ---------- AUTO-REFRESH DEL BACK OFFICE ----------
