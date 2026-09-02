@@ -189,7 +189,7 @@
     <div class="phone-body">
       <div class="seg">
         <button id="segRegistrar" class="on" onclick="segTo('registrar')">📋 Registrar</button>
-        <button id="segFacturas" onclick="segTo('facturas')">🧾 Facturas <span id="segFacturasBadge" style="display:none;background:var(--danger);color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:800;margin-left:2px"></span></button>
+        <button id="segFacturas" onclick="segTo('facturas')">🧾 Facturas</button>
         <button id="segReporte" onclick="segTo('reporte')">📝 Desahogo</button>
         <button id="segEarly" onclick="segTo('early')">🕐 Early/Late</button>
         <button id="segCalendar" onclick="segTo('calendar')">📅 Calendario</button>
@@ -1548,36 +1548,15 @@ function gastosBlock(pid,s){
     '<button class="btn ghost sm" style="width:100%" onclick="addGasto(\''+pid+'\')">➕ Añadir gasto</button>'+
   '</div>';
 }
-// Badge rojo en la pestaña Facturas con el # de rechazadas del personal (para que no pasen desapercibidas).
-function updateRejectedBadge(){
-  const b=document.getElementById('segFacturasBadge');if(!b)return;
-  const n=currentStaff?subs.filter(s=>s.status==='rejected'&&s.staff===currentStaff).length:0;
-  if(n>0){b.textContent=n;b.style.display='';}else{b.style.display='none';}
-}
 function renderMyInvoices(){
   const el=document.getElementById('myInvoices');if(!el)return;
-  updateRejectedBadge();
   if(!currentStaff){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Tu cuenta no está vinculada a un perfil.</p>';return;}
-  const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  // 🔴 RECHAZADAS — bien visibles y en rojo, arriba de todo.
-  const rejected=subs.filter(s=>s.status==='rejected'&&s.staff===currentStaff).sort((a,b)=>a.date<b.date?1:-1);
-  let rejHtml='';
-  if(rejected.length){
-    rejHtml='<div style="border:2px solid var(--danger);background:#FDECE7;border-radius:14px;padding:14px;margin-bottom:16px">'+
-      '<div style="font-weight:800;color:var(--danger);font-size:15.5px;margin-bottom:4px">❌ '+rejected.length+' factura(s) RECHAZADA(S)</div>'+
-      '<div style="color:var(--danger);font-size:12.5px;margin-bottom:8px;font-weight:600">No se pagarán. Repite el servicio con una <b>foto clara de la cama arreglada</b> y vuelve a enviarlo.</div>'+
-      rejected.map(function(s){
-        var det=s.type==='service'?('Servicio · '+((s.items||[]).map(i=>propName(i.prop)).join(', ')||'—')):(s.customLines?'Factura libre':('Gasto · '+(s.desc||'')));
-        return '<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid #f1c4b6;font-size:13px"><span>'+esc(det)+' <span class="muted">('+esc(s.date)+')</span></span><span style="color:var(--danger);font-weight:800;white-space:nowrap">RECHAZADA</span></div>';
-      }).join('')+
-    '</div>';
-  }
   const mine=subs.filter(s=>s.status==='approved'&&s.staff===currentStaff);
   const groups={};
   mine.forEach(s=>{const k=weekKey(s.date);(groups[k]=groups[k]||[]).push(s);});
   const keys=Object.keys(groups).sort().reverse();
-  if(!keys.length){el.innerHTML=rejHtml+'<p class="muted" style="text-align:center;padding:20px">Aún no tienes facturas aprobadas.</p>';return;}
-  el.innerHTML=rejHtml+keys.map(wk=>{
+  if(!keys.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">Aún no tienes facturas aprobadas.</p>';return;}
+  el.innerHTML=keys.map(wk=>{
     const list=groups[wk];let svc=0,exp=0;
     list.forEach(s=>{if(s.type==='service')s.items.forEach(i=>svc+=itemTotal(i));else {svc+=expServices(s);exp+=expMaterials(s);}});
     const tax=svc*0.10,total=svc-tax+exp;const paid=list.every(s=>s.paid);const k=wk+'|'+currentStaff;
@@ -1751,7 +1730,6 @@ function renderPropList(){
     el.appendChild(card);
   });
   recalc();
-  updateRejectedBadge();
 }
 function pickPhoto(pid,which,file){if(!file)return;const s=ensureSel(pid);
   if(which==='before')s.beforeFile=file;else if(which==='after')s.afterFile=file;
