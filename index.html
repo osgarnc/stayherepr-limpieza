@@ -4223,15 +4223,20 @@ async function lockRenderStatus(){
     const bar='<span style="display:inline-block;width:52px;height:8px;border-radius:4px;background:#e5e7eb;vertical-align:middle;overflow:hidden"><span style="display:block;height:100%;width:'+Math.max(4,Math.min(100,p))+'%;background:'+col+'"></span></span>';
     return bar+' <span style="color:'+col+';font-weight:600">'+p+'%</span>';
   };
-  const stateCell=(ls)=> ls==='locked'?'<span style="color:#166534;font-weight:600">🔒 Cerrada</span>'
-    : ls==='unlocked'?'<span style="color:#b45309;font-weight:600">🔓 Abierta</span>'
-    : '<span class="muted">⚪ s/d</span>';
+  // Si el estado es el ÚLTIMO conocido (la lectura en vivo no lo confirmó), se muestra
+  // atenuado con "(sin confirmar)" — como la app de Yale, que enseña el último estado leído.
+  const stateCell=(ls,stale)=>{
+    const tag=stale?' <span class="muted" style="font-weight:400;font-size:11.5px">(sin confirmar)</span>':'';
+    if(ls==='locked') return '<span style="color:'+(stale?'#6b7280':'#166534')+';font-weight:600">🔒 Cerrada</span>'+tag;
+    if(ls==='unlocked') return '<span style="color:'+(stale?'#6b7280':'#b45309')+';font-weight:600">🔓 Abierta</span>'+tag;
+    return '<span class="muted">⚪ s/d</span>';
+  };
   const rows=statuses.slice().sort((a,b)=>(a.percent==null?999:a.percent)-(b.percent==null?999:b.percent)).map(s=>
     '<tr style="border-top:1px solid var(--line)">'+
     '<td style="padding:7px 10px;font-weight:600">'+opsEsc(propName(s))+'</td>'+
     '<td style="padding:7px 10px;text-align:center">'+connCell(s.online,s.lastSeen)+'</td>'+
     '<td style="padding:7px 10px;white-space:nowrap">'+battCell(s.percent)+'</td>'+
-    '<td style="padding:7px 10px;text-align:center">'+stateCell(s.lockState)+'</td>'+
+    '<td style="padding:7px 10px;text-align:center">'+stateCell(s.lockState,s.lockStateStale)+'</td>'+
     '</tr>').join('');
   box.innerHTML='<table style="border-collapse:collapse;width:100%;max-width:600px;font-size:13.5px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden">'+
     '<thead><tr style="background:#f8fafc"><th style="padding:8px 10px;text-align:left">🔐 Propiedad</th><th style="padding:8px 10px;text-align:center">Conexión</th><th style="padding:8px 10px;text-align:left">Batería</th><th style="padding:8px 10px;text-align:center">Estado</th></tr></thead>'+
