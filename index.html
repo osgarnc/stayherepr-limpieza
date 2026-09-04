@@ -4257,19 +4257,30 @@ async function lockRenderEufyEvents(){
   catch(e){ box.innerHTML=''; return; }
   if(!events.length){ box.innerHTML='<div class="muted" style="font-size:12.5px">🚪 <b>Accesos Eufy (Coral):</b> sin actividad registrada todavía.</div>'; return; }
   const when=(iso)=>{ const d=new Date(iso); const ms=Date.now()-d.getTime(); const m=Math.floor(ms/60000); if(m<1) return 'ahora'; if(m<60) return 'hace '+m+' min'; const h=Math.floor(m/60); if(h<24) return 'hace '+h+'h'; return d.toLocaleDateString('es-PR',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('es-PR',{hour:'numeric',minute:'2-digit'}); };
+  const MAP={
+    // en vivo (P2P)
+    pin_verified:'🔓 PIN correcto — abrió', pin_incorrect:'⛔ PIN incorrecto',
+    locked:'🔒 Cerró', unlocked:'🔓 Abrió', alarm:'🚨 Bloqueo por intentos fallidos',
+    // histórico (event_type de la nube)
+    unlock_pw:'🔓 Abrió con PIN', unlock_temp_pw:'🔓 Abrió con PIN temporal',
+    unlock_manual:'🔓 Abrió (manual)', unlock_auto:'🔓 Abrió (auto)',
+    unlock_fingerprint:'🔓 Abrió con huella', unlock_app:'🔓 Abrió desde la app',
+    lock_pw:'🔒 Cerró con PIN', lock_temp_pw:'🔒 Cerró con PIN temporal',
+    lock_manual:'🔒 Cerró (manual)', lock_auto:'🔒 Cerró (auto)',
+    lock_keypad:'🔒 Cerró (teclado)', lock_fingerprint:'🔒 Cerró con huella',
+    lock_app:'🔒 Cerró desde la app', motion:'👤 Movimiento en la puerta'
+  };
   const label=(e)=>{
     if(e.event_type==='pin_verified') return e.ok?'🔓 PIN correcto — abrió':'⛔ PIN rechazado';
-    if(e.event_type==='pin_incorrect') return '⛔ PIN incorrecto';
-    if(e.event_type==='locked') return '🔒 Cerrada';
-    if(e.event_type==='unlocked') return '🔓 Abierta';
-    if(e.event_type==='alarm') return '🚨 Bloqueo por intentos fallidos';
-    return e.event_type;
+    return MAP[e.event_type]||('• '+e.event_type);
   };
-  const rows=events.slice(0,25).map(e=>
-    '<tr style="border-top:1px solid var(--line)">'+
-    '<td style="padding:5px 10px">'+label(e)+'</td>'+
+  const rows=events.slice(0,40).map(e=>{
+    const quien=e.who?' <span class="muted" style="font-size:11.5px">· '+opsEsc(e.who)+'</span>':'';
+    return '<tr style="border-top:1px solid var(--line)">'+
+    '<td style="padding:5px 10px">'+label(e)+quien+'</td>'+
     '<td style="padding:5px 10px;text-align:right" class="muted">'+when(e.at)+'</td>'+
-    '</tr>').join('');
+    '</tr>';
+  }).join('');
   box.innerHTML='<div style="font-size:13.5px;font-weight:700;margin:4px 0 6px">🚪 Accesos Eufy — Coral <span class="muted" style="font-weight:400;font-size:11.5px">(actividad de la puerta; la cerradura no identifica al huésped)</span></div>'+
     '<table style="border-collapse:collapse;width:100%;max-width:460px;font-size:13px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden"><tbody>'+rows+'</tbody></table>';
 }
