@@ -450,7 +450,7 @@
     <!-- Panel: Registro -->
     <div id="lsub-registro" class="hide">
       <div style="display:flex;align-items:center;gap:8px;margin:12px 0 8px">
-        <input type="search" id="lockLogSearch" placeholder="🔍 Buscar: huésped, fecha (2026-08-16), evento o PIN…" oninput="lockRenderLog()" style="flex:1;max-width:440px;padding:8px 12px;border:1.5px solid var(--line);border-radius:8px">
+        <input type="search" id="lockLogSearch" placeholder="🔍 Buscar: propiedad, huésped, fecha (2026-08-16), evento o PIN…" oninput="lockRenderLog()" style="flex:1;max-width:440px;padding:8px 12px;border:1.5px solid var(--line);border-radius:8px">
         <button class="btn ghost sm" onclick="cerradurasLoad()">↻</button>
         <span id="lockLogCount" class="muted" style="font-size:13px"></span>
       </div>
@@ -4112,19 +4112,21 @@ function lockRenderLog(){
   const tb=document.getElementById('lockLogTable'); if(!tb)return;
   const all=window._lockLogAll||[];
   const q=(document.getElementById('lockLogSearch')?.value||'').trim().toLowerCase();
-  const rowText=e=>[e.guest_name,e.code,(LOCK_EVENTS[e.event]||['',e.event])[1],e.event,e.detail,fmtLockDT(e.created_at),(e.created_at||'').slice(0,10)].map(v=>String(v||'').toLowerCase()).join(' ');
+  const prop=e=>(window._lockDevProp&&window._lockDevProp[e.device_id])||e.device_name||'—';
+  const rowText=e=>[e.guest_name,prop(e),e.code,(LOCK_EVENTS[e.event]||['',e.event])[1],e.event,e.detail,fmtLockDT(e.created_at),(e.created_at||'').slice(0,10)].map(v=>String(v||'').toLowerCase()).join(' ');
   const list=q?all.filter(e=>rowText(e).includes(q)):all;
   const cnt=document.getElementById('lockLogCount'); if(cnt) cnt.textContent=list.length+(q?(' de '+all.length):'')+' evento'+(list.length===1?'':'s');
   const rows=list.map(e=>{
     const ev=LOCK_EVENTS[e.event]||['•',e.event];
     return '<tr><td class="muted" style="font-size:12px;white-space:nowrap">'+fmtLockDT(e.created_at)+'</td>'+
       '<td style="white-space:nowrap">'+ev[0]+' '+opsEsc(ev[1])+'</td>'+
+      '<td class="muted" style="font-size:12.5px">'+opsEsc(prop(e))+'</td>'+
       '<td>'+opsEsc(e.guest_name||'—')+'</td>'+
       '<td style="text-align:center;font-weight:700;letter-spacing:1px">'+opsEsc(e.code||'')+'</td>'+
       '<td class="muted" style="font-size:12px">'+opsEsc(e.detail||'')+'</td></tr>';
   }).join('');
   const empty=q?'No hay eventos para «'+opsEsc(q)+'».':'Aún no hay eventos registrados.';
-  tb.innerHTML='<thead><tr><th>Fecha (PR)</th><th>Evento</th><th>Huésped / Staff</th><th style="text-align:center">PIN</th><th>Detalle</th></tr></thead><tbody>'+(rows||'<tr><td class="muted" colspan="5" style="padding:12px">'+empty+'</td></tr>')+'</tbody>';
+  tb.innerHTML='<thead><tr><th>Fecha (PR)</th><th>Evento</th><th>Propiedad</th><th>Huésped / Staff</th><th style="text-align:center">PIN</th><th>Detalle</th></tr></thead><tbody>'+(rows||'<tr><td class="muted" colspan="6" style="padding:12px">'+empty+'</td></tr>')+'</tbody>';
 }
 function lockRenderCodes(){
   const tb=document.getElementById('lockCodesTable'); if(!tb)return;
