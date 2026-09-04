@@ -360,13 +360,6 @@
     <!-- Estado por propiedad: conexión + batería -->
     <div id="lockStatusTable" style="margin:12px 0"><span class="muted" style="font-size:13px">Cargando estado…</span></div>
 
-    <!-- Accesos de la Eufy (Coral): colapsable, igual que las demás secciones secundarias -->
-    <div style="margin:6px 0 10px;font-size:13px">
-      <a onclick="eufyEventsToggle()" style="cursor:pointer;color:#2563eb;font-weight:600">🚪 Accesos de la puerta (Coral)</a>
-      <span id="eufyEventsHint" class="muted" style="margin-left:8px;font-size:12px"></span>
-    </div>
-    <div id="eufyEventsBox" class="hide" style="margin:0 0 10px"></div>
-
     <!-- Conexiones de proveedores (colapsable; solo para conectar / renovar token) -->
     <div style="margin:6px 0 10px;font-size:13px">
       <a onclick="lockToggleConn()" style="cursor:pointer;color:#2563eb;font-weight:600">⚙️ Conexiones de proveedores</a>
@@ -3973,7 +3966,6 @@ async function cerradurasLoad(){
   else{ box.innerHTML='🔴 <b>Kwikset no conectado.</b> Conéctate una vez para empezar.'; form.classList.remove('hide'); window._kwiksetDown=true; }
   lockConnWarnUpdate();
   lockRenderStatus();
-  lockRenderEufyEvents();
   // Interruptores
   document.getElementById('lockEnabled').checked=(st.settings&&st.settings.lock_codes_enabled==='true');
   document.getElementById('lockSendEnabled').checked=(st.settings&&st.settings.lock_send_codes_enabled==='true');
@@ -4251,41 +4243,6 @@ async function lockRenderStatus(){
   box.innerHTML='<table style="border-collapse:collapse;width:100%;max-width:600px;font-size:13.5px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden">'+
     '<thead><tr style="background:#f8fafc"><th style="padding:8px 10px;text-align:left">🔐 Propiedad</th><th style="padding:8px 10px;text-align:center">Conexión</th><th style="padding:8px 10px;text-align:left">Batería</th><th style="padding:8px 10px;text-align:center">Estado</th></tr></thead>'+
     '<tbody>'+rows+'</tbody></table>';
-}
-// Accesos de la Eufy (Coral): log de actividad de la puerta (historial de la nube: quién/qué/cuándo).
-// Sección COLAPSABLE, con el mismo estilo de tabla que el estado de arriba.
-function eufyEventsToggle(){ document.getElementById('eufyEventsBox').classList.toggle('hide'); }
-async function lockRenderEufyEvents(){
-  const box=document.getElementById('eufyEventsBox'); if(!box) return;
-  const hint=document.getElementById('eufyEventsHint');
-  let events;
-  try{ const r=await lockAdmin('eufy_events'); events=(r&&r.events)||[]; }
-  catch(e){ if(hint) hint.textContent=''; box.innerHTML=''; return; }
-  const when=(iso)=>{ const d=new Date(iso); const ms=Date.now()-d.getTime(); const m=Math.floor(ms/60000); if(m<1) return 'ahora'; if(m<60) return 'hace '+m+' min'; const h=Math.floor(m/60); if(h<24) return 'hace '+h+'h'; return d.toLocaleDateString('es-PR',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('es-PR',{hour:'numeric',minute:'2-digit'}); };
-  if(!events.length){ if(hint) hint.textContent='· sin actividad aún'; box.innerHTML='<span class="muted" style="font-size:13px">Sin actividad registrada todavía.</span>'; return; }
-  if(hint) hint.textContent='· '+events.length+' registros · últ. '+when(events[0].at);
-  const MAP={
-    pin_verified:'🔓 Abrió con PIN', pin_incorrect:'⛔ PIN incorrecto',
-    locked:'🔒 Cerró', unlocked:'🔓 Abrió', alarm:'🚨 Bloqueo por intentos fallidos',
-    unlock_pw:'🔓 Abrió con PIN', unlock_temp_pw:'🔓 Abrió con PIN temporal',
-    unlock_manual:'🔓 Abrió (manual)', unlock_auto:'🔓 Abrió (auto)',
-    unlock_fingerprint:'🔓 Abrió con huella', unlock_app:'🔓 Abrió desde la app',
-    lock_pw:'🔒 Cerró con PIN', lock_temp_pw:'🔒 Cerró con PIN temporal',
-    lock_manual:'🔒 Cerró (manual)', lock_auto:'🔒 Cerró (auto)',
-    lock_keypad:'🔒 Cerró (teclado)', lock_fingerprint:'🔒 Cerró con huella',
-    lock_app:'🔒 Cerró desde la app', motion:'👤 Movimiento en la puerta'
-  };
-  const label=(e)=> e.event_type==='pin_verified' ? (e.ok?'🔓 Abrió con PIN':'⛔ PIN rechazado') : (MAP[e.event_type]||('• '+e.event_type));
-  const rows=events.slice(0,40).map(e=>
-    '<tr style="border-top:1px solid var(--line)">'+
-    '<td style="padding:7px 10px">'+label(e)+'</td>'+
-    '<td style="padding:7px 10px">'+(e.who?opsEsc(e.who):'<span class="muted">—</span>')+'</td>'+
-    '<td style="padding:7px 10px;text-align:right;white-space:nowrap" class="muted">'+when(e.at)+'</td>'+
-    '</tr>').join('');
-  box.innerHTML='<table style="border-collapse:collapse;width:100%;max-width:600px;font-size:13.5px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden">'+
-    '<thead><tr style="background:#f8fafc"><th style="padding:8px 10px;text-align:left">🚪 Actividad</th><th style="padding:8px 10px;text-align:left">Quién</th><th style="padding:8px 10px;text-align:right">Cuándo</th></tr></thead>'+
-    '<tbody>'+rows+'</tbody></table>'+
-    '<p class="muted" style="font-size:11.5px;margin:6px 2px 0">Coral (Eufy). El "quién" es el nombre del código en la cerradura; los eventos manuales/automáticos no lo traen.</p>';
 }
 function yaleToggleForm(){ document.getElementById('yaleConnForm').classList.toggle('hide'); }
 async function yaleConnect(){
