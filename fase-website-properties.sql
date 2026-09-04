@@ -51,7 +51,8 @@ values
   ('36987887-b6b4-4683-bb4b-f43f6f14b1ed','Salo · Casa Verde 2nd Floor',9,4,4,158,2,1,2,4.9,0,1,'San Juan','/property-details/36987887-b6b4-4683-bb4b-f43f6f14b1ed/salo-casa-verde-2nd-floor-by-stay-here-pr',true),
   ('cc53c78a-f0ef-46fe-9803-63a7c34ed9fc','SALO · Casa Verde — Casa Completa (4 hab)',10,10,10,311,4,2,5,4.8,0,1,'San Juan','/property-details/cc53c78a-f0ef-46fe-9803-63a7c34ed9fc/salo-casa-verde-4-bdrm-house-by-stay-here-pr',true),
   ('9efdcd80-47d7-4966-92e9-c116f04cf440','Spacious Loft · Sea View Atlantis',11,5,5,242,2,2,2,4.9,0,1,'San Juan','/property-details/9efdcd80-47d7-4966-92e9-c116f04cf440/spacious-loft-sea-view--by-stay-here-pr',true),
-  ('b6373f38-fbe2-4422-ae8c-9e30fd6433db','Stylish 1BR · Coral Beach',12,4,4,305,1,1,2,4.9,1,3,'Carolina','/property-details/b6373f38-fbe2-4422-ae8c-9e30fd6433db/stylish-designed-1br-%E2%80%A2-coral-beach-by-stay-here-pr',true)
+  ('b6373f38-fbe2-4422-ae8c-9e30fd6433db','Stylish 1BR · Coral Beach',12,4,4,305,1,1,2,4.9,1,3,'Carolina','/property-details/b6373f38-fbe2-4422-ae8c-9e30fd6433db/stylish-designed-1br-%E2%80%A2-coral-beach-by-stay-here-pr',true),
+  ('055c75bb-47fc-4ec6-ac08-90956ecee867','Salo · Corner Urban Stay',13,5,5,89,3,1,3,4.8,0,1,'Santurce, San Juan','/property-details/055c75bb-47fc-4ec6-ac08-90956ecee867/salo-corner-urban-stay-by-stay-here-pr',true)
 on conflict (uid) do update set
   name=excluded.name, price=excluded.price, bedrooms=excluded.bedrooms,
   bathrooms=excluded.bathrooms, beds=excluded.beds, rating=excluded.rating,
