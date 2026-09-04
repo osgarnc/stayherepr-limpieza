@@ -360,6 +360,9 @@
     <!-- Estado por propiedad: conexión + batería -->
     <div id="lockStatusTable" style="margin:12px 0"><span class="muted" style="font-size:13px">Cargando estado…</span></div>
 
+    <!-- Accesos de la Eufy (Coral): actividad de la puerta capturada por el daemon -->
+    <div id="eufyEventsBox" style="margin:12px 0"></div>
+
     <!-- Conexiones de proveedores (colapsable; solo para conectar / renovar token) -->
     <div style="margin:6px 0 10px;font-size:13px">
       <a onclick="lockToggleConn()" style="cursor:pointer;color:#2563eb;font-weight:600">⚙️ Conexiones de proveedores</a>
@@ -3966,6 +3969,7 @@ async function cerradurasLoad(){
   else{ box.innerHTML='🔴 <b>Kwikset no conectado.</b> Conéctate una vez para empezar.'; form.classList.remove('hide'); window._kwiksetDown=true; }
   lockConnWarnUpdate();
   lockRenderStatus();
+  lockRenderEufyEvents();
   // Interruptores
   document.getElementById('lockEnabled').checked=(st.settings&&st.settings.lock_codes_enabled==='true');
   document.getElementById('lockSendEnabled').checked=(st.settings&&st.settings.lock_send_codes_enabled==='true');
@@ -4243,6 +4247,31 @@ async function lockRenderStatus(){
   box.innerHTML='<table style="border-collapse:collapse;width:100%;max-width:600px;font-size:13.5px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden">'+
     '<thead><tr style="background:#f8fafc"><th style="padding:8px 10px;text-align:left">🔐 Propiedad</th><th style="padding:8px 10px;text-align:center">Conexión</th><th style="padding:8px 10px;text-align:left">Batería</th><th style="padding:8px 10px;text-align:center">Estado</th></tr></thead>'+
     '<tbody>'+rows+'</tbody></table>';
+}
+// Accesos de la Eufy (Coral): actividad de la puerta que capturó el daemon (PIN/cerrada/abierta).
+// La cerradura NO dice qué huésped fue, solo la actividad con hora.
+async function lockRenderEufyEvents(){
+  const box=document.getElementById('eufyEventsBox'); if(!box) return;
+  let events;
+  try{ const r=await lockAdmin('eufy_events'); events=(r&&r.events)||[]; }
+  catch(e){ box.innerHTML=''; return; }
+  if(!events.length){ box.innerHTML='<div class="muted" style="font-size:12.5px">🚪 <b>Accesos Eufy (Coral):</b> sin actividad registrada todavía.</div>'; return; }
+  const when=(iso)=>{ const d=new Date(iso); const ms=Date.now()-d.getTime(); const m=Math.floor(ms/60000); if(m<1) return 'ahora'; if(m<60) return 'hace '+m+' min'; const h=Math.floor(m/60); if(h<24) return 'hace '+h+'h'; return d.toLocaleDateString('es-PR',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('es-PR',{hour:'numeric',minute:'2-digit'}); };
+  const label=(e)=>{
+    if(e.event_type==='pin_verified') return e.ok?'🔓 PIN correcto — abrió':'⛔ PIN rechazado';
+    if(e.event_type==='pin_incorrect') return '⛔ PIN incorrecto';
+    if(e.event_type==='locked') return '🔒 Cerrada';
+    if(e.event_type==='unlocked') return '🔓 Abierta';
+    if(e.event_type==='alarm') return '🚨 Bloqueo por intentos fallidos';
+    return e.event_type;
+  };
+  const rows=events.slice(0,25).map(e=>
+    '<tr style="border-top:1px solid var(--line)">'+
+    '<td style="padding:5px 10px">'+label(e)+'</td>'+
+    '<td style="padding:5px 10px;text-align:right" class="muted">'+when(e.at)+'</td>'+
+    '</tr>').join('');
+  box.innerHTML='<div style="font-size:13.5px;font-weight:700;margin:4px 0 6px">🚪 Accesos Eufy — Coral <span class="muted" style="font-weight:400;font-size:11.5px">(actividad de la puerta; la cerradura no identifica al huésped)</span></div>'+
+    '<table style="border-collapse:collapse;width:100%;max-width:460px;font-size:13px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden"><tbody>'+rows+'</tbody></table>';
 }
 function yaleToggleForm(){ document.getElementById('yaleConnForm').classList.toggle('hide'); }
 async function yaleConnect(){
