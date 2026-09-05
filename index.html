@@ -4192,8 +4192,20 @@ async function yaleStatusLoad(){
   const line=document.getElementById('yaleStatusLine'); if(!line) return;
   try{
     const r=await lockAdmin('yale_status');
-    if(r&&r.connected){ const h=r.hoursLeft; line.innerHTML='<span class="muted">token válido'+(h!=null?' ~'+(h>=48?Math.round(h/24)+' días':h+'h'):'')+'</span>'; window._yaleDown=(h!=null&&h<120); }
-    else{ line.innerHTML='🔴 sin sesión — siembra el token'; window._yaleDown=true; }
+    if(r&&r.connected){
+      const h=r.hoursLeft;
+      const dias=(h!=null)?Math.max(0,Math.round(h/24)):null;
+      const vence=r.expiresAt?new Date(r.expiresAt).toLocaleDateString('es-PR',{day:'numeric',month:'short',year:'numeric'}):null;
+      // <7 días → rojo "renueva ya"; <14 → ámbar "renueva pronto"; si no, verde.
+      let txt, col;
+      if(dias==null){ txt='token válido'; col='#166534'; }
+      else if(dias<=7){ txt='⚠️ vence en '+dias+' día'+(dias===1?'':'s')+' — renueva ya'; col='#b91c1c'; }
+      else if(dias<=14){ txt='vence en '+dias+' días — renueva pronto'; col='#b45309'; }
+      else{ txt='le quedan '+dias+' días'; col='#166534'; }
+      line.innerHTML='<span style="color:'+col+';font-weight:600">'+txt+'</span>'+(vence?' <span class="muted" style="font-weight:400">· vence '+vence+'</span>':'');
+      window._yaleDown=(dias!=null&&dias<=7);
+    }
+    else{ line.innerHTML='<span style="color:#b91c1c;font-weight:600">🔴 sin sesión — siembra el token</span>'; window._yaleDown=true; }
   }catch(e){ line.textContent='(no se pudo leer el estado)'; window._yaleDown=false; }
   lockConnWarnUpdate();
 }
