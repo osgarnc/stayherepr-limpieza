@@ -4250,7 +4250,7 @@ async function lockRenderStatus(){
     '<td style="padding:7px 10px;font-weight:600">'+opsEsc(propName(s))+'</td>'+
     '<td style="padding:7px 10px;text-align:center">'+connCell(s.online,s.lastSeen)+'</td>'+
     '<td style="padding:7px 10px;white-space:nowrap">'+battCell(s.percent)+'</td>'+
-    '<td style="padding:7px 10px;text-align:center">'+stateCell(s.lockState,s.lockStateStale)+'</td>'+
+    '<td style="padding:7px 10px;text-align:center">'+(s.isLockbox?'<span style="color:#166534;font-weight:600">🔑 Caja de llaves</span>':stateCell(s.lockState,s.lockStateStale))+'</td>'+
     '</tr>').join('');
   box.innerHTML='<table style="border-collapse:collapse;width:100%;max-width:600px;font-size:13.5px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden">'+
     '<thead><tr style="background:#f8fafc"><th style="padding:8px 10px;text-align:left">🔐 Propiedad</th><th style="padding:8px 10px;text-align:center">Conexión</th><th style="padding:8px 10px;text-align:left">Batería</th><th style="padding:8px 10px;text-align:center">Estado</th></tr></thead>'+
