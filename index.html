@@ -2327,28 +2327,51 @@ async function contImportHostfully(rows,uploadId){
    el dinero en renglones. Si el reparto no da exacto, la diferencia la absorbe
    la COMISIÓN (es el residuo del negocio; la limpieza y el impuesto son fijos)
    y queda anotado para que se vea.                                           */
-let contYaDesglosado={};
+// Una reserva puede cobrarse en varios pagos: el original, una extensión por
+// Airbnb, otra por la tienda. Hostfully la reporta como UNA línea con el total.
+// Por eso aquí solo dejamos una marca: el desglose de verdad se arma en
+// contRepartir(), cuando ya sabemos cuánto entró en total por esa reserva.
 function contSplitReserva(fin,recibido,nota){
+  return [{__res:true,fin:fin,recibido:_c2(recibido),nota:nota||''}];
+}
+// Reparte los pagos de cada reserva. Desglosa UNA vez contra el total recibido
+// y le da a cada pago su parte proporcional: así la limpieza, la comisión y el
+// pago al dueño quedan en la misma proporción sin importar en cuántos pagos
+// llegó el dinero.
+function contRepartir(payouts){
+  const total={};
+  payouts.forEach(p=>p.lines.forEach(function(l){
+    if(!l.__res)return;
+    const k=l.fin.guest_key+'|'+l.fin.check_in;
+    total[k]=_c2((total[k]||0)+l.recibido);
+  }));
+  payouts.forEach(function(p){
+    const out=[];
+    p.lines.forEach(function(l){
+      if(!l.__res){out.push(l);return;}
+      const k=l.fin.guest_key+'|'+l.fin.check_in;
+      const tot=total[k];
+      const base=contLineasReserva(l.fin,tot,l.nota);
+      if(Math.abs(tot-l.recibido)<0.005){out.push.apply(out,base);return;}
+      // Este pago se lleva su fracción de cada renglón. El redondeo sobrante
+      // se ajusta en el renglón más grande para cuadrar al centavo.
+      const f=tot?l.recibido/tot:0;
+      const parte=base.map(x=>Object.assign({},x,{amount:_c2(x.amount*f)}));
+      const dif=_c2(l.recibido-_c2(parte.reduce((a,x)=>a+x.amount,0)));
+      if(Math.abs(dif)>=0.005&&parte.length){
+        let big=0;parte.forEach((x,i)=>{if(Math.abs(x.amount)>Math.abs(parte[big].amount))big=i;});
+        parte[big].amount=_c2(parte[big].amount+dif);
+      }
+      out.push.apply(out,parte.filter(x=>Math.abs(x.amount)>=0.005));
+    });
+    p.lines=out;
+  });
+}
+function contLineasReserva(fin,recibido,nota){
   const propId=fin.property_id, cls=contClassOf(propId);
   const g=fin.guest_name+(nota?' — '+nota:'');
   const mk=(kind,amount,desc)=>({kind,amount:_c2(amount),property_id:propId,
     qbo_class_id:cls,guest_name:fin.guest_name,description:desc});
-  const clave=fin.guest_key+'|'+fin.check_in;
-
-  // Segunda vez que aparece la misma reserva (un ajuste de Airbnb, un segundo
-  // tramo del payout, un reembolso parcial): NO se vuelve a desglosar, porque
-  // la limpieza y el impuesto ya se cobraron una vez. Se reparte entre
-  // comisión y dueño con la misma proporción del desglose original.
-  if(contYaDesglosado[clave]){
-    const base=fin.due_stayhere+fin.owner_payout;
-    const pct=base>0?fin.due_stayhere/base:1;
-    const com=_c2(recibido*pct), due=_c2(recibido-com);
-    return [mk('comision',com,g+' — ajuste posterior'),
-            mk('dueno',due,g+' — ajuste posterior, parte del dueño')]
-           .filter(l=>Math.abs(l.amount)>=0.005);
-  }
-  contYaDesglosado[clave]=true;
-
   const lines=[];
   const push=(k,a,d)=>{ if(Math.abs(a)>=0.005)lines.push(mk(k,a,d)); };
   const limpiezaAlDueno=contCleaningToOwner(propId);
@@ -2459,7 +2482,6 @@ async function contAnalizar(){
   contLedger={};(led.data||[]).forEach(function(r){
     const k=_cKey(r.guest_name);if(!k)return;
     if(!contLedger[k]||String(r.check_in)>String(contLedger[k].check_in))contLedger[k]=r;});
-  contYaDesglosado={};
   if(!contFin.length){
     if(out)out.innerHTML='<p class="muted" style="padding:10px">Todavía no has subido el reporte de dueños de Hostfully. Sin él no hay desglose que cuadrar.</p>';
     return;
@@ -2483,6 +2505,7 @@ async function contAnalizar(){
     else if(u.kind==='paypal')payouts=payouts.concat(contArmarPaypal(rows,month));
     else if(u.kind==='stripe')payouts=payouts.concat(contArmarStripe(rows,month,u.account_label||'stripe'));
   }
+  contRepartir(payouts);
   await contGuardarPayouts(month,payouts);
   await contReload();
   const listos=payouts.filter(p=>p.status==='listo').length;
