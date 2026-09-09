@@ -765,7 +765,10 @@
     <div style="border:1.5px solid var(--line);border-radius:14px;padding:14px;margin:12px 0">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <h3 style="font-size:15px;color:var(--brand);margin:0">2 · Cuadrar</h3>
-        <button class="btn sm" onclick="contAnalizar()">🔍 Cuadrar el mes</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn sm ghost" onclick="contRehacer()">🔄 Rehacer desde cero</button>
+          <button class="btn sm" onclick="contAnalizar()">🔍 Cuadrar el mes</button>
+        </div>
       </div>
       <p class="muted" style="font-size:12.5px;margin:6px 0 0">Agrupa cada payout, le busca sus reservas y arma el desglose. No escribe nada en QuickBooks todavía.</p>
       <div id="contResumen" style="margin-top:10px"></div>
@@ -2209,9 +2212,48 @@ async function contRefreshUploads(){
     const el=document.getElementById('contState-'+f.kind);if(!el)return;
     const list=by[f.kind]||[];
     el.innerHTML=list.length
-      ? list.map(u=>'✅ '+_cEsc(u.account_label?u.account_label+' · ':'')+u.row_count+' filas').join('<br>')
+      ? list.map(u=>'<div style="display:flex;align-items:center;gap:5px;margin-top:2px">'+
+          '<span>✅ '+_cEsc(u.account_label?u.account_label+' · ':'')+u.row_count+' filas</span>'+
+          '<span title="'+_cEsc(u.filename||'')+'" class="muted" style="font-size:10.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_cEsc(u.filename||'')+'</span>'+
+          '<button onclick="contBorrarUpload(\''+u.id+'\')" title="Quitar este archivo" '+
+            'style="border:0;background:none;color:var(--danger);cursor:pointer;font-size:13px;padding:0 3px">✕</button>'+
+        '</div>').join('')
       : '<span style="color:var(--ink-soft)">sin subir</span>';
   });
+  contCobertura();
+}
+// Quitar un archivo mal subido. Si es un reporte de dueños, se llevan también
+// las reservas que importó: si no, el desglose malo se queda para siempre.
+async function contBorrarUpload(id){
+  const {data:u}=await sb.from('cont_uploads').select('*').eq('id',id).maybeSingle();
+  if(!u)return;
+  const esHf=u.kind==='hostfully';
+  if(!confirm('¿Quitar "'+(u.filename||u.kind)+'"?'+
+    (esHf?'\n\nTambién se borran las reservas que importó ese archivo.':'')))return;
+  if(esHf)await sb.from('cont_reservation_finance').delete().eq('upload_id',id);
+  if(u.storage_path){try{await sb.storage.from('contabilidad').remove([u.storage_path]);}catch(e){}}
+  const {error}=await sb.from('cont_uploads').delete().eq('id',id);
+  if(error){console.error(error);toast('No se pudo quitar');return;}
+  toast('Archivo quitado'+(esHf?'. Vuelve a cuadrar el mes.':''));
+  contRefreshUploads();
+}
+// Qué periodo cubre el desglose cargado. Es el dato que dice de un vistazo si
+// las reservas del mes que estás cuadrando están o no.
+async function contCobertura(){
+  const el=document.getElementById('contUploadLog');if(!el)return;
+  const {data,error}=await sb.from('cont_reservation_finance')
+    .select('check_in').order('check_in');
+  if(error||!data||!data.length){
+    el.innerHTML='<span style="color:var(--danger)">Todavía no hay ningún desglose cargado. Empieza por el reporte de dueños de Hostfully.</span>';
+    return;}
+  const ini=data[0].check_in, fin=data[data.length-1].check_in;
+  const mes=(document.getElementById('contMonth')||{}).value||'';
+  // Airbnb paga al día siguiente del check-in, así que para cuadrar un mes hacen
+  // falta las reservas de ese mes y las siguientes (los pagos por adelantado).
+  const cubre=mes&&ini.slice(0,7)<=mes&&fin.slice(0,7)>=mes;
+  el.innerHTML='<b>'+data.length+'</b> reserva(s) con desglose · check-in del <b>'+_cEsc(ini)+'</b> al <b>'+_cEsc(fin)+'</b>'+
+    (mes?(cubre?' <span style="color:var(--sea)">✅ cubre '+_cEsc(mes)+'</span>'
+               :' <span style="color:var(--danger)">⚠️ NO cubre '+_cEsc(mes)+' — vuelve a exportar el reporte con ese rango</span>'):'');
 }
 async function contSubir(kind,file){
   if(!file)return;
@@ -2239,11 +2281,9 @@ async function contSubir(kind,file){
 
   if(kind==='hostfully'){
     const n=await contImportHostfully(rows,up.data.id);
-    if(log)log.textContent='Reporte de Hostfully: '+n+' reserva(s) con su desglose.';
     toast(n+' reservas importadas');
   }else{
-    if(log)log.textContent=file.name+' guardado ('+rows.length+' filas). Dale a Cuadrar el mes.';
-    toast('Archivo guardado');
+    toast('Archivo guardado. Dale a Cuadrar el mes.');
   }
   contRefreshUploads();
 }
@@ -2387,6 +2427,19 @@ function contBuscarFin(guest,fecha){
   return cands[0];
 }
 
+// Rehacer: tira todo lo cuadrado que NO esté ya en QuickBooks y lo arma otra
+// vez desde los archivos. Lo posteado no se toca — para eso está Anular en QBO.
+async function contRehacer(){
+  const month=(document.getElementById('contMonth')||{}).value;
+  if(!month){toast('Elige el mes');return;}
+  const {data}=await sb.from('cont_payouts').select('id,status').eq('month',month);
+  const post=(data||[]).filter(p=>p.status==='posteado').length;
+  const otros=(data||[]).length-post;
+  if(!confirm('Se borran los '+otros+' payout(s) que todavía no están en QuickBooks '+
+    'y se vuelven a armar desde los archivos.'+
+    (post?'\n\nLos '+post+' que ya están posteados NO se tocan.':'')))return;
+  await contAnalizar();
+}
 async function contAnalizar(){
   const month=(document.getElementById('contMonth')||{}).value;
   if(!month){toast('Elige el mes');return;}
