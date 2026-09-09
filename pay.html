@@ -158,8 +158,22 @@
     var cur = info.currency || 'usd';
     var tiers = (info.tiers && info.tiers.length) ? info.tiers : null;
 
+    var isBirthday = kind === 'birthday';
     var priceHtml, controlHtml='';
-    if(tiers){
+    if(tiers && isBirthday){
+      // Cumpleaños: opciones VISIBLES (radios) para que se vea el champán. Preselecciona el de champán.
+      var champIdx = -1;
+      for(var ci=0; ci<tiers.length; ci++){ if(/champ/i.test(tiers[ci].label)) champIdx=ci; }
+      if(champIdx<0) champIdx = tiers.length-1;
+      var cards = tiers.map(function(tr,i){
+        return '<label style="display:flex;align-items:center;gap:10px;padding:14px;border:1.5px solid var(--line);border-radius:12px;margin-bottom:10px;cursor:pointer">'
+          + '<input type="radio" name="tsel" value="'+i+'"'+(i===champIdx?' checked':'')+' style="width:20px;height:20px;flex:0 0 auto">'
+          + '<span style="flex:1;font-size:15px">'+esc(tr.label)+'</span>'
+          + '<b style="font-size:17px">'+money(tr.amountCents,cur)+'</b></label>';
+      }).join('');
+      priceHtml = '';
+      controlHtml = '<div class="row"><label>'+esc(tl)+'</label>'+cards+'</div>';
+    } else if(tiers){
       // Early/Late por hora: el huésped elige un tramo (label + precio); el precio se actualiza.
       var opts = tiers.map(function(tr,i){ return '<option value="'+i+'">'+esc(tr.label)+' — '+money(tr.amountCents,cur)+'</option>'; }).join('');
       priceHtml = '<div class="price"><b id="px">'+money(tiers[0].amountCents,cur)+'</b><span>'+esc(t().each)+'</span></div>';
@@ -179,20 +193,26 @@
       '<h1>'+esc(kind==="extra_night" ? (info.service||t().title[kind]) : (t().title[kind]||info.service))+'</h1>'+
       '<p class="prop">'+esc(info.propertyName||"")+'</p>'+
       priceHtml+
-      (isFull ? '' : '<div class="hold">'+t().hold+'</div>')+
+      ((isFull || info.immediate) ? '' : '<div class="hold">'+t().hold+'</div>')+
       controlHtml+
       '<button id="pay">'+esc(t().pay)+'</button>'+
       '<div class="err" id="err" style="display:none"></div>'+
       '<p class="secure">'+esc(t().secure)+'</p>';
-    if(tiers){
-      var selEl=document.getElementById("tsel"), px=document.getElementById("px");
+    var selEl=document.getElementById("tsel"), px=document.getElementById("px");
+    if(tiers && selEl && px){ // solo el dropdown (early/late) actualiza el precio grande; los radios ya muestran el suyo
       selEl.onchange=function(){ px.textContent=money(tiers[+selEl.value].amountCents,cur); };
+    }
+    // Índice del tramo elegido: dropdown (#tsel) o radios (name=tsel).
+    function selectedTierIdx(){
+      if(selEl && selEl.tagName==="SELECT") return +selEl.value;
+      var r=document.querySelector('input[name="tsel"]:checked');
+      return r? +r.value : 0;
     }
     var btn=document.getElementById("pay"), err=document.getElementById("err");
     btn.onclick=function(){
       btn.disabled=true; err.style.display="none";
       var payload={token:token};
-      if(tiers){ payload.minutes=tiers[+document.getElementById("tsel").value].minutes; }
+      if(tiers){ payload.minutes=tiers[selectedTierIdx()].minutes; }
       else if(!isFull){ payload.time=(document.getElementById("tm").value||"").trim(); }
       api(payload).then(function(res){
         if(res.ok && res.j && res.j.url){ location.href=res.j.url; return; }
