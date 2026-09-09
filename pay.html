@@ -79,16 +79,17 @@
   var token = qs.get("token") || "";
   var status = qs.get("status") || "";
   var urlKind = qs.get("kind") || "";
+  var urlImm = qs.get("imm") || ""; // "1" si el checkout fue cobro inmediato (para el mensaje de éxito)
   var body = document.getElementById("body");
 
   // Diccionario bilingüe. El idioma llega del backend (info.language); default en.
   var L = "en";
   var T = {
     en:{
-      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Extra night", extra_guest:"Extra guest", pet_fee:"Pet fee", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)"},
+      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Extra night", extra_guest:"Extra guest", pet_fee:"Pet fee", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", birthday:"Birthday package"},
       each:"one-time",
       hold:"You’ll only be <b>authorized</b> now — we charge the card <b>only when our team approves</b>. If we can’t accommodate it, the hold is released and you’re not charged.",
-      timeLabel:{early_checkin:"Desired check-in time", late_checkout:"Desired check-out time", extra_night:"Note (optional)"},
+      timeLabel:{early_checkin:"Desired check-in time", late_checkout:"Desired check-out time", extra_night:"Note (optional)", birthday:"Choose your package"},
       timePh:"e.g. 2:00 PM",
       pay:"Pay & request",
       secure:"Secured by Stripe · we never see your card",
@@ -104,10 +105,10 @@
       genErr:"Something went wrong. Please try again in a moment."
     },
     es:{
-      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Noche extra", extra_guest:"Huésped adicional", pet_fee:"Tarifa de mascota", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)"},
+      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Noche extra", extra_guest:"Huésped adicional", pet_fee:"Tarifa de mascota", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", birthday:"Paquete de cumpleaños"},
       each:"pago único",
       hold:"Por ahora solo se <b>autoriza</b> — cobramos la tarjeta <b>únicamente cuando el equipo aprueba</b>. Si no podemos acomodarlo, la retención se libera y no se te cobra.",
-      timeLabel:{early_checkin:"Hora de entrada deseada", late_checkout:"Hora de salida deseada", extra_night:"Nota (opcional)"},
+      timeLabel:{early_checkin:"Hora de entrada deseada", late_checkout:"Hora de salida deseada", extra_night:"Nota (opcional)", birthday:"Elige tu paquete"},
       timePh:"ej. 2:00 PM",
       pay:"Pagar y solicitar",
       secure:"Protegido por Stripe · nunca vemos tu tarjeta",
@@ -126,7 +127,9 @@
   function t(){ return T[L]; }
   // full_booking / extra_guest / pet_fee: cobro inmediato (sin aprobación) → mensaje de "confirmado".
   function isImmediateKind(k){ return k==='full_booking'||k==='extra_guest'||k==='pet_fee'||k==='early_11am'||k==='late_4pm'; }
-  function okMsgFor(k){ return isImmediateKind(k) ? t().okImmediate : t().okMsg; }
+  // `imm` (opcional): true/false explícito del checkout (cumpleaños varía: /stripe=inmediato, pedido por
+  // el huésped=retención). Si no se pasa, se decide por el tipo de kind.
+  function okMsgFor(k, imm){ var immediate = (imm===undefined||imm===null) ? isImmediateKind(k) : !!imm; return immediate ? t().okImmediate : t().okMsg; }
 
   function money(cents, cur){
     try{ return new Intl.NumberFormat(L==="es"?"es-PR":"en-US",{style:"currency",currency:(cur||"usd").toUpperCase()}).format(cents/100); }
@@ -150,7 +153,7 @@
 
   function renderForm(info){
     var kind = info.kind;
-    var isFull = kind === 'full_booking' || kind === 'extra_guest' || kind === 'pet_fee' || kind === 'early_11am' || kind === 'late_4pm'; // monto fijo, sin hora, cobro inmediato
+    var isFull = kind === 'full_booking' || kind === 'extra_guest' || kind === 'pet_fee' || kind === 'early_11am' || kind === 'late_4pm'; // monto fijo, sin hora/tramo, cobro inmediato (cumpleaños NO: es tiered)
     var tl = t().timeLabel[kind] || t().timeLabel.late_checkout;
     var cur = info.currency || 'usd';
     var tiers = (info.tiers && info.tiers.length) ? info.tiers : null;
@@ -208,7 +211,7 @@
   if(!token){ showMsg("🔗", "Stay Here PR", T.en.badToken, false); return; }
 
   // Pantallas de retorno: se muestran de inmediato (el pago ya ocurrió; no dependen de la red).
-  if(status==="success"){ showMsg("✅", t().okTitle, okMsgFor(urlKind), false); return; }
+  if(status==="success"){ showMsg("✅", t().okTitle, okMsgFor(urlKind, urlImm==="1"?true:(urlImm==="0"?false:undefined)), false); return; }
   if(status==="cancel"){ showMsg("↩️", t().cancelTitle, t().cancelMsg, true); return; }
 
   // Vista principal: pedimos idioma + detalles para mostrar servicio y precio antes de pagar.
@@ -221,7 +224,7 @@
       return;
     }
     L = info.language==="es" ? "es" : "en"; document.documentElement.lang=L;
-    if(info.payStatus==="authorized"||info.payStatus==="captured"){ showMsg("✅", t().okTitle, okMsgFor(info.kind), false); return; }
+    if(info.payStatus==="authorized"||info.payStatus==="captured"){ showMsg("✅", t().okTitle, okMsgFor(info.kind, info.immediate), false); return; }
     renderForm(info);
   }).catch(function(){ showMsg("⚠️","Stay Here PR", t().genErr, false); });
 })();

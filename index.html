@@ -3348,7 +3348,7 @@ function renderEarlyLateHist(){
   // 1) Store: early/late que el huésped pagó por el enlace.
   (_elStore||[]).forEach(e=>{const st=_elStayByLead[e.lead_uid]||{};rows.push({
     fecha:String(e.paid_at||e.event_at||'').slice(0,10), origen:'🛒 Store (huésped)',
-    tipo:e.kind==='early_checkin'?'🔑 Early':e.kind==='extra_night'?'🌙 Noche extra':e.kind==='extra_guest'?'👤 Extra guest':e.kind==='pet_fee'?'🐾 Pet fee':e.kind==='early_11am'?'🌅 Early 11AM':e.kind==='late_4pm'?'⏰ Late 4PM':'🕗 Late', prop:e.property_name||'—',
+    tipo:e.kind==='early_checkin'?'🔑 Early':e.kind==='extra_night'?'🌙 Noche extra':e.kind==='extra_guest'?'👤 Extra guest':e.kind==='pet_fee'?'🐾 Pet fee':e.kind==='early_11am'?'🌅 Early 11AM':e.kind==='late_4pm'?'⏰ Late 4PM':e.kind==='birthday'?'🎂 Cumpleaños':'🕗 Late', prop:e.property_name||'—',
     quien:e.guest_name||'—', ci:st.ci||'', co:st.co||'', hora:e.event_time_label||'', monto:e.amount_cents?money(e.amount_cents/100):'', nota:(e.approved_by_name||e.source||'')+(e.approved_at?(' · aprobó '+String(e.approved_at).slice(0,10)):'')
   });});
   // 2) Cleaner: early/late que el personal aplicó en servicios y ya están FACTURADOS (billed).
