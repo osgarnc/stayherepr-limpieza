@@ -2367,6 +2367,38 @@ function contRepartir(payouts){
     p.lines=out;
   });
 }
+// Los fees diarios de Stripe (Radar) los cobra la cuenta entera, no un cargo,
+// así que vienen sin propiedad. Se le pasan a la propiedad del payout; si hay
+// varias, se reparten proporcional a lo que se le cobró a cada una.
+function contPropagarFees(payouts){
+  const FEES={fee:1,paypalfee:1,partnerfee:1};
+  payouts.forEach(function(p){
+    const huerfanos=p.lines.filter(l=>FEES[l.kind]&&!l.property_id);
+    if(!huerfanos.length)return;
+    // Peso de cada propiedad: lo que entró por ella en este mismo payout.
+    const peso={};let suma=0;
+    p.lines.forEach(function(l){
+      if(!l.property_id||l.amount<=0)return;
+      peso[l.property_id]=_c2((peso[l.property_id]||0)+l.amount);suma=_c2(suma+l.amount);
+    });
+    const props=Object.keys(peso);
+    if(!props.length||!suma)return;                 // nada a lo que colgarlos
+    const out=[];
+    p.lines.forEach(function(l){
+      if(!(FEES[l.kind]&&!l.property_id)){out.push(l);return;}
+      if(props.length===1){
+        out.push(Object.assign({},l,{property_id:props[0],qbo_class_id:contClassOf(props[0])}));
+        return;
+      }
+      const trozos=props.map(pid=>Object.assign({},l,{property_id:pid,
+        qbo_class_id:contClassOf(pid),amount:_c2(l.amount*peso[pid]/suma)}));
+      const dif=_c2(l.amount-_c2(trozos.reduce((a,x)=>a+x.amount,0)));
+      if(Math.abs(dif)>=0.005)trozos[0].amount=_c2(trozos[0].amount+dif);
+      out.push.apply(out,trozos.filter(x=>Math.abs(x.amount)>=0.005));
+    });
+    p.lines=out;
+  });
+}
 function contLineasReserva(fin,recibido,nota){
   const propId=fin.property_id, cls=contClassOf(propId);
   const g=fin.guest_name+(nota?' — '+nota:'');
@@ -2506,6 +2538,7 @@ async function contAnalizar(){
     else if(u.kind==='stripe')payouts=payouts.concat(contArmarStripe(rows,month,u.account_label||'stripe'));
   }
   contRepartir(payouts);
+  contPropagarFees(payouts);
   await contGuardarPayouts(month,payouts);
   await contReload();
   const listos=payouts.filter(p=>p.status==='listo').length;
@@ -2658,7 +2691,10 @@ function contArmarStripe(rows,month,label){
       }
       if(cat==='refund'||cat==='dispute'){
         const f=guest?contBuscarFin(guest,null):null;
-        const pid=(f&&f.property_id)||((contPropMatch(pname)||{}).id)||null;
+        // El reembolso de un extra no trae huésped, pero su descripción sí dice
+        // la propiedad: "REFUND FOR CHARGE (Early check-in — Casa Amarilla)".
+        const pid=(f&&f.property_id)||((contPropMatch(pname)||{}).id)||
+                  ((contServicio(desc)||{}).propId)||null;
         p.lines.push({kind:'reembolso',amount:neto,property_id:pid,qbo_class_id:contClassOf(pid),
           guest_name:guest||null,
           description:(guest||'Stripe')+' — '+(cat==='dispute'?'disputa':'reembolso')});
