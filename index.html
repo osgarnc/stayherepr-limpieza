@@ -2089,7 +2089,7 @@ const CONT_FUENTES=[
   {kind:'hostfully',icon:'🏠',label:'Reporte de dueños (Hostfully)',hint:'El desglose de cada reserva. Súbelo primero.'},
   {kind:'airbnb',   icon:'🅰️',label:'Payouts de Airbnb',           hint:'Transaction history del mes.'},
   {kind:'paypal',   icon:'🅿️',label:'Actividad de PayPal',         hint:'Descarga de actividad, todos los tipos.'},
-  {kind:'stripe',   icon:'💳',label:'Payouts de Stripe',            hint:'Itemized payout reconciliation. Pon el nombre de la cuenta.'},
+  {kind:'stripe',   icon:'💳',label:'Payouts de Stripe',            hint:'Itemized payout reconciliation. Una subida por cuenta. Usa SIEMPRE el mismo nombre para la misma cuenta (reservas · tienda · host.co).'},
 ];
 const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Pago al dueño',roomtax:'Impuesto de turismo',
   canal:'Comisión del canal',partnerfee:'Fee de Hostfully',fee:'Fee de Stripe',paypalfee:'Fee de PayPal',
@@ -2195,7 +2195,7 @@ function contRenderDrops(){
     return '<div style="border:1.5px dashed var(--line);border-radius:12px;padding:10px">'+
       '<div style="font-weight:800;font-size:13.5px">'+f.icon+' '+_cEsc(f.label)+'</div>'+
       '<div class="muted" style="font-size:11.5px;margin:2px 0 7px">'+_cEsc(f.hint)+'</div>'+
-      (f.kind==='stripe'?'<input id="contLbl-stripe" placeholder="Cuenta (ej: reservas)" style="width:100%;padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:12px;margin-bottom:6px">':'')+
+      (f.kind==='stripe'?'<input id="contLbl-stripe" placeholder="reservas · tienda · host.co" style="width:100%;padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:12px;margin-bottom:6px">':'')+
       '<label class="photo" style="margin:0;padding:8px;font-size:12px">📄 Escoger archivo'+
         '<input type="file" accept=".csv,text/csv" style="display:none" onchange="contSubir(\''+f.kind+'\',this.files[0]);this.value=\'\'">'+
       '</label>'+
