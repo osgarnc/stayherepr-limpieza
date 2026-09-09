@@ -263,7 +263,7 @@
   <div class="maintabs">
     <button id="mtOps" class="on" onclick="mainTab('ops')">🧹 Operaciones</button>
     <button id="mtAuto" onclick="mainTab('auto')">🤖 Automatización</button>
-    <button id="mtRec" onclick="mainTab('rec')" style="display:none">🧾 Reconciliación</button>
+    <button id="mtRec" onclick="mainTab('rec')" style="display:none">📒 Contabilidad</button>
   </div>
   <div class="tabs" id="navOperaciones">
     <button id="tInbox" class="on" onclick="tabTo('inbox')">📥 Bandeja</button>
@@ -291,8 +291,9 @@
     <button id="tCerraduras" onclick="tabTo('cerraduras');cerradurasInit()">🔐 Cerraduras</button>
   </div>
   <div class="tabs hide" id="navReconcil">
-    <button id="tRecowners" class="on" onclick="tabTo('recowners')">🏠 Dueños</button>
-    <button id="tRecexpenses" onclick="tabTo('recexpenses')">💸 Gastos por propiedad</button>
+    <button id="tRecincome" class="on" onclick="tabTo('recincome');contInit()">💰 Ingresos</button>
+    <button id="tRecexpenses" onclick="tabTo('recexpenses')">💸 Gastos</button>
+    <button id="tRecowners" onclick="tabTo('recowners')">🏠 Dueños</button>
     <button id="tRecreport" onclick="tabTo('recreport')">📆 Reporte fin de mes</button>
   </div>
   <!-- 🛑 Parada de emergencia: detiene TODA la actividad del bot (mismo flag bot_paused que /pausar en Telegram). -->
@@ -711,6 +712,88 @@
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Envíos que enviaste a la Papelera. <b>Restaurar</b> los devuelve a su lista. <b>Eliminar definitivamente</b> sí es permanente.</p>
     <div style="overflow:auto"><table id="trashTable"></table></div>
   </div>
+  <div id="tabRecincome" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>💰 Ingresos</h2><span class="muted" id="contQboBadge">QuickBooks: comprobando…</span></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Sube los reportes del mes, la app los cuadra contra las reservas de Hostfully y deja los depósitos creados en QuickBooks, <b>listos para hacerles match con la cuenta de banco</b>.</p>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:14px 0 4px">
+      <div class="field" style="margin:0"><label>Mes</label><input id="contMonth" type="month" onchange="contReload()"></div>
+      <button class="btn sm ghost" onclick="contCheckQbo()">🔌 Probar QuickBooks</button>
+      <button class="btn sm ghost" onclick="contToggleConn()">🔑 Conexión</button>
+      <button class="btn sm ghost" onclick="contToggleSetup()">⚙️ Clases y cuentas</button>
+    </div>
+
+    <!-- ---------- Credenciales de Intuit ---------- -->
+    <div id="contConn" class="hide" style="border:1.5px solid var(--line);border-radius:14px;padding:14px;margin:12px 0">
+      <div class="sectitle" style="margin-bottom:2px"><h2 style="font-size:16px">🔑 Conexión con QuickBooks</h2></div>
+      <p class="muted" style="font-size:12.5px;margin:0 0 4px">Pega aquí lo de Intuit. Se guarda en una tabla que <b>el navegador no puede leer</b> — al volver solo verás los últimos 4 caracteres. <b>Lo que dejes vacío no se toca</b>, así puedes renovar el token sin repegar el secret.</p>
+      <div class="muted" style="font-size:12px;margin-bottom:10px">
+        Dónde sacar cada cosa:
+        <a href="https://developer.intuit.com/app/developer/dashboard" target="_blank" rel="noopener" style="color:var(--sea)">Client ID y Secret →</a> ·
+        <a href="https://developer.intuit.com/app/developer/playground" target="_blank" rel="noopener" style="color:var(--sea)">Refresh token (OAuth Playground) →</a> ·
+        <a href="https://qbo.intuit.com/app/companyandbillinginfo" target="_blank" rel="noopener" style="color:var(--sea)">Company ID →</a>
+      </div>
+      <div id="contConnEstado" class="muted" style="font-size:12.5px;margin-bottom:10px">Cargando…</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px">
+        <div class="field" style="margin:0"><label>Company ID (Realm)</label>
+          <input id="qboRealm" autocomplete="off" spellcheck="false" placeholder="9341456246374941"></div>
+        <div class="field" style="margin:0"><label>Entorno</label>
+          <select id="qboEnv"><option value="production">production</option><option value="sandbox">sandbox</option></select></div>
+        <div class="field" style="margin:0"><label>Client ID</label>
+          <input id="qboClientId" type="password" autocomplete="new-password" spellcheck="false" placeholder="pegar"></div>
+        <div class="field" style="margin:0"><label>Client Secret</label>
+          <input id="qboClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="pegar"></div>
+        <div class="field" style="margin:0;grid-column:1/-1"><label>Refresh Token</label>
+          <input id="qboRefresh" type="password" autocomplete="new-password" spellcheck="false" placeholder="pegar"></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+        <button class="btn sm" onclick="contGuardarCreds()">💾 Guardar y probar</button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" onchange="contVerCreds(this.checked)"> ver lo que escribo</label>
+      </div>
+      <p class="muted" style="font-size:11.5px;margin:9px 0 0">⚠️ El refresh token de Intuit <b>rota en cada uso y solo puede vivir en un sitio</b>. Si lo pones aquí, los scripts locales dejan de funcionar.</p>
+    </div>
+
+    <!-- ---------- Subir documentos ---------- -->
+    <div style="border:1.5px solid var(--line);border-radius:14px;padding:14px;margin:12px 0">
+      <h3 style="font-size:15px;color:var(--brand);margin:0 0 3px">1 · Subir documentos</h3>
+      <p class="muted" style="font-size:12.5px;margin:0 0 10px">Empieza siempre por el reporte de dueños de Hostfully: de ahí sale el desglose (renta, limpieza, impuesto, comisión). Los demás traen el dinero que entró.</p>
+      <div id="contDrops" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px"></div>
+      <div id="contUploadLog" class="muted" style="font-size:12px;margin-top:10px"></div>
+    </div>
+
+    <!-- ---------- Cuadre ---------- -->
+    <div style="border:1.5px solid var(--line);border-radius:14px;padding:14px;margin:12px 0">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <h3 style="font-size:15px;color:var(--brand);margin:0">2 · Cuadrar</h3>
+        <button class="btn sm" onclick="contAnalizar()">🔍 Cuadrar el mes</button>
+      </div>
+      <p class="muted" style="font-size:12.5px;margin:6px 0 0">Agrupa cada payout, le busca sus reservas y arma el desglose. No escribe nada en QuickBooks todavía.</p>
+      <div id="contResumen" style="margin-top:10px"></div>
+    </div>
+
+    <!-- ---------- Postear ---------- -->
+    <div style="border:1.5px solid var(--line);border-radius:14px;padding:14px;margin:12px 0">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <h3 style="font-size:15px;color:var(--brand);margin:0">3 · Enviar a QuickBooks</h3>
+        <button class="btn sm" id="contPostAllBtn" onclick="contPostearListos()">📤 Postear los que cuadran</button>
+      </div>
+      <p class="muted" style="font-size:12.5px;margin:6px 0 0">Solo se postea lo que cuadra al centavo y trae clase en todos sus renglones. Lo que no cuadre se queda aquí para que lo revises.</p>
+    </div>
+
+    <div id="contPayouts"><p class="muted" style="text-align:center;padding:18px">Elige el mes y dale a <b>Cuadrar el mes</b>.</p></div>
+
+    <!-- ---------- Ajustes (clases y cuentas) ---------- -->
+    <div id="contSetup" class="hide" style="border:1.5px solid var(--line);border-radius:14px;padding:14px;margin:14px 0">
+      <div class="sectitle" style="margin-bottom:2px"><h2 style="font-size:16px">⚙️ Clases y cuentas de QuickBooks</h2></div>
+      <p class="muted" style="font-size:12.5px;margin:0 0 10px">Cada propiedad tiene que apuntar a una clase de QuickBooks. Sin clase, la app se niega a postear.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn sm ghost" onclick="contCargarCatalogo()">🔄 Traer clases y cuentas de QuickBooks</button>
+      </div>
+      <div style="overflow:auto"><table id="contClassTable"></table></div>
+      <h3 style="font-size:14px;color:var(--brand);margin:18px 0 6px">Cuentas por tipo de renglón</h3>
+      <div style="overflow:auto"><table id="contAcctTable"></table></div>
+    </div>
+  </div>
   <div id="tabRecowners" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>🏠 Dueños de propiedad</h2></div>
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Crea los dueños, asígnales propiedades y fija el % de comisión de Stay Here por propiedad.</p>
@@ -725,8 +808,8 @@
     <div style="overflow:auto"><table id="ownAssignTable"></table></div>
   </div>
   <div id="tabRecexpenses" class="card hide" style="padding:18px">
-    <div class="sectitle"><h2>💸 Gastos por propiedad</h2><span class="muted" id="recExpTotal"></span></div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Registra gastos de cada propiedad. Marca <b>facturable</b> (se resta en el reporte del dueño) o no.</p>
+    <div class="sectitle"><h2>💸 Gastos</h2><span class="muted" id="recExpTotal"></span></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Gastos por propiedad. Marca <b>facturable</b> (se resta en el reporte del dueño) o no. <span style="color:var(--ink-soft)">Aquí es donde crece el trabajo de gastos cuando decidas cómo lo quieres.</span></p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:12px 0">
       <div class="field" style="margin:0"><label>Propiedad</label><select id="expProp"></select></div>
       <div class="field" style="margin:0"><label>Fecha</label><input id="expDate" type="date"></div>
@@ -1339,7 +1422,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','earlylate','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website','cerraduras','recowners','recexpenses','recreport'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','earlylate','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website','cerraduras','recincome','recowners','recexpenses','recreport'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -1357,7 +1440,7 @@ function mainTab(m){
   const nr=document.getElementById('navReconcil');if(nr)nr.classList.toggle('hide',m!=='rec');
   const eb=document.getElementById('emergencyBar'); if(eb){eb.classList.toggle('hide',m!=='auto'); if(m==='auto')emergencyRefresh();}
   if(m==='ops'){tabTo('inbox');}
-  else if(m==='rec'){tabTo('recowners');}
+  else if(m==='rec'){tabTo('recincome');contInit();}
   else{tabTo('operaciones');opsInit();}
 }
 // ⏱️ Crons — administrar las tareas automáticas (pg_cron) vía RPC ops_list_crons / ops_set_cron.
@@ -1989,6 +2072,846 @@ function renderTrash(){
   el.innerHTML='<tr><th>Persona</th><th>Tipo</th><th>Fecha</th><th>Monto</th><th>Papelera</th><th></th></tr>'+
     (rows||'<tr><td colspan="6" class="muted" style="padding:24px;text-align:center">Papelera vacía</td></tr>');
 }
+/* ============================================================================
+   CONTABILIDAD → INGRESOS
+   Subir reportes  →  cuadrar contra Hostfully  →  depósitos en QuickBooks.
+
+   La idea: el reporte de dueños de Hostfully dice CUÁNTO vale cada reserva
+   (renta, limpieza, impuesto, comisión, pago al dueño). Airbnb / PayPal /
+   Stripe dicen CUÁNDO y CUÁNTO dinero entró. Cuadrar es unir las dos cosas:
+   por cada depósito que llega al banco, explicar de qué reservas viene y en
+   qué se reparte. Eso es exactamente un Deposit de QuickBooks.
+   ========================================================================== */
+const CONT_FUENTES=[
+  {kind:'hostfully',icon:'🏠',label:'Reporte de dueños (Hostfully)',hint:'El desglose de cada reserva. Súbelo primero.'},
+  {kind:'airbnb',   icon:'🅰️',label:'Payouts de Airbnb',           hint:'Transaction history del mes.'},
+  {kind:'paypal',   icon:'🅿️',label:'Actividad de PayPal',         hint:'Descarga de actividad, todos los tipos.'},
+  {kind:'stripe',   icon:'💳',label:'Payouts de Stripe',            hint:'Itemized payout reconciliation. Pon el nombre de la cuenta.'},
+];
+const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Pago al dueño',roomtax:'Impuesto de turismo',
+  canal:'Comisión del canal',partnerfee:'Fee de Hostfully',fee:'Fee de Stripe',paypalfee:'Fee de PayPal',
+  reserva:'Retención de Stripe',prepago:'Pasivo (por devolver)',sobrecobro:'Cobro doble (por devolver)',
+  seguro:'Reclamación de seguro',reembolso:'Reembolso',reparaciones:'Reembolso de gastos',
+  earlyci:'Early check-in',extraguest:'Huésped extra',servicio:'Servicios'};
+let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={};
+const _cEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const _c2=n=>Math.round((Number(n)||0)*100)/100;
+const _cNum=v=>{if(v==null)return 0;const s=String(v).replace(/[$,\s]/g,'').replace(/[()]/g,m=>m==='('?'-':'');const n=parseFloat(s);return isNaN(n)?0:n;};
+// Normaliza un nombre para poder ligarlo entre reportes: sin acentos, sin
+// "#CÓDIGO", sin paréntesis, sin lo que venga después de un guion largo.
+function _cKey(s){
+  return String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+    .replace(/^#\S+\s*/,'').replace(/\(.*?\)/g,'').replace(/[—–].*$/,'').split(':')[0]
+    .replace(/[^a-z\s]/g,' ').split(/\s+/).filter(Boolean).join(' ');
+}
+// Fechas: acepta M/D/YY, M/D/YYYY y YYYY-MM-DD. Devuelve YYYY-MM-DD.
+function _cDate(v){
+  const s=String(v==null?'':v).trim();if(!s)return null;
+  if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);
+  const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if(!m)return null;
+  let y=parseInt(m[3],10);if(y<100)y+=2000;
+  return y+'-'+String(parseInt(m[1],10)).padStart(2,'0')+'-'+String(parseInt(m[2],10)).padStart(2,'0');
+}
+// Lector de CSV que respeta comillas, comas dentro del campo y saltos de línea.
+function contParseCSV(text){
+  const t=String(text).replace(/^﻿/,'');
+  const rows=[];let row=[],cur='',q=false;
+  for(let i=0;i<t.length;i++){
+    const c=t[i];
+    if(q){ if(c==='"'){ if(t[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else if(c==='"')q=true;
+    else if(c===','){row.push(cur);cur='';}
+    else if(c==='\n'){row.push(cur);cur='';if(row.some(x=>x!==''))rows.push(row);row=[];}
+    else if(c!=='\r')cur+=c;
+  }
+  row.push(cur);if(row.some(x=>x!==''))rows.push(row);
+  if(!rows.length)return [];
+  const head=rows[0].map(h=>String(h).trim());
+  return rows.slice(1).map(r=>{const o={};head.forEach((h,i)=>{o[h]=r[i]==null?'':String(r[i]).trim();});return o;});
+}
+function contGet(row,names){for(const n of names){if(row[n]!=null&&row[n]!=='')return row[n];}return '';}
+
+/* ---------- arranque y catálogos ---------- */
+async function contInit(){
+  const mi=document.getElementById('contMonth');
+  if(mi&&!mi.value)mi.value=new Date(Date.now()-4*3600*1000).toISOString().slice(0,7);
+  contRenderDrops();
+  await contLoadProps();
+  contCheckQbo();
+  contReload();
+}
+async function contLoadProps(){
+  const [pr,cm]=await Promise.all([
+    sb.from('ops_properties').select('id,name').eq('is_active',true).order('name'),
+    sb.from('cont_qbo_class').select('*')
+  ]);
+  contProps=pr.data||[];contClassMap={};
+  (cm.data||[]).forEach(c=>{contClassMap[c.property_id]=c;});
+  return contProps;
+}
+// Liga el nombre que trae un reporte con una propiedad de la app.
+function contPropMatch(name){
+  const k=_cKey(name);if(!k)return null;
+  let best=null,bestScore=0;
+  for(const p of contProps){
+    const pk=_cKey(p.name);if(!pk)continue;
+    let score=0;
+    if(pk===k)score=100;
+    else if(k.indexOf(pk)>-1||pk.indexOf(k)>-1)score=80;
+    else{
+      const a=new Set(pk.split(' ')),b=k.split(' ');
+      const hit=b.filter(w=>w.length>3&&a.has(w)).length;
+      if(hit>=2)score=40+hit;
+    }
+    if(score>bestScore){bestScore=score;best=p;}
+  }
+  return bestScore>=40?best:null;
+}
+function contClassOf(propId){const c=propId?contClassMap[propId]:null;return c?c.qbo_class_id:null;}
+function contCleaningToOwner(propId){const c=propId?contClassMap[propId]:null;return !!(c&&c.cleaning_to_owner);}
+
+async function contCheckQbo(){
+  const b=document.getElementById('contQboBadge');if(!b)return;
+  b.textContent='QuickBooks: comprobando…';b.style.color='';
+  try{
+    const r=await sb.functions.invoke('cont-qbo',{body:{action:'estado'}});
+    const d=r.data||{};
+    if(!d.ok){contQboOk=false;b.textContent='QuickBooks: '+(d.error||'sin conexión');b.style.color='var(--danger)';return;}
+    contQboOk=true;
+    b.innerHTML='QuickBooks: <b>'+_cEsc(d.compania||'conectado')+'</b>'+(d.clases?'':' <span style="color:var(--danger)">· clases apagadas</span>');
+    b.style.color='var(--sea)';
+    if(!d.clases)toast('Ojo: el tracking de clases está apagado en QuickBooks');
+  }catch(e){contQboOk=false;b.textContent='QuickBooks: no responde';b.style.color='var(--danger)';}
+}
+
+/* ---------- 1 · subir documentos ---------- */
+function contRenderDrops(){
+  const el=document.getElementById('contDrops');if(!el)return;
+  el.innerHTML=CONT_FUENTES.map(function(f){
+    return '<div style="border:1.5px dashed var(--line);border-radius:12px;padding:10px">'+
+      '<div style="font-weight:800;font-size:13.5px">'+f.icon+' '+_cEsc(f.label)+'</div>'+
+      '<div class="muted" style="font-size:11.5px;margin:2px 0 7px">'+_cEsc(f.hint)+'</div>'+
+      (f.kind==='stripe'?'<input id="contLbl-stripe" placeholder="Cuenta (ej: reservas)" style="width:100%;padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:12px;margin-bottom:6px">':'')+
+      '<label class="photo" style="margin:0;padding:8px;font-size:12px">📄 Escoger archivo'+
+        '<input type="file" accept=".csv,text/csv" style="display:none" onchange="contSubir(\''+f.kind+'\',this.files[0]);this.value=\'\'">'+
+      '</label>'+
+      '<div class="muted" id="contState-'+f.kind+'" style="font-size:11.5px;margin-top:5px"></div>'+
+    '</div>';
+  }).join('');
+  contRefreshUploads();
+}
+async function contRefreshUploads(){
+  const month=(document.getElementById('contMonth')||{}).value;if(!month)return;
+  const {data}=await sb.from('cont_uploads').select('*').eq('month',month).order('created_at',{ascending:false});
+  const by={};(data||[]).forEach(u=>{(by[u.kind]=by[u.kind]||[]).push(u);});
+  CONT_FUENTES.forEach(function(f){
+    const el=document.getElementById('contState-'+f.kind);if(!el)return;
+    const list=by[f.kind]||[];
+    el.innerHTML=list.length
+      ? list.map(u=>'✅ '+_cEsc(u.account_label?u.account_label+' · ':'')+u.row_count+' filas').join('<br>')
+      : '<span style="color:var(--ink-soft)">sin subir</span>';
+  });
+}
+async function contSubir(kind,file){
+  if(!file)return;
+  const month=(document.getElementById('contMonth')||{}).value;
+  if(!month){toast('Elige el mes primero');return;}
+  const lblEl=document.getElementById('contLbl-stripe');
+  const label=kind==='stripe'?((lblEl&&lblEl.value.trim())||'stripe'):null;
+  if(kind==='stripe'&&!(lblEl&&lblEl.value.trim())){toast('Ponle nombre a la cuenta de Stripe (ej: reservas)');return;}
+  const log=document.getElementById('contUploadLog');
+  if(log)log.textContent='Leyendo '+file.name+'…';
+  let rows;
+  try{ rows=contParseCSV(await file.text()); }
+  catch(e){ toast('No pude leer el archivo'); if(log)log.textContent=''; return; }
+  if(!rows.length){toast('Ese archivo salió vacío');if(log)log.textContent='';return;}
+
+  const path=month+'/'+kind+'/'+Date.now()+'-'+file.name.replace(/[^\w.\-]/g,'_');
+  try{ await sb.storage.from('contabilidad').upload(path,file,{upsert:true,contentType:'text/csv'}); }
+  catch(e){ console.error('storage',e); }
+
+  const up=await sb.from('cont_uploads').insert({
+    month,kind,account_label:label,filename:file.name,storage_path:path,
+    row_count:rows.length,uploaded_by:(session?session.id:null)
+  }).select().single();
+  if(up.error){console.error(up.error);toast('No se pudo guardar el archivo');if(log)log.textContent='';return;}
+
+  if(kind==='hostfully'){
+    const n=await contImportHostfully(rows,up.data.id);
+    if(log)log.textContent='Reporte de Hostfully: '+n+' reserva(s) con su desglose.';
+    toast(n+' reservas importadas');
+  }else{
+    if(log)log.textContent=file.name+' guardado ('+rows.length+' filas). Dale a Cuadrar el mes.';
+    toast('Archivo guardado');
+  }
+  contRefreshUploads();
+}
+// El reporte de dueños es la fuente de verdad del desglose de cada reserva.
+async function contImportHostfully(rows,uploadId){
+  const recs=[];
+  for(const r of rows){
+    const guest=contGet(r,['Guest','Guest Name']).split(':')[0].trim();
+    const ci=_cDate(contGet(r,['Check In Date','Check-in','Check In']));
+    if(!guest||!ci)continue;
+    const pname=contGet(r,['Property Internal Name','Property']);
+    const prop=contPropMatch(pname);
+    recs.push({
+      upload_id:uploadId,guest_name:guest,guest_key:_cKey(guest),
+      property_name:pname,property_id:prop?prop.id:null,
+      source:contGet(r,['Source']),check_in:ci,
+      check_out:_cDate(contGet(r,['Check Out Date','Check-out','Check Out'])),
+      rent:_cNum(contGet(r,['Rent'])),cleaning:_cNum(contGet(r,['Cleaning Fee'])),
+      extra_guest:_cNum(contGet(r,['Extra Guest Fee'])),pet_fee:_cNum(contGet(r,['Pet Fee'])),
+      gross_total:_cNum(contGet(r,['Gross Total'])),tourism_tax:_cNum(contGet(r,['Tourism Tax'])),
+      guest_paid:_cNum(contGet(r,['Guest Paid'])),channel_fee:_cNum(contGet(r,['Channel Commission Fee'])),
+      processor_fee:_cNum(contGet(r,['Paypal Fee'])),
+      net_earnings:_cNum(contGet(r,['Net Earnings-Use to calculate OWNERS PAY','Net Earnings'])),
+      due_stayhere:_cNum(contGet(r,['Due Stay Here PR'])),owner_payout:_cNum(contGet(r,['Owner Payout'])),
+      tax_remitted:_cNum(contGet(r,['Tax To Be Remitted by Ingrid','Tax To Be Remitted']))
+    });
+  }
+  // El mismo reporte puede traer la reserva repetida; nos quedamos con una.
+  const seen={},uniq=[];
+  recs.forEach(function(x){const k=x.guest_key+'|'+x.check_in;if(!seen[k]){seen[k]=1;uniq.push(x);}});
+  for(let i=0;i<uniq.length;i+=200){
+    const {error}=await sb.from('cont_reservation_finance')
+      .upsert(uniq.slice(i,i+200),{onConflict:'guest_key,check_in'});
+    if(error){console.error(error);toast('Algunas reservas no se pudieron guardar');break;}
+  }
+  return uniq.length;
+}
+
+/* ---------- 2 · cuadrar ----------
+   Por cada payout: buscar sus reservas en el reporte de Hostfully y repartir
+   el dinero en renglones. Si el reparto no da exacto, la diferencia la absorbe
+   la COMISIÓN (es el residuo del negocio; la limpieza y el impuesto son fijos)
+   y queda anotado para que se vea.                                           */
+let contYaDesglosado={};
+function contSplitReserva(fin,recibido,nota){
+  const propId=fin.property_id, cls=contClassOf(propId);
+  const g=fin.guest_name+(nota?' — '+nota:'');
+  const mk=(kind,amount,desc)=>({kind,amount:_c2(amount),property_id:propId,
+    qbo_class_id:cls,guest_name:fin.guest_name,description:desc});
+  const clave=fin.guest_key+'|'+fin.check_in;
+
+  // Segunda vez que aparece la misma reserva (un ajuste de Airbnb, un segundo
+  // tramo del payout, un reembolso parcial): NO se vuelve a desglosar, porque
+  // la limpieza y el impuesto ya se cobraron una vez. Se reparte entre
+  // comisión y dueño con la misma proporción del desglose original.
+  if(contYaDesglosado[clave]){
+    const base=fin.due_stayhere+fin.owner_payout;
+    const pct=base>0?fin.due_stayhere/base:1;
+    const com=_c2(recibido*pct), due=_c2(recibido-com);
+    return [mk('comision',com,g+' — ajuste posterior'),
+            mk('dueno',due,g+' — ajuste posterior, parte del dueño')]
+           .filter(l=>Math.abs(l.amount)>=0.005);
+  }
+  contYaDesglosado[clave]=true;
+
+  const lines=[];
+  const push=(k,a,d)=>{ if(Math.abs(a)>=0.005)lines.push(mk(k,a,d)); };
+  const limpiezaAlDueno=contCleaningToOwner(propId);
+  // Limpieza: en las propiedades donde el dueño limpia, ese dinero es de él.
+  push(limpiezaAlDueno?'dueno':'limpieza',fin.cleaning,
+       g+(limpiezaAlDueno?' — limpieza (la hace el dueño)':' — limpieza'));
+  // Co-host: Airbnb le paga al dueño directo y a Stay Here solo su tajada.
+  const completo=fin.cleaning+fin.due_stayhere+fin.owner_payout+fin.tax_remitted;
+  const cohost=Math.abs(recibido-(fin.cleaning+fin.due_stayhere))<Math.abs(recibido-completo);
+  push('comision',fin.due_stayhere,g+' — comisión Stay Here');
+  if(!cohost){
+    push('dueno',fin.owner_payout,g+' — pago al dueño');
+    // Solo el impuesto que remite Stay Here. El de Airbnb lo remite Airbnb y
+    // por eso nunca entra en el payout.
+    push('roomtax',fin.tax_remitted,g+' — impuesto de turismo, a remitir');
+  }
+  const dif=_c2(recibido-_c2(lines.reduce((a,l)=>a+l.amount,0)));
+  if(Math.abs(dif)>=0.005){
+    // La limpieza y el impuesto son montos fijos; la comisión es el residuo
+    // del negocio, así que ahí es donde tiene sentido absorber la diferencia.
+    const com=lines.find(l=>l.kind==='comision');
+    if(com){ com.amount=_c2(com.amount+dif);
+      com.description+=' (ajustada '+(dif>0?'+':'')+dif.toFixed(2)+' vs Hostfully)'; }
+    else push('comision',dif,g+' — diferencia vs Hostfully');
+  }
+  return lines.filter(l=>Math.abs(l.amount)>=0.005);
+}
+// Cargos de servicio de Stripe: no son reservas, son extras que vende Stay Here.
+// El nombre de la propiedad viene después del guion largo.
+function contServicio(desc){
+  const d=String(desc||'');if(!d)return null;
+  const kind=/early check.?in/i.test(d)?'earlyci'
+            :/extra guest|hu.sped extra/i.test(d)?'extraguest'
+            :(/late check.?out|extra night|reservation total|noche extra/i.test(d)?'servicio':null);
+  if(!kind)return null;
+  const m=d.split(/[—–]/);
+  const pname=m.length>1?m[1].replace(/\(.*?\)/g,'').trim():'';
+  const p=pname?contPropMatch(pname):null;
+  return {kind,propId:p?p.id:null};
+}
+// Cobro doble del impuesto: el huésped pagó exactamente un 7% de más.
+function contSobrecobro(fin,cobrado){
+  const extra=_c2(cobrado-fin.guest_paid);
+  if(fin.tourism_tax>0&&Math.abs(extra-fin.tourism_tax)<0.02){
+    return {kind:'sobrecobro',amount:extra,property_id:fin.property_id,
+      qbo_class_id:contClassOf(fin.property_id),guest_name:fin.guest_name,
+      description:fin.guest_name+' — SEGUNDO cobro del mismo impuesto de turismo. '+
+        'Hostfully lo cobró dos veces. Se le debe al huésped hasta reembolsarlo.'};
+  }
+  return null;
+}
+function contBuscarFin(guest,fecha){
+  let k=_cKey(guest);if(!k)return null;
+  // El que paga no siempre es el huésped (paga la pareja, la empresa, un
+  // familiar). Los alias los va creando el usuario desde la lista de pendientes.
+  if(contAlias[k])k=contAlias[k];
+  const cands=contFin.filter(f=>f.guest_key===k);
+  if(!cands.length)return null;
+  if(cands.length===1)return cands[0];
+  if(fecha){ let best=cands[0],bd=1e9;
+    cands.forEach(function(c){const d=Math.abs(new Date(c.check_in)-new Date(fecha));if(d<bd){bd=d;best=c;}});
+    return best; }
+  return cands[0];
+}
+
+async function contAnalizar(){
+  const month=(document.getElementById('contMonth')||{}).value;
+  if(!month){toast('Elige el mes');return;}
+  const out=document.getElementById('contResumen');
+  if(out)out.innerHTML='<p class="muted" style="padding:10px">Cuadrando…</p>';
+  await contLoadProps();
+
+  const [fin,als]=await Promise.all([
+    sb.from('cont_reservation_finance').select('*'),
+    sb.from('cont_alias').select('*')
+  ]);
+  contFin=fin.data||[];
+  contAlias={};(als.data||[]).forEach(a=>{contAlias[a.payer_key]=a.guest_key;});
+  contYaDesglosado={};
+  if(!contFin.length){
+    if(out)out.innerHTML='<p class="muted" style="padding:10px">Todavía no has subido el reporte de dueños de Hostfully. Sin él no hay desglose que cuadrar.</p>';
+    return;
+  }
+  const {data:ups}=await sb.from('cont_uploads').select('*').eq('month',month);
+  const archivos=(ups||[]).filter(u=>u.kind!=='hostfully');
+  if(!archivos.length){
+    if(out)out.innerHTML='<p class="muted" style="padding:10px">Sube al menos un reporte de Airbnb, PayPal o Stripe.</p>';
+    return;
+  }
+  let payouts=[];
+  for(const u of archivos){
+    let text;
+    try{
+      const dl=await sb.storage.from('contabilidad').download(u.storage_path);
+      if(dl.error)throw dl.error;
+      text=await dl.data.text();
+    }catch(e){console.error('descarga',e);continue;}
+    const rows=contParseCSV(text);
+    if(u.kind==='airbnb')payouts=payouts.concat(contArmarAirbnb(rows,month));
+    else if(u.kind==='paypal')payouts=payouts.concat(contArmarPaypal(rows,month));
+    else if(u.kind==='stripe')payouts=payouts.concat(contArmarStripe(rows,month,u.account_label||'stripe'));
+  }
+  await contGuardarPayouts(month,payouts);
+  await contReload();
+  const listos=payouts.filter(p=>p.status==='listo').length;
+  const pend=payouts.length-listos;
+  if(out)out.innerHTML='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13.5px">'+
+    '<span>📦 <b>'+payouts.length+'</b> payouts</span>'+
+    '<span style="color:var(--sea)">✅ <b>'+listos+'</b> cuadran</span>'+
+    '<span style="color:'+(pend?'var(--danger)':'var(--ink-soft)')+'">⚠️ <b>'+pend+'</b> por revisar</span>'+
+    '<span class="muted">Total '+money(payouts.reduce((a,p)=>a+p.amount,0))+'</span></div>';
+}
+
+/* --- Airbnb: cada fila "Payout" abre un grupo; las de abajo son su contenido --- */
+function contArmarAirbnb(rows,month){
+  const out=[];let cur=null;
+  const cerrar=()=>{ if(cur)out.push(cur); cur=null; };
+  for(const r of rows){
+    const tipo=contGet(r,['Type']);
+    if(tipo==='Payout'){
+      cerrar();
+      const fecha=_cDate(contGet(r,['Arriving by date']))||_cDate(contGet(r,['Date']));
+      cur={source:'airbnb',account_label:null,ref:contGet(r,['Reference code'])||('AIRBNB '+fecha),
+        pay_date:fecha,amount:_c2(_cNum(contGet(r,['Paid out']))),lines:[],unresolved:[],month};
+      continue;
+    }
+    if(!cur)continue;
+    const monto=_c2(_cNum(contGet(r,['Amount'])));
+    if(Math.abs(monto)<0.005)continue;
+    const guest=contGet(r,['Guest']);
+    const inicio=_cDate(contGet(r,['Start date']));
+    if(tipo==='Resolution Payout'){
+      const f=contBuscarFin(guest,inicio);
+      const pid=f?f.property_id:(contPropMatch(contGet(r,['Listing']))||{}).id;
+      cur.lines.push({kind:'servicio',amount:monto,property_id:pid||null,
+        qbo_class_id:contClassOf(pid),guest_name:guest,
+        description:(guest||'Airbnb')+' — '+(contGet(r,['Details'])||'resolución de Airbnb')});
+      continue;
+    }
+    const f=contBuscarFin(guest,inicio);
+    if(!f){
+      cur.unresolved.push({label:guest||contGet(r,['Confirmation code'])||tipo,amount:monto,
+        reason:'no aparece en el reporte de Hostfully'});
+      continue;
+    }
+    cur.lines=cur.lines.concat(contSplitReserva(f,monto,tipo==='Adjustment'?'ajuste de Airbnb':''));
+  }
+  cerrar();
+  return out.filter(p=>p.pay_date&&p.pay_date.slice(0,7)===month||!month);
+}
+
+/* --- PayPal: cada "General Withdrawal" barre lo acumulado desde el anterior --- */
+function contArmarPaypal(rows,month){
+  const out=[];let buf=[];
+  const orden=rows.slice().sort(function(a,b){
+    const da=_cDate(contGet(a,['Date']))||'',db=_cDate(contGet(b,['Date']))||'';
+    return da<db?-1:da>db?1:0;});
+  // Los "Partner Fee" se ligan a su cobro por Reference Txn ID, así heredan clase.
+  const porTxn={};
+  orden.forEach(function(r){const id=contGet(r,['Transaction ID']);if(id)porTxn[id]=r;});
+  for(const r of orden){
+    const tipo=contGet(r,['Type']);
+    const bruto=_c2(_cNum(contGet(r,['Gross'])));
+    const fee=_c2(_cNum(contGet(r,['Fee'])));
+    if(/withdrawal/i.test(tipo)){
+      const fecha=_cDate(contGet(r,['Date']));
+      const objetivo=_c2(Math.abs(bruto));
+      const p={source:'paypal',account_label:null,ref:'RETIRO '+fecha,pay_date:fecha,
+        amount:objetivo,lines:[],unresolved:[],month};
+      // El barrido se lleva el saldo que había cuando se disparó, no todo lo
+      // acumulado: un cobro que entra minutos después cae en el retiro del día
+      // siguiente. Por eso consumimos en orden hasta llegar al monto exacto.
+      let acum=0,corte=buf.length;
+      for(let i=0;i<buf.length;i++){
+        acum=_c2(acum+_c2(_cNum(contGet(buf[i],['Gross']))+_cNum(contGet(buf[i],['Fee']))));
+        if(Math.abs(acum-objetivo)<0.005){corte=i+1;break;}
+      }
+      const mios=buf.slice(0,corte); buf=buf.slice(corte);
+      for(const m of mios){
+        const t=contGet(m,['Type']),g=contGet(m,['Name']),gb=_c2(_cNum(contGet(m,['Gross'])));
+        const mf=_c2(_cNum(contGet(m,['Fee'])));
+        const asunto=contGet(m,['Subject','Item Title']);
+        if(/partner fee/i.test(t)){
+          const padre=porTxn[contGet(m,['Reference Txn ID'])];
+          const f=padre?contBuscarFin(contGet(padre,['Name']),null):null;
+          p.lines.push({kind:'partnerfee',amount:gb,property_id:f?f.property_id:null,
+            qbo_class_id:f?contClassOf(f.property_id):null,
+            guest_name:f?f.guest_name:null,
+            description:(f?f.guest_name:'PayPal')+' — fee de Hostfully'});
+          continue;
+        }
+        const f=contBuscarFin(g,null);
+        if(!f){ p.unresolved.push({label:g||t,amount:_c2(gb+mf),reason:'no aparece en el reporte de Hostfully'}); continue; }
+        if(gb<0){ // reembolso al huésped
+          p.lines.push({kind:'prepago',amount:gb,property_id:f.property_id,
+            qbo_class_id:contClassOf(f.property_id),guest_name:f.guest_name,
+            description:f.guest_name+' — reembolso, baja el pasivo'});
+          continue;
+        }
+        // Hostfully ya descuenta el fee de PayPal al calcular las partes, así
+        // que el desglose cuadra contra el NETO, no contra el bruto.
+        const sc=contSobrecobro(f,gb);
+        p.lines=p.lines.concat(contSplitReserva(f,_c2(gb+mf-(sc?sc.amount:0)),''));
+        if(sc)p.lines.push(sc);
+      }
+      out.push(p);
+      continue;
+    }
+    buf.push(r);
+  }
+  return out.filter(p=>!month||(p.pay_date&&p.pay_date.slice(0,7)===month));
+}
+
+/* --- Stripe: agrupado por automatic_payout_id --- */
+function contArmarStripe(rows,month,label){
+  const grupos={};
+  for(const r of rows){
+    const id=contGet(r,['automatic_payout_id']);if(!id)continue;
+    (grupos[id]=grupos[id]||[]).push(r);
+  }
+  const out=[];
+  for(const id in grupos){
+    const g=grupos[id];
+    const fecha=_cDate(contGet(g[0],['automatic_payout_effective_at_utc','automatic_payout_effective_at']));
+    const p={source:'stripe',account_label:label,ref:id,pay_date:fecha,amount:0,lines:[],unresolved:[],month};
+    for(const r of g){
+      const cat=contGet(r,['reporting_category']);
+      const neto=_c2(_cNum(contGet(r,['net'])));
+      const bruto=_c2(_cNum(contGet(r,['gross'])));
+      const fee=_c2(_cNum(contGet(r,['fee'])));
+      if(cat==='payout')continue;
+      p.amount=_c2(p.amount+neto);
+      const guest=contGet(r,['customer_name']);
+      const pname=contGet(r,['payment_metadata[Property Internal Name]']);
+      const desc=contGet(r,['description']);
+      if(cat==='risk_reserved_funds'){
+        const f=guest?contBuscarFin(guest,null):null;
+        const pid=(f&&f.property_id)||((contPropMatch(pname)||{}).id)||null;
+        p.lines.push({kind:'reserva',amount:neto,property_id:pid,qbo_class_id:contClassOf(pid),
+          guest_name:guest||null,description:(guest?guest+' — ':'')+'liberación de retención de Stripe'});
+        continue;
+      }
+      if(cat==='fee'){
+        const pid=(contPropMatch(pname)||{}).id||null;
+        p.lines.push({kind:'fee',amount:neto,property_id:pid,qbo_class_id:contClassOf(pid),
+          guest_name:null,description:desc||'fee de Stripe'});
+        continue;
+      }
+      if(cat==='refund'||cat==='dispute'){
+        const f=guest?contBuscarFin(guest,null):null;
+        const pid=(f&&f.property_id)||((contPropMatch(pname)||{}).id)||null;
+        p.lines.push({kind:'reembolso',amount:neto,property_id:pid,qbo_class_id:contClassOf(pid),
+          guest_name:guest||null,
+          description:(guest||'Stripe')+' — '+(cat==='dispute'?'disputa':'reembolso')});
+        continue;
+      }
+      // cat === 'charge'
+      const f=guest?contBuscarFin(guest,null):null;
+      if(!f){
+        // ¿Es un extra que vende Stay Here (early check-in, huésped extra,
+        // noche adicional)? Esos no son reservas y no están en Hostfully.
+        const svc=contServicio(desc);
+        if(svc){
+          p.lines.push({kind:svc.kind,amount:bruto,property_id:svc.propId,
+            qbo_class_id:contClassOf(svc.propId),guest_name:null,description:desc});
+          if(Math.abs(fee)>=0.005)p.lines.push({kind:'fee',amount:-Math.abs(fee),
+            property_id:svc.propId,qbo_class_id:contClassOf(svc.propId),
+            guest_name:null,description:'Fee de Stripe — '+desc});
+          continue;
+        }
+        p.unresolved.push({label:guest||desc||'cargo sin nombre',amount:neto,
+          reason:guest?'no aparece en el reporte de Hostfully':'Stripe no trae nombre en ese cargo'});
+        continue;
+      }
+      // El desglose de Hostfully cuadra contra el BRUTO; el fee va aparte.
+      const sc=contSobrecobro(f,bruto);
+      p.lines=p.lines.concat(contSplitReserva(f,_c2(bruto-(sc?sc.amount:0)),''));
+      if(sc)p.lines.push(sc);
+      if(Math.abs(fee)>=0.005)p.lines.push({kind:'fee',amount:-Math.abs(fee),property_id:f.property_id,
+        qbo_class_id:contClassOf(f.property_id),guest_name:f.guest_name,
+        description:f.guest_name+' — fee de Stripe'});
+    }
+    p.amount=_c2(p.amount);
+    if(p.pay_date&&(!month||p.pay_date.slice(0,7)===month))out.push(p);
+  }
+  return out;
+}
+
+async function contGuardarPayouts(month,payouts){
+  // Se recalcula todo el mes SALVO lo ya posteado, que no se toca.
+  const {data:prev}=await sb.from('cont_payouts').select('id,ref,source,account_label,pay_date,status,qbo_deposit_id').eq('month',month);
+  const posteados={};
+  (prev||[]).forEach(function(p){
+    if(p.status==='posteado')posteados[[p.source,p.account_label||'',p.ref,p.pay_date].join('|')]=p;
+    });
+  const borrar=(prev||[]).filter(p=>p.status!=='posteado').map(p=>p.id);
+  if(borrar.length)await sb.from('cont_payouts').delete().in('id',borrar);
+
+  for(const p of payouts){
+    const clave=[p.source,p.account_label||'',p.ref,p.pay_date].join('|');
+    if(posteados[clave])continue;                      // ya está en QuickBooks
+    const suma=_c2(p.lines.reduce((a,l)=>a+l.amount,0));
+    const sinClase=p.lines.filter(l=>!l.qbo_class_id).length;
+    const cuadra=Math.abs(suma-p.amount)<0.005&&!p.unresolved.length&&!sinClase;
+    if(!cuadra&&sinClase)p.unresolved.push({label:sinClase+' renglón(es) sin clase',amount:0,
+      reason:'asigna la clase de la propiedad en ⚙️ Clases y cuentas'});
+    const ins=await sb.from('cont_payouts').insert({
+      month,source:p.source,account_label:p.account_label,ref:p.ref,pay_date:p.pay_date,
+      amount:p.amount,matched:suma,status:cuadra?'listo':'pendiente',
+      unresolved:p.unresolved,updated_at:new Date().toISOString()
+    }).select().single();
+    if(ins.error){console.error(ins.error);continue;}
+    if(p.lines.length){
+      const ls=p.lines.map((l,i)=>({payout_id:ins.data.id,ord:i,kind:l.kind,amount:l.amount,
+        property_id:l.property_id||null,qbo_class_id:l.qbo_class_id||null,
+        guest_name:l.guest_name||null,description:l.description||null}));
+      const {error}=await sb.from('cont_payout_lines').insert(ls);
+      if(error)console.error(error);
+    }
+    p.status=cuadra?'listo':'pendiente';
+  }
+}
+
+/* ---------- lista de payouts ---------- */
+async function contReload(){
+  contRefreshUploads();
+  const month=(document.getElementById('contMonth')||{}).value;
+  const el=document.getElementById('contPayouts');if(!el||!month)return;
+  const {data,error}=await sb.from('cont_payouts').select('*').eq('month',month).order('pay_date');
+  if(error){el.innerHTML='<p class="muted" style="padding:16px">No se pudo cargar (¿tienes acceso de Contabilidad?).</p>';return;}
+  contPayouts=data||[];
+  if(!contPayouts.length){el.innerHTML='<p class="muted" style="text-align:center;padding:18px">Nada cuadrado para '+_cEsc(month)+' todavía.</p>';return;}
+  const ids=contPayouts.map(p=>p.id);
+  const {data:lines}=await sb.from('cont_payout_lines').select('*').in('payout_id',ids).order('ord');
+  const byPayout={};(lines||[]).forEach(l=>{(byPayout[l.payout_id]=byPayout[l.payout_id]||[]).push(l);});
+  const pname={};contProps.forEach(p=>{pname[p.id]=p.name;});
+  const tot=contPayouts.reduce((a,p)=>a+Number(p.amount||0),0);
+  const post=contPayouts.filter(p=>p.status==='posteado');
+  el.innerHTML='<div class="muted" style="font-size:12.5px;margin:6px 0 10px">'+
+      contPayouts.length+' payout(s) · '+money(tot)+' · <b style="color:var(--sea)">'+post.length+' en QuickBooks</b></div>'+
+    contPayouts.map(function(p){
+      const ls=byPayout[p.id]||[];
+      const pill=p.status==='posteado'?'<span class="pill paid">En QuickBooks</span>'
+                :p.status==='listo'?'<span class="pill approved">Cuadra</span>'
+                :'<span class="pill pending">Por revisar</span>';
+      const dif=_c2(Number(p.amount)-Number(p.matched));
+      const unres=(p.unresolved||[]);
+      return '<div style="border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'+
+          '<div><b style="font-size:15px">'+money(p.amount)+'</b> '+pill+
+            '<div class="muted" style="font-size:11.5px">'+_cEsc(p.pay_date)+' · '+_cEsc(p.source)+
+            (p.account_label?' · '+_cEsc(p.account_label):'')+' · '+_cEsc(p.ref)+
+            (p.qbo_deposit_id?' · depósito '+_cEsc(p.qbo_deposit_id):'')+'</div></div>'+
+          '<div style="display:flex;gap:6px">'+
+            '<button class="btn sm ghost" onclick="contToggleLines(\''+p.id+'\')">Ver renglones ('+ls.length+')</button>'+
+            (p.status==='posteado'
+              ? '<button class="btn sm dgr" onclick="contAnular(\''+p.id+'\')">Anular en QBO</button>'
+              : '<button class="btn sm" onclick="contPostear(\''+p.id+'\')"'+(p.status==='listo'?'':' disabled style="opacity:.45"')+'>📤 Postear</button>')+
+          '</div>'+
+        '</div>'+
+        (Math.abs(dif)>=0.005?'<div style="font-size:12.5px;color:var(--danger);margin-top:6px">Falta explicar '+money(dif)+' — los renglones suman '+money(p.matched)+'</div>':'')+
+        (unres.length?'<div style="margin-top:8px;border-top:1px dashed var(--line);padding-top:7px">'+
+          unres.map(function(u,ix){ return contResolverHTML(p,u,ix); }).join('')+'</div>':'')+
+        '<div id="contL-'+p.id+'" class="hide" style="margin-top:8px;overflow:auto">'+
+          '<table><tr><th>Tipo</th><th>Huésped</th><th>Propiedad</th><th style="text-align:right">Monto</th></tr>'+
+          (ls.length?ls.map(function(l){
+            return '<tr><td>'+_cEsc(CONT_KINDLBL[l.kind]||l.kind)+'</td>'+
+              '<td class="muted">'+_cEsc(l.guest_name||'—')+'</td>'+
+              '<td class="muted">'+_cEsc(pname[l.property_id]||'—')+(l.qbo_class_id?'':' <span style="color:var(--danger)">sin clase</span>')+'</td>'+
+              '<td style="text-align:right"><b>'+money(l.amount)+'</b></td></tr>';
+          }).join(''):'<tr><td colspan="4" class="muted" style="padding:12px">Sin renglones</td></tr>')+
+          '</table></div>'+
+      '</div>';
+    }).join('');
+}
+function contToggleLines(id){const e=document.getElementById('contL-'+id);if(e)e.classList.toggle('hide');}
+
+/* ---------- resolver pendientes ----------
+   Un pendiente es plata que entró y la app no supo de qué reserva viene. Hay
+   dos razones y por eso dos salidas:
+     a) el que paga tiene otro nombre que el huésped  → se crea un alias y se
+        vuelve a cuadrar (queda aprendido para siempre);
+     b) no es una reserva (un reembolso, un cliente de limpieza, un cobro de
+        prueba, un seguro) → se clasifica a mano contra una cuenta.           */
+function contResolverHTML(p,u,ix){
+  if(p.status==='posteado')
+    return '<div style="font-size:12px;color:var(--danger)">⚠️ '+_cEsc(u.label)+(u.amount?' · '+money(u.amount):'')+'</div>';
+  const id=p.id+'-'+ix;
+  const invitados=contFin.slice().sort((a,b)=>a.guest_name<b.guest_name?-1:1)
+    .map(f=>'<option value="'+_cEsc(f.guest_key)+'">'+_cEsc(f.guest_name)+' · '+_cEsc(f.check_in)+'</option>').join('');
+  const tipos=Object.keys(CONT_KINDLBL).map(k=>'<option value="'+k+'">'+_cEsc(CONT_KINDLBL[k])+'</option>').join('');
+  const props=contProps.map(x=>'<option value="'+x.id+'">'+_cEsc(x.name)+'</option>').join('');
+  const inp='padding:5px 7px;border:1.5px solid var(--line);border-radius:8px;font-size:12px';
+  return '<div style="margin-bottom:7px">'+
+    '<div style="font-size:12px;color:var(--danger)">⚠️ <b>'+_cEsc(u.label)+'</b>'+(u.amount?' · '+money(u.amount):'')+
+      ' <span class="muted">'+_cEsc(u.reason)+'</span></div>'+
+    '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:4px;padding-left:14px">'+
+      '<select id="cR-g-'+id+'" style="'+inp+'"><option value="">— es el huésped… —</option>'+invitados+'</select>'+
+      '<span class="muted" style="font-size:11px">o</span>'+
+      '<select id="cR-k-'+id+'" style="'+inp+'"><option value="">— clasificar como… —</option>'+tipos+'</select>'+
+      '<select id="cR-p-'+id+'" style="'+inp+'"><option value="">— propiedad —</option>'+props+'</select>'+
+      '<input id="cR-a-'+id+'" type="number" step="0.01" value="'+(u.amount||0)+'" style="'+inp+';width:92px">'+
+      '<button class="btn sm" onclick="contResolver(\''+p.id+'\','+ix+')">Aplicar</button>'+
+    '</div></div>';
+}
+async function contResolver(payoutId,ix){
+  const p=contPayouts.find(x=>x.id===payoutId);if(!p)return;
+  const u=(p.unresolved||[])[ix];if(!u)return;
+  const id=payoutId+'-'+ix;
+  const gv=(document.getElementById('cR-g-'+id)||{}).value||'';
+  const kv=(document.getElementById('cR-k-'+id)||{}).value||'';
+  const pv=(document.getElementById('cR-p-'+id)||{}).value||'';
+  const av=_c2(parseFloat((document.getElementById('cR-a-'+id)||{}).value)||0);
+
+  // (a) alias: el pagador es un huésped con otro nombre
+  if(gv){
+    const {error}=await sb.from('cont_alias').upsert(
+      {payer_key:_cKey(u.label),guest_key:gv,note:u.label},{onConflict:'payer_key'});
+    if(error){console.error(error);toast('No se pudo guardar el alias');return;}
+    toast('Alias guardado. Volviendo a cuadrar…');
+    await contAnalizar();
+    return;
+  }
+  // (b) clasificación manual contra una cuenta
+  if(!kv){toast('Elige el huésped o el tipo de renglón');return;}
+  if(!pv){toast('Toda línea lleva clase: elige la propiedad');return;}
+  const cls=contClassOf(pv);
+  if(!cls){toast('Esa propiedad no tiene clase de QuickBooks asignada');return;}
+  if(!av){toast('El monto no puede ser cero');return;}
+  const {error}=await sb.from('cont_payout_lines').insert({
+    payout_id:payoutId,ord:999+ix,kind:kv,amount:av,property_id:pv,qbo_class_id:cls,
+    guest_name:null,description:u.label+' — clasificado a mano'});
+  if(error){console.error(error);toast('No se pudo añadir el renglón');return;}
+  const resto=(p.unresolved||[]).filter((_,i)=>i!==ix);
+  const {data:ls}=await sb.from('cont_payout_lines').select('amount,qbo_class_id').eq('payout_id',payoutId);
+  const suma=_c2((ls||[]).reduce((a,l)=>a+Number(l.amount||0),0));
+  const sinClase=(ls||[]).filter(l=>!l.qbo_class_id).length;
+  const cuadra=Math.abs(suma-Number(p.amount))<0.005&&!resto.length&&!sinClase;
+  await sb.from('cont_payouts').update({unresolved:resto,matched:suma,
+    status:cuadra?'listo':'pendiente',updated_at:new Date().toISOString()}).eq('id',payoutId);
+  toast(cuadra?'Resuelto — ese payout ya cuadra':'Renglón añadido');
+  await contReload();
+}
+
+/* ---------- 3 · postear ---------- */
+async function contPostear(id){
+  const btnAll=document.getElementById('contPostAllBtn');if(btnAll)btnAll.disabled=true;
+  try{
+    const r=await sb.functions.invoke('cont-qbo',{body:{action:'postear',payout_id:id}});
+    const d=r.data||{};
+    if(!d.ok){toast(d.error||'No se pudo postear');return false;}
+    toast(d.adoptado?'Ya existía en QuickBooks, quedó ligado':'Posteado · depósito '+d.deposit_id);
+    return true;
+  }catch(e){console.error(e);toast('QuickBooks no respondió');return false;}
+  finally{ if(btnAll)btnAll.disabled=false; }
+}
+async function contPostearListos(){
+  const listos=contPayouts.filter(p=>p.status==='listo');
+  if(!listos.length){toast('No hay nada que cuadre todavía');return;}
+  if(!confirm('Se van a crear '+listos.length+' depósito(s) en QuickBooks por '+
+    money(listos.reduce((a,p)=>a+Number(p.amount),0))+'. ¿Seguimos?'))return;
+  let ok=0,mal=0;
+  for(const p of listos){ if(await contPostear(p.id))ok++;else mal++; }
+  await contReload();
+  toast('Posteados '+ok+(mal?' · fallaron '+mal:''));
+}
+async function contAnular(id){
+  if(!confirm('Esto borra el depósito en QuickBooks. ¿Seguro?'))return;
+  try{
+    const r=await sb.functions.invoke('cont-qbo',{body:{action:'anular',payout_id:id}});
+    const d=r.data||{};
+    if(!d.ok){toast(d.error||'No se pudo anular');return;}
+    toast('Anulado en QuickBooks');await contReload();
+  }catch(e){console.error(e);toast('QuickBooks no respondió');}
+}
+
+/* ---------- credenciales de Intuit ----------
+   Los valores viajan del navegador a la Edge Function y de ahí a una tabla que
+   solo lee service_role. De vuelta nunca llega el valor completo: la función
+   solo devuelve los últimos 4 caracteres para que puedas confirmar.          */
+function contToggleConn(){
+  const e=document.getElementById('contConn');if(!e)return;
+  e.classList.toggle('hide');
+  if(!e.classList.contains('hide'))contCargarCreds();
+}
+function contVerCreds(ver){
+  ['qboClientId','qboClientSecret','qboRefresh'].forEach(function(id){
+    const el=document.getElementById(id);if(el)el.type=ver?'text':'password';});
+}
+function contPintaCreds(est){
+  const el=document.getElementById('contConnEstado');if(!el)return;
+  if(!est){el.textContent='No se pudo leer el estado.';el.style.color='var(--danger)';return;}
+  const r=document.getElementById('qboRealm'),v=document.getElementById('qboEnv');
+  if(r&&!r.value&&est.realm_id)r.placeholder=est.realm_id;
+  if(v&&est.environment)v.value=est.environment;
+  const fila=(lbl,val)=>'<span style="margin-right:12px">'+lbl+': <b>'+(val?_cEsc(val):'<span style="color:var(--danger)">falta</span>')+'</b></span>';
+  el.innerHTML=(est.completo
+      ? '<span style="color:var(--sea);font-weight:700">✅ Credenciales completas</span> '
+      : '<span style="color:var(--danger);font-weight:700">⚠️ Faltan datos</span> ')+
+    (est.company_name?'· '+_cEsc(est.company_name)+' ':'')+'<br>'+
+    fila('Company ID',est.realm_id)+fila('Client ID',est.client_id)+
+    fila('Secret',est.client_secret)+fila('Token',est.refresh_token)+
+    (est.last_refresh?'<span class="muted">refrescado '+_cEsc(String(est.last_refresh).slice(0,16).replace('T',' '))+'</span>':'');
+  el.style.color='';
+}
+async function contCargarCreds(){
+  const el=document.getElementById('contConnEstado');if(el)el.textContent='Cargando…';
+  try{
+    const r=await sb.functions.invoke('cont-qbo',{body:{action:'credenciales'}});
+    const d=r.data||{};
+    if(!d.ok){if(el){el.textContent=d.error||'No se pudo leer el estado';el.style.color='var(--danger)';}return;}
+    contPintaCreds(d.estado);
+  }catch(e){console.error(e);if(el){el.textContent='La función no respondió';el.style.color='var(--danger)';}}
+}
+async function contGuardarCreds(){
+  const val=id=>((document.getElementById(id)||{}).value||'').trim();
+  const cuerpo={action:'guardar_credenciales',
+    realm_id:val('qboRealm'),client_id:val('qboClientId'),
+    client_secret:val('qboClientSecret'),refresh_token:val('qboRefresh'),
+    environment:(document.getElementById('qboEnv')||{}).value||''};
+  if(!cuerpo.realm_id&&!cuerpo.client_id&&!cuerpo.client_secret&&!cuerpo.refresh_token){
+    toast('No escribiste nada que guardar');return;}
+  try{
+    const r=await sb.functions.invoke('cont-qbo',{body:cuerpo});
+    const d=r.data||{};
+    if(!d.ok){toast(d.error||'No se pudo guardar');return;}
+    // Vaciar los campos: los valores ya no deben quedar dando vueltas en pantalla.
+    ['qboRealm','qboClientId','qboClientSecret','qboRefresh'].forEach(function(id){
+      const el=document.getElementById(id);if(el)el.value='';});
+    contPintaCreds(d.estado);
+    toast('Guardado. Probando la conexión…');
+    await contCheckQbo();
+    if(d.estado&&d.estado.completo)contCargarCreds();
+  }catch(e){console.error(e);toast('La función no respondió');}
+}
+
+/* ---------- ajustes: clases y cuentas ---------- */
+function contToggleSetup(){
+  const e=document.getElementById('contSetup');if(!e)return;
+  e.classList.toggle('hide');
+  if(!e.classList.contains('hide'))contRenderSetup();
+}
+let contCatalogo={clases:[],cuentas:[]};
+async function contCargarCatalogo(){
+  toast('Trayendo de QuickBooks…');
+  try{
+    const r=await sb.functions.invoke('cont-qbo',{body:{action:'catalogo'}});
+    const d=r.data||{};
+    if(!d.ok){toast(d.error||'No se pudo');return;}
+    contCatalogo={clases:d.clases||[],cuentas:d.cuentas||[]};
+    toast(contCatalogo.clases.length+' clases · '+contCatalogo.cuentas.length+' cuentas');
+    contRenderSetup();
+  }catch(e){console.error(e);toast('QuickBooks no respondió');}
+}
+async function contRenderSetup(){
+  await contLoadProps();
+  const el=document.getElementById('contClassTable');
+  if(el){
+    const opts=c=>'<option value="">— sin clase —</option>'+contCatalogo.clases.map(x=>
+      '<option value="'+x.id+'" '+(c===x.id?'selected':'')+'>'+_cEsc(x.name)+'</option>').join('');
+    el.innerHTML='<tr><th>Propiedad</th><th>Clase en QuickBooks</th><th>El dueño limpia</th></tr>'+
+      (contProps.length?contProps.map(function(p){
+        const c=contClassMap[p.id]||{};
+        return '<tr><td>'+_cEsc(p.name)+'</td>'+
+          '<td>'+(contCatalogo.clases.length
+            ? '<select onchange="contSetClass(\''+p.id+'\',this.value,this.options[this.selectedIndex].text)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:8px">'+opts(c.qbo_class_id)+'</select>'
+            : '<span class="muted">'+_cEsc(c.qbo_class_name||c.qbo_class_id||'—')+'</span>')+'</td>'+
+          '<td><label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" '+(c.cleaning_to_owner?'checked':'')+' onchange="contSetCleaning(\''+p.id+'\',this.checked)"> la limpieza es del dueño</label></td></tr>';
+      }).join(''):'<tr><td colspan="3" class="muted" style="padding:14px">No hay propiedades activas.</td></tr>');
+  }
+  const ae=document.getElementById('contAcctTable');
+  if(ae){
+    const {data}=await sb.from('cont_qbo_account').select('*').order('key');
+    ae.innerHTML='<tr><th>Tipo de renglón</th><th>Cuenta</th><th>ID en QuickBooks</th></tr>'+
+      (data||[]).map(a=>'<tr><td><b>'+_cEsc(CONT_KINDLBL[a.key]||a.key)+'</b></td>'+
+        '<td class="muted">'+_cEsc(a.label||'')+'</td>'+
+        '<td><input value="'+_cEsc(a.qbo_account_id)+'" onchange="contSetAccount(\''+a.key+'\',this.value)" style="width:110px;padding:5px 7px;border:1.5px solid var(--line);border-radius:8px;font-size:12.5px"></td></tr>').join('');
+  }
+}
+async function contSetClass(propId,classId,classText){
+  if(!classId){await sb.from('cont_qbo_class').delete().eq('property_id',propId);delete contClassMap[propId];toast('Clase quitada');return;}
+  const cur=contClassMap[propId]||{};
+  const {error}=await sb.from('cont_qbo_class').upsert({property_id:propId,qbo_class_id:classId,
+    qbo_class_name:classText,cleaning_to_owner:!!cur.cleaning_to_owner,updated_at:new Date().toISOString()},{onConflict:'property_id'});
+  if(error){console.error(error);toast('No se pudo guardar');return;}
+  contClassMap[propId]={qbo_class_id:classId,qbo_class_name:classText,cleaning_to_owner:!!cur.cleaning_to_owner};
+  toast('Clase guardada');
+}
+async function contSetCleaning(propId,val){
+  const cur=contClassMap[propId];
+  if(!cur||!cur.qbo_class_id){toast('Primero asígnale una clase a la propiedad');contRenderSetup();return;}
+  const {error}=await sb.from('cont_qbo_class').update({cleaning_to_owner:!!val,updated_at:new Date().toISOString()}).eq('property_id',propId);
+  if(error){console.error(error);toast('No se pudo guardar');return;}
+  contClassMap[propId].cleaning_to_owner=!!val;
+  toast(val?'La limpieza de esa propiedad va al dueño':'La limpieza vuelve a ser ingreso de Stay Here');
+}
+async function contSetAccount(key,val){
+  const v=String(val||'').trim();if(!v){toast('El ID no puede quedar vacío');return;}
+  const {error}=await sb.from('cont_qbo_account').update({qbo_account_id:v,updated_at:new Date().toISOString()}).eq('key',key);
+  if(error){console.error(error);toast('No se pudo guardar');return;}
+  toast('Cuenta actualizada');
+}
+
 /* ---------- RECONCILIACIÓN DE DUEÑOS (back office, solo can_reconcile) ---------- */
 let recOwners=[],recOpsProps=[],recExpenses=[],recPropOwner={};
 const _recEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
