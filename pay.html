@@ -171,7 +171,9 @@
       }
     }
     body.innerHTML =
-      '<h1>'+esc(t().title[kind]||info.service)+'</h1>'+
+      // Noche extra: usa la etiqueta del servidor (info.service) que YA trae la cantidad de noches
+      // ("2 noches extra"); el mapa estático title[kind] solo dice "Noche extra" sin el número.
+      '<h1>'+esc(kind==="extra_night" ? (info.service||t().title[kind]) : (t().title[kind]||info.service))+'</h1>'+
       '<p class="prop">'+esc(info.propertyName||"")+'</p>'+
       priceHtml+
       (isFull ? '' : '<div class="hold">'+t().hold+'</div>')+
