@@ -2093,7 +2093,7 @@ const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Pago al due�
   reserva:'Retención de Stripe',prepago:'Pasivo (por devolver)',sobrecobro:'Cobro doble (por devolver)',
   seguro:'Reclamación de seguro',reembolso:'Reembolso',reparaciones:'Reembolso de gastos',
   earlyci:'Early check-in',extraguest:'Huésped extra',servicio:'Servicios'};
-let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={};
+let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={};
 const _cEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const _c2=n=>Math.round((Number(n)||0)*100)/100;
 const _cNum=v=>{if(v==null)return 0;const s=String(v).replace(/[$,\s]/g,'').replace(/[()]/g,m=>m==='('?'-':'');const n=parseFloat(s);return isNaN(n)?0:n;};
@@ -2360,6 +2360,19 @@ function contSobrecobro(fin,cobrado){
   }
   return null;
 }
+// Un pendiente sin contexto obliga a ir a buscar quién es a otra pantalla. El
+// ledger de Hostfully (ops_reservations_ledger) tiene TODAS las reservas con su
+// propiedad y fechas, aunque no traiga el dinero: si el huésped está ahí, al
+// menos decimos de qué propiedad es y preseleccionamos su clase.
+function contPendiente(label,amount,reason){
+  const k=_cKey(label);
+  const r=k?contLedger[contAlias[k]||k]:null;
+  if(!r)return {label,amount:_c2(amount),reason};
+  const p=contProps.find(x=>x.id===r.property_id);
+  return {label,amount:_c2(amount),property_id:r.property_id||null,
+    reason:reason+' · en Hostfully es '+(p?p.name:'—')+', check-in '+r.check_in+
+           (r.source?' ('+r.source+')':'')+'. Falta su desglose en el reporte de dueños.'};
+}
 function contBuscarFin(guest,fecha){
   let k=_cKey(guest);if(!k)return null;
   // El que paga no siempre es el huésped (paga la pareja, la empresa, un
@@ -2381,12 +2394,18 @@ async function contAnalizar(){
   if(out)out.innerHTML='<p class="muted" style="padding:10px">Cuadrando…</p>';
   await contLoadProps();
 
-  const [fin,als]=await Promise.all([
+  const [fin,als,led]=await Promise.all([
     sb.from('cont_reservation_finance').select('*'),
-    sb.from('cont_alias').select('*')
+    sb.from('cont_alias').select('*'),
+    sb.from('ops_reservations_ledger').select('guest_name,property_id,check_in,source')
   ]);
   contFin=fin.data||[];
   contAlias={};(als.data||[]).forEach(a=>{contAlias[a.payer_key]=a.guest_key;});
+  // Nos quedamos con la estadía más reciente de cada huésped: es la que suele
+  // corresponder al payout que estamos cuadrando.
+  contLedger={};(led.data||[]).forEach(function(r){
+    const k=_cKey(r.guest_name);if(!k)return;
+    if(!contLedger[k]||String(r.check_in)>String(contLedger[k].check_in))contLedger[k]=r;});
   contYaDesglosado={};
   if(!contFin.length){
     if(out)out.innerHTML='<p class="muted" style="padding:10px">Todavía no has subido el reporte de dueños de Hostfully. Sin él no hay desglose que cuadrar.</p>';
@@ -2454,8 +2473,8 @@ function contArmarAirbnb(rows,month){
     }
     const f=contBuscarFin(guest,inicio);
     if(!f){
-      cur.unresolved.push({label:guest||contGet(r,['Confirmation code'])||tipo,amount:monto,
-        reason:'no aparece en el reporte de Hostfully'});
+      cur.unresolved.push(contPendiente(guest||contGet(r,['Confirmation code'])||tipo,monto,
+        'no aparece en el reporte de dueños'));
       continue;
     }
     cur.lines=cur.lines.concat(contSplitReserva(f,monto,tipo==='Adjustment'?'ajuste de Airbnb':''));
@@ -2505,7 +2524,7 @@ function contArmarPaypal(rows,month){
           continue;
         }
         const f=contBuscarFin(g,null);
-        if(!f){ p.unresolved.push({label:g||t,amount:_c2(gb+mf),reason:'no aparece en el reporte de Hostfully'}); continue; }
+        if(!f){ p.unresolved.push(contPendiente(g||t,_c2(gb+mf),'no aparece en el reporte de dueños')); continue; }
         if(gb<0){ // reembolso al huésped
           p.lines.push({kind:'prepago',amount:gb,property_id:f.property_id,
             qbo_class_id:contClassOf(f.property_id),guest_name:f.guest_name,
@@ -2583,8 +2602,9 @@ function contArmarStripe(rows,month,label){
             guest_name:null,description:'Fee de Stripe — '+desc});
           continue;
         }
-        p.unresolved.push({label:guest||desc||'cargo sin nombre',amount:neto,
-          reason:guest?'no aparece en el reporte de Hostfully':'Stripe no trae nombre en ese cargo'});
+        p.unresolved.push(guest
+          ? contPendiente(guest,neto,'no aparece en el reporte de dueños')
+          : {label:desc||'cargo sin nombre',amount:_c2(neto),reason:'Stripe no trae nombre en ese cargo'});
         continue;
       }
       // El desglose de Hostfully cuadra contra el BRUTO; el fee va aparte.
@@ -2717,7 +2737,8 @@ function contResolverHTML(p,u,ix){
   const invitados=contFin.slice().sort((a,b)=>a.guest_name<b.guest_name?-1:1)
     .map(f=>'<option value="'+_cEsc(f.guest_key)+'">'+_cEsc(f.guest_name)+' · '+_cEsc(f.check_in)+'</option>').join('');
   const tipos=Object.keys(CONT_KINDLBL).map(k=>'<option value="'+k+'">'+_cEsc(CONT_KINDLBL[k])+'</option>').join('');
-  const props=contProps.map(x=>'<option value="'+x.id+'">'+_cEsc(x.name)+'</option>').join('');
+  const props=contProps.map(x=>'<option value="'+x.id+'"'+(u.property_id===x.id?' selected':'')+
+    '>'+_cEsc(x.name)+'</option>').join('');
   const inp='padding:5px 7px;border:1.5px solid var(--line);border-radius:8px;font-size:12px';
   return '<div style="margin-bottom:7px">'+
     '<div style="font-size:12px;color:var(--danger)">⚠️ <b>'+_cEsc(u.label)+'</b>'+(u.amount?' · '+money(u.amount):'')+
