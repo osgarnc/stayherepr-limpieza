@@ -2833,14 +2833,24 @@ async function contResolver(payoutId,ix){
     payout_id:payoutId,ord:999+ix,kind:kv,amount:av,property_id:pv,qbo_class_id:cls,
     guest_name:null,description:u.label+' — clasificado a mano'});
   if(error){console.error(error);toast('No se pudo añadir el renglón');return;}
-  const resto=(p.unresolved||[]).filter((_,i)=>i!==ix);
+  // Si clasificas menos de lo que trae el pendiente, el resto sigue pendiente.
+  // Asi una cancelacion retenida se puede repartir entre comision y dueño en
+  // dos pasos, en vez de forzar todo a una sola cuenta.
+  const sobra=_c2(Number(u.amount||0)-av);
+  const resto=(p.unresolved||[]).map(function(x,i){
+    if(i!==ix)return x;
+    return Math.abs(sobra)>=0.005
+      ? Object.assign({},x,{amount:sobra,reason:x.reason+' · queda '+sobra.toFixed(2)+' por clasificar'})
+      : null;
+  }).filter(Boolean);
   const {data:ls}=await sb.from('cont_payout_lines').select('amount,qbo_class_id').eq('payout_id',payoutId);
   const suma=_c2((ls||[]).reduce((a,l)=>a+Number(l.amount||0),0));
   const sinClase=(ls||[]).filter(l=>!l.qbo_class_id).length;
   const cuadra=Math.abs(suma-Number(p.amount))<0.005&&!resto.length&&!sinClase;
   await sb.from('cont_payouts').update({unresolved:resto,matched:suma,
     status:cuadra?'listo':'pendiente',updated_at:new Date().toISOString()}).eq('id',payoutId);
-  toast(cuadra?'Resuelto — ese payout ya cuadra':'Renglón añadido');
+  toast(cuadra?'Resuelto — ese payout ya cuadra'
+        :(Math.abs(sobra)>=0.005?'Renglón añadido · quedan '+money(sobra)+' por clasificar':'Renglón añadido'));
   await contReload();
 }
 
