@@ -162,13 +162,17 @@
     var priceHtml, controlHtml='';
     if(tiers && isBirthday){
       // Cumpleaños: opciones VISIBLES (radios) para que se vea el champán. Preselecciona el de champán.
+      // Los labels se LOCALIZAN aquí (el servidor los manda en español; minutes 0=básico, 1=champán).
+      var bdayLabel = function(tr){ var champ = tr.minutes===1;
+        return L==='es' ? (champ?'Con champán · botella y 2 copas':'Básico · decoración y bizcocho')
+                        : (champ?'With champagne · bottle & 2 glasses':'Basic · decorations & cake'); };
       var champIdx = -1;
-      for(var ci=0; ci<tiers.length; ci++){ if(/champ/i.test(tiers[ci].label)) champIdx=ci; }
+      for(var ci=0; ci<tiers.length; ci++){ if(tiers[ci].minutes===1) champIdx=ci; }
       if(champIdx<0) champIdx = tiers.length-1;
       var cards = tiers.map(function(tr,i){
         return '<label style="display:flex;align-items:center;gap:10px;padding:14px;border:1.5px solid var(--line);border-radius:12px;margin-bottom:10px;cursor:pointer">'
           + '<input type="radio" name="tsel" value="'+i+'"'+(i===champIdx?' checked':'')+' style="width:20px;height:20px;flex:0 0 auto">'
-          + '<span style="flex:1;font-size:15px">'+esc(tr.label)+'</span>'
+          + '<span style="flex:1;font-size:15px">'+esc(bdayLabel(tr))+'</span>'
           + '<b style="font-size:17px">'+money(tr.amountCents,cur)+'</b></label>';
       }).join('');
       priceHtml = '';
