@@ -2414,12 +2414,16 @@ async function contAnalizar(){
   await contGuardarPayouts(month,payouts);
   await contReload();
   const listos=payouts.filter(p=>p.status==='listo').length;
-  const pend=payouts.length-listos;
+  const faltaCls=payouts.filter(p=>p.status==='sin_clase').length;
+  const pend=payouts.filter(p=>p.status==='pendiente').length;
   if(out)out.innerHTML='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13.5px">'+
     '<span>📦 <b>'+payouts.length+'</b> payouts</span>'+
-    '<span style="color:var(--sea)">✅ <b>'+listos+'</b> cuadran</span>'+
+    '<span style="color:var(--sea)">✅ <b>'+(listos+faltaCls)+'</b> cuadran</span>'+
+    (faltaCls?'<span style="color:var(--brand)">🏷️ <b>'+faltaCls+'</b> solo les falta la clase</span>':'')+
     '<span style="color:'+(pend?'var(--danger)':'var(--ink-soft)')+'">⚠️ <b>'+pend+'</b> por revisar</span>'+
-    '<span class="muted">Total '+money(payouts.reduce((a,p)=>a+p.amount,0))+'</span></div>';
+    '<span class="muted">Total '+money(payouts.reduce((a,p)=>a+p.amount,0))+'</span></div>'+
+    (faltaCls?'<div style="margin-top:8px;font-size:13px">Los '+faltaCls+' que solo esperan la clase están bien cuadrados. '+
+      '<button class="btn sm" onclick="contToggleSetup()">⚙️ Asignar clases ahora</button></div>':'');
 }
 
 /* --- Airbnb: cada fila "Payout" abre un grupo; las de abajo son su contenido --- */
@@ -2612,12 +2616,15 @@ async function contGuardarPayouts(month,payouts){
     if(posteados[clave])continue;                      // ya está en QuickBooks
     const suma=_c2(p.lines.reduce((a,l)=>a+l.amount,0));
     const sinClase=p.lines.filter(l=>!l.qbo_class_id).length;
-    const cuadra=Math.abs(suma-p.amount)<0.005&&!p.unresolved.length&&!sinClase;
-    if(!cuadra&&sinClase)p.unresolved.push({label:sinClase+' renglón(es) sin clase',amount:0,
-      reason:'asigna la clase de la propiedad en ⚙️ Clases y cuentas'});
+    // Cuadrar y estar configurado son dos cosas distintas. Un payout que suma
+    // exacto pero cuyas propiedades aún no tienen clase de QuickBooks no es un
+    // problema de datos: es que falta el mapeo. Decirle "por revisar" manda al
+    // usuario a buscar un error que no existe.
+    const balancea=Math.abs(suma-p.amount)<0.005&&!p.unresolved.length;
+    const estado=!balancea?'pendiente':(sinClase?'sin_clase':'listo');
     const ins=await sb.from('cont_payouts').insert({
       month,source:p.source,account_label:p.account_label,ref:p.ref,pay_date:p.pay_date,
-      amount:p.amount,matched:suma,status:cuadra?'listo':'pendiente',
+      amount:p.amount,matched:suma,status:estado,
       unresolved:p.unresolved,updated_at:new Date().toISOString()
     }).select().single();
     if(ins.error){console.error(ins.error);continue;}
@@ -2628,7 +2635,7 @@ async function contGuardarPayouts(month,payouts){
       const {error}=await sb.from('cont_payout_lines').insert(ls);
       if(error)console.error(error);
     }
-    p.status=cuadra?'listo':'pendiente';
+    p.status=estado;
   }
 }
 
@@ -2653,6 +2660,7 @@ async function contReload(){
       const ls=byPayout[p.id]||[];
       const pill=p.status==='posteado'?'<span class="pill paid">En QuickBooks</span>'
                 :p.status==='listo'?'<span class="pill approved">Cuadra</span>'
+                :p.status==='sin_clase'?'<span class="pill approved" style="opacity:.75">Cuadra · falta clase</span>'
                 :'<span class="pill pending">Por revisar</span>';
       const dif=_c2(Number(p.amount)-Number(p.matched));
       const unres=(p.unresolved||[]);
@@ -2670,6 +2678,15 @@ async function contReload(){
           '</div>'+
         '</div>'+
         (Math.abs(dif)>=0.005?'<div style="font-size:12.5px;color:var(--danger);margin-top:6px">Falta explicar '+money(dif)+' — los renglones suman '+money(p.matched)+'</div>':'')+
+        (p.status==='sin_clase'?(function(){
+          // No es un problema de datos: el payout cuadra. Solo falta el mapeo.
+          const faltan=[...new Set(ls.filter(l=>!l.qbo_class_id)
+            .map(l=>pname[l.property_id]||'(sin propiedad)'))];
+          return '<div style="font-size:12.5px;margin-top:6px">'+
+            '<span style="color:var(--sea)">Cuadra al centavo.</span> Falta la clase de QuickBooks de: <b>'+
+            _cEsc(faltan.join(', '))+'</b> '+
+            '<button class="btn sm ghost" onclick="contToggleSetup()">⚙️ Asignar</button></div>';
+        })():'')+
         (unres.length?'<div style="margin-top:8px;border-top:1px dashed var(--line);padding-top:7px">'+
           unres.map(function(u,ix){ return contResolverHTML(p,u,ix); }).join('')+'</div>':'')+
         '<div id="contL-'+p.id+'" class="hide" style="margin-top:8px;overflow:auto">'+
@@ -2895,7 +2912,40 @@ async function contSetClass(propId,classId,classText){
     qbo_class_name:classText,cleaning_to_owner:!!cur.cleaning_to_owner,updated_at:new Date().toISOString()},{onConflict:'property_id'});
   if(error){console.error(error);toast('No se pudo guardar');return;}
   contClassMap[propId]={qbo_class_id:classId,qbo_class_name:classText,cleaning_to_owner:!!cur.cleaning_to_owner};
-  toast('Clase guardada');
+  const n=await contAplicarClases();
+  toast('Clase guardada'+(n?' · '+n+' renglón(es) actualizados':''));
+}
+// Rellena la clase en los renglones ya cuadrados. Así asignar una clase no
+// obliga a volver a subir los archivos y cuadrar el mes de nuevo.
+async function contAplicarClases(){
+  const month=(document.getElementById('contMonth')||{}).value;if(!month)return 0;
+  const {data:pays}=await sb.from('cont_payouts').select('id,amount,status,unresolved')
+    .eq('month',month).neq('status','posteado');
+  if(!pays||!pays.length)return 0;
+  const ids=pays.map(p=>p.id);
+  const {data:lines}=await sb.from('cont_payout_lines').select('*').in('payout_id',ids);
+  let n=0;
+  for(const l of (lines||[])){
+    if(l.qbo_class_id||!l.property_id)continue;
+    const cls=contClassOf(l.property_id);
+    if(!cls)continue;
+    const {error}=await sb.from('cont_payout_lines').update({qbo_class_id:cls}).eq('id',l.id);
+    if(!error){l.qbo_class_id=cls;n++;}
+  }
+  if(!n)return 0;
+  const porPayout={};(lines||[]).forEach(l=>{(porPayout[l.payout_id]=porPayout[l.payout_id]||[]).push(l);});
+  for(const p of pays){
+    const ls=porPayout[p.id]||[];
+    const suma=_c2(ls.reduce((a,l)=>a+Number(l.amount||0),0));
+    const sinClase=ls.filter(l=>!l.qbo_class_id).length;
+    const balancea=Math.abs(suma-Number(p.amount))<0.005&&!(p.unresolved||[]).length;
+    const estado=!balancea?'pendiente':(sinClase?'sin_clase':'listo');
+    if(estado!==p.status)
+      await sb.from('cont_payouts').update({status:estado,matched:suma,
+        updated_at:new Date().toISOString()}).eq('id',p.id);
+  }
+  await contReload();
+  return n;
 }
 async function contSetCleaning(propId,val){
   const cur=contClassMap[propId];
@@ -2903,7 +2953,10 @@ async function contSetCleaning(propId,val){
   const {error}=await sb.from('cont_qbo_class').update({cleaning_to_owner:!!val,updated_at:new Date().toISOString()}).eq('property_id',propId);
   if(error){console.error(error);toast('No se pudo guardar');return;}
   contClassMap[propId].cleaning_to_owner=!!val;
-  toast(val?'La limpieza de esa propiedad va al dueño':'La limpieza vuelve a ser ingreso de Stay Here');
+  // Esto NO es un cambio de clase: cambia a qué cuenta va la limpieza, o sea
+  // el reparto mismo. Rellenar clases no lo arregla; hay que rearmar el mes.
+  toast((val?'La limpieza de esa propiedad va al dueño.':'La limpieza vuelve a ser ingreso de Stay Here.')+
+        ' Dale a "Cuadrar el mes" para rearmar el desglose.');
 }
 async function contSetAccount(key,val){
   const v=String(val||'').trim();if(!v){toast('El ID no puede quedar vacío');return;}
