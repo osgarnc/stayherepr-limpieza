@@ -985,6 +985,15 @@
     <div id="msgViewClRem" class="card hide" style="padding:14px">
       <p class="muted" style="font-size:13px;margin-top:0">Recordatorios automáticos para los <b>cleaners activos</b>. Cada mañana a las <b>6am</b>, cuando una reserva que <b>entra ese día</b> traiga <b>más de N huéspedes</b>, se les recuerda la tarea que definas. Puedes añadir varios.</p>
       <div class="card" style="padding:12px;margin-bottom:12px;background:var(--bg2,#f7f8fa)">
+        <div style="font-weight:600;font-size:14px">🔋 Batería de cerraduras</div>
+        <p class="muted" style="font-size:13px;margin:4px 0 10px">Cada mañana a las <b>6am</b>, si la batería de una cerradura baja del umbral, se le avisa a la <b>cleaner asignada</b> a esa propiedad (o a ti si no hay cleaner) para que la cambie y bote las viejas. No se repite por la misma cerradura en menos de 2 días.</p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+          <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;cursor:pointer"><input type="checkbox" id="battAlertEnabled"> Aviso activado</label>
+          <div><label style="font-weight:600;font-size:13px">Avisar cuando baje de (%)</label><br><input id="battAlertPct" type="number" min="1" max="100" value="15" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:90px"></div>
+          <button class="btn" id="battAlertSaveBtn" onclick="msgSaveBattAlert()">Guardar</button>
+        </div>
+      </div>
+      <div class="card" style="padding:12px;margin-bottom:12px;background:var(--bg2,#f7f8fa)">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
           <div><label style="font-weight:600;font-size:13px">Propiedad</label><br><select id="clrProp" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;min-width:200px"></select></div>
           <div><label style="font-weight:600;font-size:13px">Más de N huéspedes</label><br><input id="clrN" type="number" min="1" value="4" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:90px"></div>
@@ -4695,6 +4704,13 @@ async function msgLoadCorrections(){
 }
 async function msgLoadClRem(){
   const box=document.getElementById('clrList');
+  // Ajustes del aviso de batería (interruptor + umbral). Default: activado, 15%.
+  try{
+    const {data:bs}=await msgC().from('ops_app_settings').select('key,value').in('key',['lock_battery_alert_enabled','lock_battery_alert_pct']);
+    const bm={}; (bs||[]).forEach(r=>bm[r.key]=r.value);
+    const en=document.getElementById('battAlertEnabled'); if(en) en.checked=(bm.lock_battery_alert_enabled!=='false');
+    const pc=document.getElementById('battAlertPct'); if(pc) pc.value=(bm.lock_battery_alert_pct&&Number(bm.lock_battery_alert_pct))||15;
+  }catch(e){}
   if(!window._msgProps||!Object.keys(window._msgProps).length){ await msgLoadProps(); }
   // Poblar el selector de propiedad (Todas + cada propiedad, ordenadas por nombre).
   const sel=document.getElementById('clrProp');
@@ -4717,6 +4733,19 @@ async function msgLoadClRem(){
       '<button class="btn ghost sm" onclick="msgClRemDelete(\''+r.id+'\')">🗑️ Borrar</button>'+
     '</div>'+
   '</div>').join('');
+}
+async function msgSaveBattAlert(){
+  const en=document.getElementById('battAlertEnabled').checked;
+  const n=parseInt(document.getElementById('battAlertPct').value,10);
+  if(!(n>=1&&n<=100)){toast('Pon un umbral entre 1 y 100');return;}
+  const btn=document.getElementById('battAlertSaveBtn');btn.disabled=true;
+  const {error}=await msgC().from('ops_app_settings').upsert([
+    {key:'lock_battery_alert_enabled',value:en?'true':'false'},
+    {key:'lock_battery_alert_pct',value:String(n)}
+  ],{onConflict:'key'});
+  btn.disabled=false;
+  if(error){toast('Error: '+error.message);return;}
+  toast('✅ Aviso de batería guardado ('+(en?('≤'+n+'%'):'apagado')+')');
 }
 async function msgClRemAdd(){
   const label=document.getElementById('clrLabel').value.trim();
