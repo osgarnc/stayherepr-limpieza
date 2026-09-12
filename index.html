@@ -985,15 +985,6 @@
     <div id="msgViewClRem" class="card hide" style="padding:14px">
       <p class="muted" style="font-size:13px;margin-top:0">Recordatorios automáticos para los <b>cleaners activos</b>. Cada mañana a las <b>6am</b>, cuando una reserva que <b>entra ese día</b> traiga <b>más de N huéspedes</b>, se les recuerda la tarea que definas. Puedes añadir varios.</p>
       <div class="card" style="padding:12px;margin-bottom:12px;background:var(--bg2,#f7f8fa)">
-        <div style="font-weight:600;font-size:14px">🔋 Batería de cerraduras</div>
-        <p class="muted" style="font-size:13px;margin:4px 0 10px">Cada mañana a las <b>6am</b>, si la batería de una cerradura baja del umbral, se le avisa a la <b>cleaner asignada</b> a esa propiedad (o a ti si no hay cleaner) para que la cambie y bote las viejas. No se repite por la misma cerradura en menos de 2 días.</p>
-        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
-          <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;cursor:pointer"><input type="checkbox" id="battAlertEnabled"> Aviso activado</label>
-          <div><label style="font-weight:600;font-size:13px">Avisar cuando baje de (%)</label><br><input id="battAlertPct" type="number" min="1" max="100" value="15" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:90px"></div>
-          <button class="btn" id="battAlertSaveBtn" onclick="msgSaveBattAlert()">Guardar</button>
-        </div>
-      </div>
-      <div class="card" style="padding:12px;margin-bottom:12px;background:var(--bg2,#f7f8fa)">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
           <div><label style="font-weight:600;font-size:13px">Propiedad</label><br><select id="clrProp" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;min-width:200px"></select></div>
           <div><label style="font-weight:600;font-size:13px">Más de N huéspedes</label><br><input id="clrN" type="number" min="1" value="4" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:90px"></div>
@@ -1004,6 +995,16 @@
         <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn" id="clrAddBtn" onclick="msgClRemAdd()">➕ Añadir recordatorio</button></div>
       </div>
       <div id="clrList"></div>
+      <div style="margin:16px 0 8px;border-top:1px solid var(--line);padding-top:12px;font-weight:600;font-size:13px;color:var(--muted,#64748b)">⚙️ Avisos automáticos</div>
+      <div class="card" style="padding:12px;margin-bottom:12px;background:var(--bg2,#f7f8fa)">
+        <div style="font-weight:600;font-size:14px">🔋 Batería de cerraduras</div>
+        <p class="muted" style="font-size:13px;margin:4px 0 10px">Cada mañana a las <b>6am</b>, si la batería de una cerradura baja del umbral, se le avisa a la <b>cleaner asignada</b> a esa propiedad (o a ti si no hay cleaner) para que la cambie y bote las viejas. No se repite por la misma cerradura en menos de 2 días.</p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+          <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;cursor:pointer"><input type="checkbox" id="battAlertEnabled"> Aviso activado</label>
+          <div><label style="font-weight:600;font-size:13px">Avisar cuando baje de (%)</label><br><input id="battAlertPct" type="number" min="1" max="100" value="15" style="padding:8px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:90px"></div>
+          <button class="btn" id="battAlertSaveBtn" onclick="msgSaveBattAlert()">Guardar</button>
+        </div>
+      </div>
     </div>
   </div>
 
