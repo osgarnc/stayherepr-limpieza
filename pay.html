@@ -86,10 +86,10 @@
   var L = "en";
   var T = {
     en:{
-      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Extra night", extra_guest:"Extra guest", pet_fee:"Pet fee", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", late_delux:"Late Special Delux (4 PM)", birthday:"Birthday package"},
+      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Extra night", extra_guest:"Extra guest", pet_fee:"Pet fee", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", late_delux:"Late Special Deluxe", birthday:"Birthday package"},
       each:"one-time",
       hold:"You’ll only be <b>authorized</b> now — we charge the card <b>only when our team approves</b>. If we can’t accommodate it, the hold is released and you’re not charged.",
-      timeLabel:{early_checkin:"Desired check-in time", late_checkout:"Desired check-out time", extra_night:"Note (optional)", birthday:"Choose your package"},
+      timeLabel:{early_checkin:"Desired check-in time", late_checkout:"Desired check-out time", extra_night:"Note (optional)", birthday:"Choose your package", late_delux:"Choose your time"},
       timePh:"e.g. 2:00 PM",
       pay:"Pay & request",
       secure:"Secured by Stripe · we never see your card",
@@ -105,10 +105,10 @@
       genErr:"Something went wrong. Please try again in a moment."
     },
     es:{
-      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Noche extra", extra_guest:"Huésped adicional", pet_fee:"Tarifa de mascota", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", late_delux:"Late Special Delux (4 PM)", birthday:"Paquete de cumpleaños"},
+      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Noche extra", extra_guest:"Huésped adicional", pet_fee:"Tarifa de mascota", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", late_delux:"Late Special Deluxe", birthday:"Paquete de cumpleaños"},
       each:"pago único",
       hold:"Por ahora solo se <b>autoriza</b> — cobramos la tarjeta <b>únicamente cuando el equipo aprueba</b>. Si no podemos acomodarlo, la retención se libera y no se te cobra.",
-      timeLabel:{early_checkin:"Hora de entrada deseada", late_checkout:"Hora de salida deseada", extra_night:"Nota (opcional)", birthday:"Elige tu paquete"},
+      timeLabel:{early_checkin:"Hora de entrada deseada", late_checkout:"Hora de salida deseada", extra_night:"Nota (opcional)", birthday:"Elige tu paquete", late_delux:"Elige tu hora"},
       timePh:"ej. 2:00 PM",
       pay:"Pagar y solicitar",
       secure:"Protegido por Stripe · nunca vemos tu tarjeta",
@@ -153,26 +153,28 @@
 
   function renderForm(info){
     var kind = info.kind;
-    var isFull = kind === 'full_booking' || kind === 'extra_guest' || kind === 'pet_fee' || kind === 'early_11am' || kind === 'late_4pm' || kind === 'late_delux'; // monto fijo, sin hora/tramo, cobro inmediato (cumpleaños NO: es tiered)
+    var isFull = kind === 'full_booking' || kind === 'extra_guest' || kind === 'pet_fee' || kind === 'early_11am' || kind === 'late_4pm'; // monto fijo, sin hora/tramo, cobro inmediato (cumpleaños y late_delux NO: son tiered)
     var tl = t().timeLabel[kind] || t().timeLabel.late_checkout;
     var cur = info.currency || 'usd';
     var tiers = (info.tiers && info.tiers.length) ? info.tiers : null;
 
     var isBirthday = kind === 'birthday';
+    var isLateDelux = kind === 'late_delux';
     var priceHtml, controlHtml='';
-    if(tiers && isBirthday){
-      // Cumpleaños: opciones VISIBLES (radios) para que se vea el champán. Preselecciona el de champán.
-      // Los labels se LOCALIZAN aquí (el servidor los manda en español; minutes 0=básico, 1=champán).
+    if(tiers && (isBirthday || isLateDelux)){
+      // Cumpleaños / Late Deluxe: opciones VISIBLES (radios) para que se vean todas sin abrir menú.
+      // Cumpleaños localiza el label por minutes (0=básico,1=champán) y preselecciona el champán;
+      // Late Deluxe muestra el tramo tal cual ("2:00 PM"/"5:00 PM") y preselecciona el primero.
       var bdayLabel = function(tr){ var champ = tr.minutes===1;
         return L==='es' ? (champ?'Con champán · botella y 2 copas':'Básico · decoración y bizcocho')
                         : (champ?'With champagne · bottle & 2 glasses':'Basic · decorations & cake'); };
-      var champIdx = -1;
-      for(var ci=0; ci<tiers.length; ci++){ if(tiers[ci].minutes===1) champIdx=ci; }
-      if(champIdx<0) champIdx = tiers.length-1;
+      var preIdx = 0;
+      if(isBirthday){ preIdx = -1; for(var ci=0; ci<tiers.length; ci++){ if(tiers[ci].minutes===1) preIdx=ci; } if(preIdx<0) preIdx = tiers.length-1; }
       var cards = tiers.map(function(tr,i){
+        var lbl = isBirthday ? bdayLabel(tr) : tr.label;
         return '<label style="display:flex;align-items:center;gap:10px;padding:14px;border:1.5px solid var(--line);border-radius:12px;margin-bottom:10px;cursor:pointer">'
-          + '<input type="radio" name="tsel" value="'+i+'"'+(i===champIdx?' checked':'')+' style="width:20px;height:20px;flex:0 0 auto">'
-          + '<span style="flex:1;font-size:15px">'+esc(bdayLabel(tr))+'</span>'
+          + '<input type="radio" name="tsel" value="'+i+'"'+(i===preIdx?' checked':'')+' style="width:20px;height:20px;flex:0 0 auto">'
+          + '<span style="flex:1;font-size:15px">'+esc(lbl)+'</span>'
           + '<b style="font-size:17px">'+money(tr.amountCents,cur)+'</b></label>';
       }).join('');
       priceHtml = '';
