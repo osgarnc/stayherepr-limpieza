@@ -2125,6 +2125,28 @@ function _cDate(v){
   let y=parseInt(m[3],10);if(y<100)y+=2000;
   return y+'-'+String(parseInt(m[1],10)).padStart(2,'0')+'-'+String(parseInt(m[2],10)).padStart(2,'0');
 }
+// Siguiente día hábil bancario. Airbnb y PayPal acreditan en el banco el día
+// hábil siguiente al payout/retiro; la "Arriving by date" de Airbnb es solo la
+// fecha límite que promete y fechar con ella movió payouts de agosto a
+// septiembre y descuadró la reconciliación. Verificado 31/31 contra el banco.
+function _cFeriado(dt){
+  const y=dt.getUTCFullYear(),m=dt.getUTCMonth(),d=dt.getUTCDate(),w=dt.getUTCDay();
+  const nth=(mo,wd,k)=>{let c=0;for(let i=1;i<=31;i++){const x=new Date(Date.UTC(y,mo,i));if(x.getUTCMonth()!==mo)break;if(x.getUTCDay()===wd&&++c===k)return i;}return -1;};
+  const ult=(mo,wd)=>{for(let i=31;i>=1;i--){const x=new Date(Date.UTC(y,mo,i));if(x.getUTCMonth()===mo&&x.getUTCDay()===wd)return i;}return -1;};
+  const fijo=(mo,dd)=>{ // feriado fijo; si cae sábado se observa viernes, domingo → lunes
+    const x=new Date(Date.UTC(y,mo,dd)),xw=x.getUTCDay();
+    const o=xw===6?new Date(Date.UTC(y,mo,dd-1)):xw===0?new Date(Date.UTC(y,mo,dd+1)):x;
+    return o.getUTCMonth()===m&&o.getUTCDate()===d;};
+  return fijo(0,1)||fijo(5,19)||fijo(6,4)||fijo(10,11)||fijo(11,25)||
+    (m===0&&d===nth(0,1,3))||(m===1&&d===nth(1,1,3))||(m===4&&d===ult(4,1))||
+    (m===8&&d===nth(8,1,1))||(m===9&&d===nth(9,1,2))||(m===10&&d===nth(10,4,4));
+}
+function _cHabil(iso){
+  if(!iso)return iso;
+  const x=new Date(iso+'T12:00:00Z');
+  do{ x.setUTCDate(x.getUTCDate()+1); }while(x.getUTCDay()===0||x.getUTCDay()===6||_cFeriado(x));
+  return x.toISOString().slice(0,10);
+}
 // Lector de CSV que respeta comillas, comas dentro del campo y saltos de línea.
 function contParseCSV(text){
   const t=String(text).replace(/^﻿/,'');
@@ -2577,9 +2599,10 @@ function contArmarAirbnb(rows,month){
     const tipo=contGet(r,['Type']);
     if(tipo==='Payout'){
       cerrar();
-      const fecha=_cDate(contGet(r,['Arriving by date']))||_cDate(contGet(r,['Date']));
-      cur={source:'airbnb',account_label:null,ref:contGet(r,['Reference code'])||('AIRBNB '+fecha),
-        pay_date:fecha,amount:_c2(_cNum(contGet(r,['Paid out']))),lines:[],unresolved:[],month};
+      const emitido=_cDate(contGet(r,['Date']))||_cDate(contGet(r,['Arriving by date']));
+      const fecha=_cHabil(emitido);   // cuando entra de verdad al banco
+      cur={source:'airbnb',account_label:null,ref:contGet(r,['Reference code'])||('AIRBNB '+emitido),
+        pay_date:fecha,src_date:emitido,amount:_c2(_cNum(contGet(r,['Paid out']))),lines:[],unresolved:[],month};
       continue;
     }
     if(!cur)continue;
@@ -2604,7 +2627,8 @@ function contArmarAirbnb(rows,month){
     cur.lines=cur.lines.concat(contSplitReserva(f,monto,tipo==='Adjustment'?'ajuste de Airbnb':''));
   }
   cerrar();
-  return out.filter(p=>p.pay_date&&p.pay_date.slice(0,7)===month||!month);
+  // El payout pertenece al reporte donde viene; su fecha contable es la del banco.
+  return out.filter(p=>!month||(p.src_date&&p.src_date.slice(0,7)===month));
 }
 
 /* --- PayPal: cada "General Withdrawal" barre lo acumulado desde el anterior --- */
@@ -2621,9 +2645,10 @@ function contArmarPaypal(rows,month){
     const bruto=_c2(_cNum(contGet(r,['Gross'])));
     const fee=_c2(_cNum(contGet(r,['Fee'])));
     if(/withdrawal/i.test(tipo)){
-      const fecha=_cDate(contGet(r,['Date']));
+      const retiro=_cDate(contGet(r,['Date']));
+      const fecha=_cHabil(retiro);    // PayPal acredita al día hábil siguiente
       const objetivo=_c2(Math.abs(bruto));
-      const p={source:'paypal',account_label:null,ref:'RETIRO '+fecha,pay_date:fecha,
+      const p={source:'paypal',account_label:null,ref:'RETIRO '+retiro,pay_date:fecha,src_date:retiro,
         amount:objetivo,lines:[],unresolved:[],month};
       // El barrido se lleva el saldo que había cuando se disparó, no todo lo
       // acumulado: un cobro que entra minutos después cae en el retiro del día
@@ -2666,7 +2691,7 @@ function contArmarPaypal(rows,month){
     }
     buf.push(r);
   }
-  return out.filter(p=>!month||(p.pay_date&&p.pay_date.slice(0,7)===month));
+  return out.filter(p=>!month||(p.src_date&&p.src_date.slice(0,7)===month));
 }
 
 /* --- Stripe: agrupado por automatic_payout_id --- */
