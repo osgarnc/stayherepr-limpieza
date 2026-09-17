@@ -2105,7 +2105,7 @@ const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Pago al due�
   reserva:'Retención de Stripe',prepago:'Pasivo (por devolver)',sobrecobro:'Cobro doble (por devolver)',
   seguro:'Reclamación de seguro',reembolso:'Reembolso',reparaciones:'Reembolso de gastos',
   earlyci:'Early check-in',extraguest:'Huésped extra',servicio:'Servicios'};
-let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={};
+let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={},contComision={};
 const _cEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const _c2=n=>Math.round((Number(n)||0)*100)/100;
 const _cNum=v=>{if(v==null)return 0;const s=String(v).replace(/[$,\s]/g,'').replace(/[()]/g,m=>m==='('?'-':'');const n=parseFloat(s);return isNaN(n)?0:n;};
@@ -2154,12 +2154,15 @@ async function contInit(){
   contReload();
 }
 async function contLoadProps(){
-  const [pr,cm]=await Promise.all([
+  const [pr,cm,po]=await Promise.all([
     sb.from('ops_properties').select('id,name').eq('is_active',true).order('name'),
-    sb.from('cont_qbo_class').select('*')
+    sb.from('cont_qbo_class').select('*'),
+    sb.from('ops_property_owner').select('property_id,commission_pct')
   ]);
   contProps=pr.data||[];contClassMap={};
   (cm.data||[]).forEach(c=>{contClassMap[c.property_id]=c;});
+  // % de comisión por propiedad (pestaña Dueños). Lo usa la noche extra.
+  contComision={};(po.data||[]).forEach(x=>{if(x.commission_pct!=null)contComision[x.property_id]=Number(x.commission_pct);});
   return contProps;
 }
 // Liga el nombre que trae un reporte con una propiedad de la app.
@@ -2444,9 +2447,12 @@ function contLineasReserva(fin,recibido,nota){
 // El nombre de la propiedad viene después del guion largo.
 function contServicio(desc){
   const d=String(desc||'');if(!d)return null;
-  const kind=/early check.?in/i.test(d)?'earlyci'
+  // La noche extra es RENTA de la propiedad, no un servicio de Stay Here: la
+  // mayor parte es del dueño. Por eso tiene su propio tipo y se reparte.
+  const kind=/extra night|noche extra/i.test(d)?'nocheextra'
+            :/early check.?in/i.test(d)?'earlyci'
             :/extra guest|hu.sped extra/i.test(d)?'extraguest'
-            :(/late check.?out|extra night|reservation total|noche extra/i.test(d)?'servicio':null);
+            :(/late check.?out|reservation total/i.test(d)?'servicio':null);
   if(!kind)return null;
   const m=d.split(/[—–]/);
   const pname=m.length>1?m[1].replace(/\(.*?\)/g,'').trim():'';
@@ -2715,6 +2721,25 @@ function contArmarStripe(rows,month,label){
         // ¿Es un extra que vende Stay Here (early check-in, huésped extra,
         // noche adicional)? Esos no son reservas y no están en Hostfully.
         const svc=contServicio(desc);
+        if(svc&&svc.kind==='nocheextra'){
+          const pct=svc.propId!=null?contComision[svc.propId]:undefined;
+          const pn=(contProps.find(x=>x.id===svc.propId)||{}).name||'la propiedad';
+          if(pct==null){
+            p.unresolved.push({label:desc,amount:neto,property_id:svc.propId||null,
+              reason:'noche extra: falta el % de comisión de '+pn+' en la pestaña Dueños'});
+            continue;
+          }
+          // Se reparte como renta: comisión de Stay Here y el resto al dueño.
+          const com=_c2(bruto*pct/100);
+          p.lines.push({kind:'comision',amount:com,property_id:svc.propId,qbo_class_id:contClassOf(svc.propId),
+            guest_name:null,description:desc+' — comisión Stay Here '+pct+'%'});
+          p.lines.push({kind:'dueno',amount:_c2(bruto-com),property_id:svc.propId,qbo_class_id:contClassOf(svc.propId),
+            guest_name:null,description:desc+' — parte del dueño'});
+          if(Math.abs(fee)>=0.005)p.lines.push({kind:'fee',amount:-Math.abs(fee),
+            property_id:svc.propId,qbo_class_id:contClassOf(svc.propId),
+            guest_name:null,description:'Fee de Stripe — '+desc});
+          continue;
+        }
         if(svc){
           p.lines.push({kind:svc.kind,amount:bruto,property_id:svc.propId,
             qbo_class_id:contClassOf(svc.propId),guest_name:null,description:desc});
