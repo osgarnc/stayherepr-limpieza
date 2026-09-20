@@ -169,8 +169,9 @@
       var bdayLabel = function(tr){ var champ = tr.minutes===1;
         return L==='es' ? (champ?'Con champán · botella y 2 copas':'Básico · decoración y bizcocho')
                         : (champ?'With champagne · bottle & 2 glasses':'Basic · decorations & cake'); };
-      var preIdx = 0;
-      if(isBirthday){ preIdx = -1; for(var ci=0; ci<tiers.length; ci++){ if(tiers[ci].minutes===1) preIdx=ci; } if(preIdx<0) preIdx = tiers.length-1; }
+      // Preselecciona SIEMPRE el MÁS CARO (para late = "after hours"; cumpleaños = champán; late deluxe = 5 PM).
+      var preIdx = 0, maxAmt = -1;
+      for(var ci=0; ci<tiers.length; ci++){ if(tiers[ci].amountCents > maxAmt){ maxAmt = tiers[ci].amountCents; preIdx = ci; } }
       var cards = tiers.map(function(tr,i){
         var lbl = isBirthday ? bdayLabel(tr) : tr.label;
         return '<label style="display:flex;align-items:center;gap:10px;padding:14px;border:1.5px solid var(--line);border-radius:12px;margin-bottom:10px;cursor:pointer">'
