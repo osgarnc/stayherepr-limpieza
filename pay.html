@@ -161,10 +161,11 @@
     var isBirthday = kind === 'birthday';
     var isLateDelux = kind === 'late_delux';
     var priceHtml, controlHtml='';
-    if(tiers && (isBirthday || isLateDelux)){
-      // Cumpleaños / Late Deluxe: opciones VISIBLES (radios) para que se vean todas sin abrir menú.
-      // Cumpleaños localiza el label por minutes (0=básico,1=champán) y preselecciona el champán;
-      // Late Deluxe muestra el tramo tal cual ("2:00 PM"/"5:00 PM") y preselecciona el primero.
+    if(tiers){
+      // TODOS los tramos (early/late/cumpleaños/late deluxe): opciones VISIBLES con radio, NO dropdown —
+      // el huésped las ve todas y escoge una con el círculo al lado. Cumpleaños localiza el label por
+      // minutes (0=básico,1=champán) y preselecciona el champán; los demás muestran el tramo tal cual
+      // (hora/etiqueta + precio) y preseleccionan el primero.
       var bdayLabel = function(tr){ var champ = tr.minutes===1;
         return L==='es' ? (champ?'Con champán · botella y 2 copas':'Básico · decoración y bizcocho')
                         : (champ?'With champagne · bottle & 2 glasses':'Basic · decorations & cake'); };
@@ -179,12 +180,6 @@
       }).join('');
       priceHtml = '';
       controlHtml = '<div class="row"><label>'+esc(tl)+'</label>'+cards+'</div>';
-    } else if(tiers){
-      // Early/Late por hora: el huésped elige un tramo (label + precio); el precio se actualiza.
-      var opts = tiers.map(function(tr,i){ return '<option value="'+i+'">'+esc(tr.label)+' — '+money(tr.amountCents,cur)+'</option>'; }).join('');
-      priceHtml = '<div class="price"><b id="px">'+money(tiers[0].amountCents,cur)+'</b><span>'+esc(t().each)+'</span></div>';
-      controlHtml = '<div class="row"><label for="tsel">'+esc(tl)+'</label>'+
-        '<select id="tsel" style="width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;font-size:16px;background:#fff;-webkit-appearance:none;appearance:none">'+opts+'</select></div>';
     } else {
       priceHtml = '<div class="price"><b id="px">'+money(info.amountCents,cur)+'</b><span>'+esc(t().each)+'</span></div>';
       // El cobro del total NO lleva campo de hora (no aplica). Los demás no-tramo sí (nota/hora).
