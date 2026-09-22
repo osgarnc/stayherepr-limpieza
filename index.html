@@ -5455,6 +5455,13 @@ async function lockRenderStatus(){
     const bar='<span style="display:inline-block;width:52px;height:8px;border-radius:4px;background:#e5e7eb;vertical-align:middle;overflow:hidden"><span style="display:block;height:100%;width:'+Math.max(4,Math.min(100,p))+'%;background:'+col+'"></span></span>';
     return bar+' <span style="color:'+col+';font-weight:600">'+p+'%</span>'+badge;
   };
+  // Batería de cerradura Nest (Monaco): no da %, solo indicador → OK / baja / crítica.
+  const poolBattCell=(warn)=>{
+    if(warn==='critical') return '<span style="color:#b91c1c;font-weight:700">⚠️ crítica</span>';
+    if(warn==='low') return '<span style="color:#b45309;font-weight:700">⚠️ baja</span>';
+    if(warn==='none') return '<span style="color:#166534;font-weight:600">🔋 OK</span>';
+    return '<span class="muted">—</span>';
+  };
   // Si el estado es el ÚLTIMO conocido (la lectura en vivo no lo confirmó), se muestra
   // atenuado con "(sin confirmar)" — como la app de Yale, que enseña el último estado leído.
   const stateCell=(ls,stale)=>{
@@ -5466,9 +5473,9 @@ async function lockRenderStatus(){
   const rows=statuses.slice().sort((a,b)=>(a.percent==null?999:a.percent)-(b.percent==null?999:b.percent)).map(s=>
     '<tr style="border-top:1px solid var(--line)">'+
     '<td style="padding:7px 10px;font-weight:600">'+opsEsc(propName(s))+'</td>'+
-    '<td style="padding:7px 10px;text-align:center">'+(s.isPool?'<span class="muted" style="font-size:12px">📲 app Nest</span>':connCell(s.online,s.lastSeen))+'</td>'+
-    '<td style="padding:7px 10px;white-space:nowrap">'+(s.isPool?'<span class="muted">—</span>':battCell(s.percent,s.batteryWarning))+'</td>'+
-    '<td style="padding:7px 10px;text-align:center">'+(s.isPool?'<span style="color:#166534;font-weight:600">🔑 Códigos fijos</span>':(s.isLockbox?'<span style="color:#166534;font-weight:600">🔑 Caja de llaves</span>':stateCell(s.lockState,s.lockStateStale)))+'</td>'+
+    '<td style="padding:7px 10px;text-align:center">'+(s.isPool?(s.online===null?'<span class="muted" style="font-size:12px">📲 app Nest</span>':connCell(s.online,s.lastSeen)):connCell(s.online,s.lastSeen))+'</td>'+
+    '<td style="padding:7px 10px;white-space:nowrap">'+(s.isPool?poolBattCell(s.batteryWarning):battCell(s.percent,s.batteryWarning))+'</td>'+
+    '<td style="padding:7px 10px;text-align:center">'+(s.isPool?(s.lockState?stateCell(s.lockState,false):'<span style="color:#166534;font-weight:600">🔑 Códigos fijos</span>'):(s.isLockbox?'<span style="color:#166534;font-weight:600">🔑 Caja de llaves</span>':stateCell(s.lockState,s.lockStateStale)))+'</td>'+
     '</tr>').join('');
   box.innerHTML='<table style="border-collapse:collapse;width:100%;max-width:600px;font-size:13.5px;border:1.5px solid var(--line);border-radius:10px;overflow:hidden">'+
     '<thead><tr style="background:#f8fafc"><th style="padding:8px 10px;text-align:left">🔐 Propiedad</th><th style="padding:8px 10px;text-align:center">Conexión</th><th style="padding:8px 10px;text-align:left">Batería</th><th style="padding:8px 10px;text-align:center">Estado</th></tr></thead>'+
