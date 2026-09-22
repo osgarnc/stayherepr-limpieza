@@ -86,10 +86,10 @@
   var L = "en";
   var T = {
     en:{
-      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Extra night", extra_guest:"Extra guest", pet_fee:"Pet fee", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", late_delux:"Late Special Deluxe", birthday:"Birthday package"},
+      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Extra night", extra_guest:"Extra guest", pet_fee:"Pet fee", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", late_delux:"Late Special Deluxe", early_delux:"Early Special Deluxe", birthday:"Birthday package"},
       each:"one-time",
       hold:"You’ll only be <b>authorized</b> now — we charge the card <b>only when our team approves</b>. If we can’t accommodate it, the hold is released and you’re not charged.",
-      timeLabel:{early_checkin:"Desired check-in time", late_checkout:"Desired check-out time", extra_night:"Note (optional)", birthday:"Choose your package", late_delux:"Choose your time"},
+      timeLabel:{early_checkin:"Desired check-in time", late_checkout:"Desired check-out time", extra_night:"Note (optional)", birthday:"Choose your package", late_delux:"Choose your time", early_delux:"Choose your arrival time"},
       timePh:"e.g. 2:00 PM",
       pay:"Pay & request",
       secure:"Secured by Stripe · we never see your card",
@@ -105,10 +105,10 @@
       genErr:"Something went wrong. Please try again in a moment."
     },
     es:{
-      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Noche extra", extra_guest:"Huésped adicional", pet_fee:"Tarifa de mascota", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", late_delux:"Late Special Deluxe", birthday:"Paquete de cumpleaños"},
+      title:{early_checkin:"Early check-in", late_checkout:"Late check-out", extra_night:"Noche extra", extra_guest:"Huésped adicional", pet_fee:"Tarifa de mascota", early_11am:"Early check-in (11 AM)", late_4pm:"Late check-out (4 PM)", late_delux:"Late Special Deluxe", early_delux:"Early Special Deluxe", birthday:"Paquete de cumpleaños"},
       each:"pago único",
       hold:"Por ahora solo se <b>autoriza</b> — cobramos la tarjeta <b>únicamente cuando el equipo aprueba</b>. Si no podemos acomodarlo, la retención se libera y no se te cobra.",
-      timeLabel:{early_checkin:"Hora de entrada deseada", late_checkout:"Hora de salida deseada", extra_night:"Nota (opcional)", birthday:"Elige tu paquete", late_delux:"Elige tu hora"},
+      timeLabel:{early_checkin:"Hora de entrada deseada", late_checkout:"Hora de salida deseada", extra_night:"Nota (opcional)", birthday:"Elige tu paquete", late_delux:"Elige tu hora", early_delux:"Elige tu hora de entrada"},
       timePh:"ej. 2:00 PM",
       pay:"Pagar y solicitar",
       secure:"Protegido por Stripe · nunca vemos tu tarjeta",
@@ -126,7 +126,7 @@
   };
   function t(){ return T[L]; }
   // full_booking / extra_guest / pet_fee: cobro inmediato (sin aprobación) → mensaje de "confirmado".
-  function isImmediateKind(k){ return k==='full_booking'||k==='extra_guest'||k==='pet_fee'||k==='early_11am'||k==='late_4pm'||k==='late_delux'; }
+  function isImmediateKind(k){ return k==='full_booking'||k==='extra_guest'||k==='pet_fee'||k==='early_11am'||k==='late_4pm'||k==='late_delux'||k==='early_delux'; }
   // `imm` (opcional): true/false explícito del checkout (cumpleaños varía: /stripe=inmediato, pedido por
   // el huésped=retención). Si no se pasa, se decide por el tipo de kind.
   function okMsgFor(k, imm){ var immediate = (imm===undefined||imm===null) ? isImmediateKind(k) : !!imm; return immediate ? t().okImmediate : t().okMsg; }
