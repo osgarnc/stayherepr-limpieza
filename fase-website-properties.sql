@@ -53,7 +53,8 @@ values
   ('9efdcd80-47d7-4966-92e9-c116f04cf440','Spacious Loft · Sea View Atlantis',11,5,5,242,2,2,2,4.9,0,1,'San Juan','/property-details/9efdcd80-47d7-4966-92e9-c116f04cf440/spacious-loft-sea-view--by-stay-here-pr',true),
   ('b6373f38-fbe2-4422-ae8c-9e30fd6433db','Stylish 1BR · Coral Beach',12,4,4,305,1,1,2,4.9,1,3,'Carolina','/property-details/b6373f38-fbe2-4422-ae8c-9e30fd6433db/stylish-designed-1br-%E2%80%A2-coral-beach-by-stay-here-pr',true),
   ('055c75bb-47fc-4ec6-ac08-90956ecee867','Salo · Corner Urban Stay',13,5,5,89,3,1,3,4.8,0,1,'Santurce, San Juan','/property-details/055c75bb-47fc-4ec6-ac08-90956ecee867/salo-corner-urban-stay-by-stay-here-pr',true),
-  ('5317a9d4-a044-4648-833f-18ec7f2a222f','Atabey Beach Haus · Luquillo',14,4,4,184,2,1,4,4.9,0,3,'Luquillo','/property-details/5317a9d4-a044-4648-833f-18ec7f2a222f/atabey-beach-haus',true)
+  ('5317a9d4-a044-4648-833f-18ec7f2a222f','Atabey Beach Haus · Luquillo',14,4,4,184,2,1,4,4.9,0,3,'Luquillo','/property-details/5317a9d4-a044-4648-833f-18ec7f2a222f/atabey-beach-haus',true),
+  ('9e257375-5e3c-424d-8801-692fb25629aa','Solara · Pine & Tide',15,4,4,74,1,1,2,4.8,0,1,'Isla Verde, Carolina','/property-details/9e257375-5e3c-424d-8801-692fb25629aa/solara-pine-and-tide',true)
 on conflict (uid) do update set
   name=excluded.name, price=excluded.price, bedrooms=excluded.bedrooms,
   bathrooms=excluded.bathrooms, beds=excluded.beds, rating=excluded.rating,
