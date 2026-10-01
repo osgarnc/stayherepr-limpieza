@@ -284,6 +284,7 @@
   <div class="tabs hide" id="navAutomatizacion">
     <button id="tOperaciones" onclick="tabTo('operaciones');opsInit()">🏨 Precios Dinámicos</button>
     <button id="tTienda" onclick="tabTo('tienda');tiendaInit()">🛒 Tienda</button>
+    <button id="tStore" onclick="tabTo('store');storeInit()">🏪 Convenience Store</button>
     <button id="tMensajes" onclick="tabTo('mensajes');msgInit()">💬 Mensajes</button>
     <button id="tLlamadas" onclick="tabTo('llamadas');callInit()">📞 Llamadas</button>
     <button id="tCrons" onclick="tabTo('crons');cronsInit()">⏱️ Crons</button>
@@ -342,6 +343,13 @@
     <p class="muted" style="font-size:13.5px;margin-top:-4px">Precio de cada servicio <b>por propiedad</b>, en dólares. El huésped paga en una página propia con Stripe (retención; se cobra solo cuando el cleaner aprueba). Deja un campo <b>vacío</b> si esa propiedad no ofrece ese servicio.</p>
     <div class="note" style="margin:10px 0;border-color:#f59e0b;background:#fffbeb">⚠️ <b>Columna "Checkout":</b> pon una propiedad en <b>Propio</b> (Stripe) solo cuando estés en <b>producción</b> — llaves reales de Stripe y política de la plataforma confirmada. Con llaves de prueba, mantenla en <b>Host Co</b> para no afectar a huéspedes reales.</div>
     <div style="overflow:auto"><table id="tiendaTable"><tbody><tr><td class="muted" style="padding:16px">Toca esta pestaña para cargar.</td></tr></tbody></table></div>
+  </div>
+  <!-- 🏪 Convenience Store: catálogo del minibar por propiedad (ops_store_config / _shelves / _products) -->
+  <div id="tabStore" class="card hide" style="padding:18px">
+    <div class="sectitle"><h2>🏪 Convenience Store</h2><button class="btn ghost sm" onclick="storeInit()">↻ Refrescar</button></div>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Minibar dentro de la propiedad. El huésped escanea el QR, deja un <b>depósito</b> y recibe las combinaciones de la nevera y la vitrina; al checkout se cobra <b>solo lo consumido</b>. Cada <b>piso</b> de la vitrina tiene un precio único (la IA solo cuenta lo que falta por piso). La nevera y la canasta llevan precio por artículo. Precios <b>con IVU</b>.</p>
+    <div class="tabs" id="storePropTabs" style="margin:12px 0"></div>
+    <div id="storeBody"><span class="muted" style="font-size:13px">Toca esta pestaña para cargar.</span></div>
   </div>
   <div id="tabCrons" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>⏱️ Tareas automáticas (crons)</h2><button onclick="cronsLoad()" style="padding:7px 12px;border:1.5px solid var(--line);border-radius:8px;background:#fff;cursor:pointer">↻ Refrescar</button></div>
@@ -1434,7 +1442,7 @@ async function renderMyReports(){
   }));
   el.innerHTML=blocks.join('');
 }
-const TABS=['dash','inbox','invoices','rejected','damage','charges','earlylate','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website','cerraduras','recincome','recowners','recexpenses','recreport'];
+const TABS=['dash','inbox','invoices','rejected','damage','charges','earlylate','expenses','reports','rates','settings','users','data','trash','operaciones','tienda','mensajes','llamadas','crons','website','cerraduras','store','recincome','recowners','recexpenses','recreport'];
 function tabTo(t){
   if(t==='users'&&!can('users'))return;
   TABS.forEach(x=>{const C=x[0].toUpperCase()+x.slice(1);
@@ -5099,6 +5107,204 @@ async function msgLoadMode(){
   b.style.cssText='padding:3px 9px;border-radius:999px;font-weight:700;font-size:12px;'+(n>0?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e');
 }
 
+// ── 🏪 Convenience Store (minibar por propiedad) ─────────────────────────────
+// Catálogo editable: ops_store_config (depósito/combinaciones), ops_store_shelves (pisos con
+// precio único; NULL = precio por artículo) y ops_store_products (artículos + cantidad tope).
+// Una sub-pestaña por propiedad con el store configurado. RLS: is_owner().
+const STORE_LOC={vitrina:'🗄️ Vitrina',nevera:'🧊 Nevera',canasta:'🧺 Canasta'};
+window._st={props:[],cfg:{},shelves:[],products:[],cur:null};
+function stD(c){ return c==null?'':(c/100).toFixed(2); }               // centavos → "4.99"
+function stC(v){ v=String(v||'').replace(/[$,\s]/g,''); if(v==='')return null; const n=parseFloat(v); return isNaN(n)||n<0?undefined:Math.round(n*100); }
+function stPropName(id){ const p=_st.props.find(x=>x.id===id); return p?p.name:'(propiedad)'; }
+function stShort(n){ return String(n).split(/[-–]/)[0].trim(); }
+async function storeInit(){
+  const body=document.getElementById('storeBody'); if(!body)return;
+  body.innerHTML='<span class="muted" style="font-size:13px">Cargando…</span>';
+  const [pr,cf]=await Promise.all([sb.from('ops_properties').select('id,name').order('name'), sb.from('ops_store_config').select('*')]);
+  if(cf.error){ body.innerHTML='<div class="note">No se pudo cargar. ¿Corriste la migración <code>ops_store</code>? ('+opsEsc(cf.error.message)+')</div>'; return; }
+  _st.props=pr.data||[]; _st.cfg={}; (cf.data||[]).forEach(c=>_st.cfg[c.property_id]=c);
+  const ids=Object.keys(_st.cfg);
+  if(!_st.cur||!_st.cfg[_st.cur]){ let saved=null; try{saved=localStorage.getItem('storeCur');}catch(_e){} _st.cur=(saved&&_st.cfg[saved])?saved:(ids[0]||null); }
+  storeRenderTabs();
+  if(_st.cur) await storeLoadProp(_st.cur); else body.innerHTML='<div class="note">Aún no hay propiedades con Convenience Store. Toca <b>➕ Propiedad</b> para empezar.</div>';
+}
+function storeRenderTabs(){
+  const el=document.getElementById('storePropTabs');
+  const ids=Object.keys(_st.cfg).sort((a,b)=>stPropName(a).localeCompare(stPropName(b)));
+  el.innerHTML=ids.map(id=>'<button class="'+(id===_st.cur?'on':'')+'" onclick="storeLoadProp(\''+id+'\')">'+(_st.cfg[id].enabled?'🟢 ':'')+opsEsc(stShort(stPropName(id)))+'</button>').join('')+
+    '<button onclick="storeAddProp()" title="Añadir otra propiedad">➕ Propiedad</button>';
+}
+async function storeLoadProp(pid){
+  _st.cur=pid; try{localStorage.setItem('storeCur',pid);}catch(_e){}
+  storeRenderTabs();
+  const [sh,pr]=await Promise.all([
+    sb.from('ops_store_shelves').select('*').eq('property_id',pid).order('sort'),
+    sb.from('ops_store_products').select('*').eq('property_id',pid).order('sort')]);
+  if(sh.error||pr.error){ toast('Store: '+((sh.error||pr.error).message)); return; }
+  _st.shelves=sh.data||[]; _st.products=pr.data||[];
+  storeRender();
+}
+function stPrice(p){ if(p.price_cents!=null)return p.price_cents; const s=_st.shelves.find(x=>x.id===p.shelf_id); return s&&s.price_cents!=null?s.price_cents:null; }
+function storeStatsHtml(){
+  const act=_st.products.filter(p=>p.active); let units=0,sale=0,cost=0,noPrice=0;
+  act.forEach(p=>{ units+=p.par_qty; const pr=stPrice(p); if(pr==null)noPrice++; else sale+=pr*p.par_qty; cost+=(p.cost_cents||0)*p.par_qty; });
+  const box=(k,v)=>'<div style="flex:1 1 120px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px"><div class="muted" style="font-size:12px">'+k+'</div><div style="font-weight:800;font-size:17px">'+v+'</div></div>';
+  return box('Artículos activos',act.length)+box('Unidades al tope',units)+box('Venta al tope','$'+stD(sale))+box('Costo al tope','$'+stD(cost))+
+    (noPrice?box('⚠️ Sin precio',noPrice):'');
+}
+function storeRender(){
+  const pid=_st.cur, c=_st.cfg[pid]||{}, body=document.getElementById('storeBody');
+  const inp='padding:7px 8px;border:1.5px solid var(--line);border-radius:8px';
+  let h='<h3 style="margin:4px 0 10px;font-size:16px">'+opsEsc(stPropName(pid))+'</h3>';
+  h+='<div class="note" style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;font-size:13.5px">'+
+    '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:700"><input type="checkbox" '+(c.enabled?'checked':'')+' onchange="storeCfg(\'enabled\',this.checked)"> Activo para huéspedes (QR)</label>'+
+    '<label>Depósito $<br><input style="'+inp+';width:80px" value="'+stD(c.deposit_cents)+'" onchange="storeCfg(\'deposit_cents\',this)"></label>'+
+    '<label>🔐 Combinación nevera<br><input style="'+inp+';width:110px" value="'+opsEsc(c.combo_fridge||'')+'" onchange="storeCfg(\'combo_fridge\',this.value.trim()||null)"></label>'+
+    '<label>🔐 Combinación vitrina<br><input style="'+inp+';width:110px" value="'+opsEsc(c.combo_display||'')+'" onchange="storeCfg(\'combo_display\',this.value.trim()||null)"></label>'+
+    '<span class="muted" style="font-size:12px;flex-basis:100%">Si el consumo pasa del depósito, se cobra la diferencia de la tarjeta guardada. El cobro final siempre lo aprueba Ingrid.</span></div>';
+  h+='<div id="storeStats" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">'+storeStatsHtml()+'</div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"><button class="btn ghost sm" onclick="storeAddShelf()">➕ Piso / zona</button>'+
+    (_st.shelves.length?'':'<button class="btn ghost sm" onclick="storeCopyFrom()">📋 Copiar catálogo de otra propiedad</button>')+
+    '<button class="btn ghost sm" onclick="storeRemoveProp()" style="margin-left:auto">🗑️ Quitar propiedad del store</button></div>';
+  const shelfOpts=sid=>_st.shelves.map(s=>'<option value="'+s.id+'" '+(s.id===sid?'selected':'')+'>'+opsEsc(s.name+(s.zone?' · '+s.zone:''))+'</option>').join('');
+  _st.shelves.forEach(s=>{
+    const prods=_st.products.filter(p=>p.shelf_id===s.id);
+    h+='<div style="border:1.5px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px'+(s.active?'':';opacity:.55')+'">';
+    h+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px">'+
+      '<select style="'+inp+'" onchange="storeShelf(\''+s.id+'\',\'location\',this.value)">'+Object.keys(STORE_LOC).map(k=>'<option value="'+k+'" '+(k===s.location?'selected':'')+'>'+STORE_LOC[k]+'</option>').join('')+'</select>'+
+      '<input style="'+inp+';width:110px;font-weight:800" value="'+opsEsc(s.name)+'" placeholder="Tablilla 1" onchange="storeShelf(\''+s.id+'\',\'name\',this.value.trim())">'+
+      '<input style="'+inp+';width:100px" value="'+opsEsc(s.zone||'')+'" placeholder="Zona (opcional)" onchange="storeShelf(\''+s.id+'\',\'zone\',this.value.trim()||null)">'+
+      '<input style="'+inp+';width:150px" value="'+opsEsc(s.category||'')+'" placeholder="Categoría" onchange="storeShelf(\''+s.id+'\',\'category\',this.value.trim()||null)">'+
+      '<label style="font-size:13px">Precio del piso $ <input style="'+inp+';width:72px;font-weight:700" value="'+stD(s.price_cents)+'" placeholder="por artículo" onchange="storeShelf(\''+s.id+'\',\'price_cents\',this)"></label>'+
+      '<label style="font-size:12px" title="Orden en la lista">Orden <input type="number" style="'+inp+';width:58px" value="'+s.sort+'" onchange="storeShelf(\''+s.id+'\',\'sort\',parseInt(this.value,10)||0)"></label>'+
+      '<span style="margin-left:auto;white-space:nowrap"><button class="btn ghost sm" title="'+(s.active?'Desactivar piso':'Activar piso')+'" onclick="storeShelf(\''+s.id+'\',\'active\','+(!s.active)+')">'+(s.active?'⏸️':'▶️')+'</button> '+
+      '<button class="btn ghost sm" title="Borrar piso y sus artículos" onclick="storeDelShelf(\''+s.id+'\')">🗑️</button></span></div>';
+    const ph=s.price_cents!=null?'= '+stD(s.price_cents):'requerido';
+    h+='<div style="overflow:auto"><table><thead><tr><th>SKU</th><th>Artículo</th><th style="text-align:center">Precio $</th><th style="text-align:center">Costo $</th><th style="text-align:center" title="Cuántos deben quedar al reponer">Tope</th><th style="text-align:center">Consig.</th><th style="text-align:center">Piso</th><th style="text-align:center">Activo</th><th></th></tr></thead><tbody>';
+    prods.forEach(p=>{
+      const f=(k,v,w,ex)=>'<input style="'+inp+';width:'+w+'px'+(ex||'')+'" value="'+v+'" onchange="storeProd(\''+p.id+'\',\''+k+'\',this)">';
+      h+='<tr style="'+(p.active?'':'opacity:.5')+'"><td>'+f('sku',opsEsc(p.sku||''),64)+'</td>'+
+        '<td>'+f('name',opsEsc(p.name),190)+(p.notes?'<div class="muted" style="font-size:11px;max-width:200px">'+opsEsc(p.notes)+'</div>':'')+'</td>'+
+        '<td style="text-align:center"><input style="'+inp+';width:70px;text-align:center" value="'+stD(p.price_cents)+'" placeholder="'+ph+'" onchange="storeProd(\''+p.id+'\',\'price_cents\',this)"></td>'+
+        '<td style="text-align:center">'+f('cost_cents',stD(p.cost_cents),64,';text-align:center')+'</td>'+
+        '<td style="text-align:center"><input type="number" min="0" style="'+inp+';width:60px;text-align:center;font-weight:700" value="'+p.par_qty+'" onchange="storeProd(\''+p.id+'\',\'par_qty\',this)"></td>'+
+        '<td style="text-align:center"><input type="checkbox" '+(p.consignment?'checked':'')+' onchange="storeProd(\''+p.id+'\',\'consignment\',this)"></td>'+
+        '<td style="text-align:center"><select style="'+inp+';max-width:130px" onchange="storeProd(\''+p.id+'\',\'shelf_id\',this)">'+shelfOpts(p.shelf_id)+'</select></td>'+
+        '<td style="text-align:center"><input type="checkbox" '+(p.active?'checked':'')+' onchange="storeProd(\''+p.id+'\',\'active\',this)"></td>'+
+        '<td><button class="btn ghost sm" title="Borrar artículo" onclick="storeDelProd(\''+p.id+'\')">🗑️</button></td></tr>';
+    });
+    const nid='n'+s.id.slice(0,8);
+    h+='<tr><td><input id="'+nid+'sku" style="'+inp+';width:64px" placeholder="SKU"></td><td><input id="'+nid+'name" style="'+inp+';width:190px" placeholder="Nuevo artículo"></td>'+
+      '<td style="text-align:center"><input id="'+nid+'price" style="'+inp+';width:70px;text-align:center" placeholder="'+ph+'"></td>'+
+      '<td style="text-align:center"><input id="'+nid+'cost" style="'+inp+';width:64px;text-align:center" placeholder="costo"></td>'+
+      '<td style="text-align:center"><input id="'+nid+'par" type="number" min="0" style="'+inp+';width:60px;text-align:center" placeholder="0"></td>'+
+      '<td style="text-align:center"><input id="'+nid+'cons" type="checkbox"></td><td colspan="3"><button class="btn sm" onclick="storeAddProd(\''+s.id+'\',\''+nid+'\')">➕ Añadir</button></td></tr>';
+    h+='</tbody></table></div></div>';
+  });
+  if(!_st.shelves.length) h+='<div class="note">Esta propiedad aún no tiene pisos. Añade uno o copia el catálogo de otra propiedad.</div>';
+  body.innerHTML=h;
+}
+function storeRefreshStats(){ const el=document.getElementById('storeStats'); if(el) el.innerHTML=storeStatsHtml(); }
+async function storeCfg(field,v){
+  if(v&&v.tagName){ const c=stC(v.value); if(c==null||c===undefined){ toast('Monto inválido'); v.value=stD(_st.cfg[_st.cur][field]); return; } v=c; }
+  const patch={property_id:_st.cur,[field]:v,updated_at:new Date().toISOString()};
+  const {error}=await sb.from('ops_store_config').upsert(patch,{onConflict:'property_id'});
+  if(error){ toast('No se guardó: '+error.message); return; }
+  Object.assign(_st.cfg[_st.cur],patch); toast('✅ Guardado'); if(field==='enabled') storeRenderTabs();
+}
+async function storeShelf(id,field,v){
+  if(v&&v.tagName){ const c=stC(v.value); if(c===undefined){ toast('Precio inválido'); return; } v=c; }
+  if(field==='name'&&!v){ toast('El piso necesita nombre'); return; }
+  const {error}=await sb.from('ops_store_shelves').update({[field]:v}).eq('id',id);
+  if(error){ toast('No se guardó: '+error.message); return; }
+  const s=_st.shelves.find(x=>x.id===id); s[field]=v; toast('✅ Guardado');
+  if(field==='sort') _st.shelves.sort((a,b)=>a.sort-b.sort);
+  if(['price_cents','active','sort','name','zone','location'].includes(field)) storeRender(); else storeRefreshStats();
+}
+async function storeProd(id,field,el){
+  const p=_st.products.find(x=>x.id===id); let v;
+  if(el.type==='checkbox') v=el.checked;
+  else if(field==='price_cents'||field==='cost_cents'){ v=stC(el.value); if(v===undefined){ toast('Monto inválido'); el.value=stD(p[field]); return; } }
+  else if(field==='par_qty'){ v=parseInt(el.value,10); if(isNaN(v)||v<0){ toast('Cantidad inválida'); el.value=p.par_qty; return; } }
+  else if(field==='name'){ v=el.value.trim(); if(!v){ toast('El artículo necesita nombre'); el.value=p.name; return; } }
+  else if(field==='sku'){ v=el.value.trim()||null; }
+  else v=el.value;
+  if(field==='price_cents'&&v==null){ const s=_st.shelves.find(x=>x.id===p.shelf_id); if(!s||s.price_cents==null){ toast('⚠️ Este piso no tiene precio único: el artículo necesita precio'); } }
+  const {error}=await sb.from('ops_store_products').update({[field]:v}).eq('id',id);
+  if(error){ toast('No se guardó: '+(/duplicate|unique/i.test(error.message)?'ese SKU ya existe en esta propiedad':error.message)); if(el.type!=='checkbox')el.value=field.endsWith('_cents')?stD(p[field]):(p[field]??''); else el.checked=p[field]; return; }
+  p[field]=v; toast('✅ Guardado');
+  if(field==='shelf_id'||field==='active') storeRender(); else storeRefreshStats();
+}
+async function storeAddProd(sid,nid){
+  const g=k=>document.getElementById(nid+k);
+  const name=g('name').value.trim(); if(!name){ toast('Escribe el nombre del artículo'); return; }
+  const price=stC(g('price').value), cost=stC(g('cost').value);
+  if(price===undefined||cost===undefined){ toast('Monto inválido'); return; }
+  const s=_st.shelves.find(x=>x.id===sid);
+  if(price==null&&(!s||s.price_cents==null)){ toast('Este piso no tiene precio único: pon el precio del artículo'); return; }
+  const sort=Math.max(-1,..._st.products.filter(p=>p.shelf_id===sid).map(p=>p.sort))+1;
+  const row={property_id:_st.cur,shelf_id:sid,sku:g('sku').value.trim()||null,name,price_cents:price,cost_cents:cost,par_qty:parseInt(g('par').value,10)||0,consignment:g('cons').checked,sort};
+  const {data,error}=await sb.from('ops_store_products').insert(row).select().single();
+  if(error){ toast('No se pudo: '+(/duplicate|unique/i.test(error.message)?'ese SKU ya existe en esta propiedad':error.message)); return; }
+  _st.products.push(data); toast('✅ '+name+' añadido'); storeRender();
+}
+async function storeDelProd(id){
+  const p=_st.products.find(x=>x.id===id);
+  if(!confirm('¿Borrar «'+p.name+'»? Si solo no lo vas a vender por ahora, mejor desmarca "Activo".')) return;
+  const {error}=await sb.from('ops_store_products').delete().eq('id',id);
+  if(error){ toast('No se pudo: '+error.message); return; }
+  _st.products=_st.products.filter(x=>x.id!==id); storeRender();
+}
+async function storeAddShelf(){
+  const name=prompt('Nombre del piso (ej. "Tablilla 6", "Nevera"):',''); if(!name||!name.trim()) return;
+  const pr=prompt('Precio único del piso en $ (vacío = cada artículo lleva su precio, como la nevera):',''); if(pr===null) return;
+  const price=stC(pr); if(price===undefined){ toast('Precio inválido'); return; }
+  const loc=/never/i.test(name)?'nevera':(/canast/i.test(name)?'canasta':'vitrina');
+  const sort=Math.max(0,..._st.shelves.map(s=>s.sort))+10;
+  const {data,error}=await sb.from('ops_store_shelves').insert({property_id:_st.cur,location:loc,name:name.trim(),price_cents:price,sort}).select().single();
+  if(error){ toast('No se pudo: '+error.message); return; }
+  _st.shelves.push(data); toast('✅ Piso añadido'); storeRender();
+}
+async function storeDelShelf(id){
+  const s=_st.shelves.find(x=>x.id===id), n=_st.products.filter(p=>p.shelf_id===id).length;
+  if(!confirm('¿Borrar «'+s.name+(s.zone?' · '+s.zone:'')+'»'+(n?' y sus '+n+' artículo(s)':'')+'? Esto no se puede deshacer.')) return;
+  const {error}=await sb.from('ops_store_shelves').delete().eq('id',id);
+  if(error){ toast('No se pudo: '+error.message); return; }
+  _st.shelves=_st.shelves.filter(x=>x.id!==id); _st.products=_st.products.filter(p=>p.shelf_id!==id); storeRender();
+}
+async function storeAddProp(){
+  const free=_st.props.filter(p=>!_st.cfg[p.id]);
+  if(!free.length){ toast('Todas las propiedades ya tienen store'); return; }
+  const list=free.map((p,i)=>(i+1)+'. '+p.name).join('\n');
+  const a=prompt('¿Qué propiedad añadir? Escribe el número:\n\n'+list,''); if(!a) return;
+  const p=free[parseInt(a,10)-1]; if(!p){ toast('Número inválido'); return; }
+  const {data,error}=await sb.from('ops_store_config').insert({property_id:p.id}).select().single();
+  if(error){ toast('No se pudo: '+error.message); return; }
+  _st.cfg[p.id]=data; toast('✅ '+stShort(p.name)+' añadida (inactiva)'); await storeLoadProp(p.id);
+}
+async function storeRemoveProp(){
+  const pid=_st.cur;
+  if(!confirm('¿Quitar «'+stPropName(pid)+'» del Convenience Store? Se borran su configuración, pisos y artículos.')) return;
+  const r1=await sb.from('ops_store_shelves').delete().eq('property_id',pid);
+  const r2=await sb.from('ops_store_config').delete().eq('property_id',pid);
+  if(r1.error||r2.error){ toast('No se pudo: '+((r1.error||r2.error).message)); return; }
+  delete _st.cfg[pid]; _st.cur=null; toast('🗑️ Quitada'); storeInit();
+}
+async function storeCopyFrom(){
+  const src=Object.keys(_st.cfg).filter(id=>id!==_st.cur);
+  if(!src.length){ toast('No hay otra propiedad con catálogo'); return; }
+  const a=prompt('¿Copiar el catálogo (pisos, precios, artículos y topes) de cuál propiedad?\n\n'+src.map((id,i)=>(i+1)+'. '+stPropName(id)).join('\n'),''); if(!a) return;
+  const from=src[parseInt(a,10)-1]; if(!from){ toast('Número inválido'); return; }
+  const [sh,pr]=await Promise.all([sb.from('ops_store_shelves').select('*').eq('property_id',from).order('sort'), sb.from('ops_store_products').select('*').eq('property_id',from).order('sort')]);
+  if(sh.error||pr.error){ toast('No se pudo leer: '+((sh.error||pr.error).message)); return; }
+  for(const s of sh.data||[]){
+    const {data:ns,error}=await sb.from('ops_store_shelves').insert({property_id:_st.cur,location:s.location,name:s.name,zone:s.zone,category:s.category,price_cents:s.price_cents,sort:s.sort,active:s.active}).select().single();
+    if(error){ toast('Falló copiando '+s.name+': '+error.message); break; }
+    const rows=(pr.data||[]).filter(p=>p.shelf_id===s.id).map(p=>({property_id:_st.cur,shelf_id:ns.id,sku:p.sku,name:p.name,price_cents:p.price_cents,cost_cents:p.cost_cents,par_qty:p.par_qty,consignment:p.consignment,notes:p.notes,sort:p.sort,active:p.active}));
+    if(rows.length){ const r=await sb.from('ops_store_products').insert(rows); if(r.error){ toast('Falló copiando artículos de '+s.name+': '+r.error.message); break; } }
+  }
+  toast('✅ Catálogo copiado de '+stShort(stPropName(from))); await storeLoadProp(_st.cur);
+}
 // ── Tienda (precios de upsell por propiedad) ────────────────────────────────
 // Early/Late: precios POR HORA (tramos libres, tabla ops_upsell_price_tiers, editor en modal).
 // Noche extra: precio fijo por ahora (pasará a "precio publicado de Hostfully" en la fase 3).
