@@ -5179,7 +5179,7 @@ function storeRender(){
     '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:700"><input type="checkbox" '+(c.enabled?'checked':'')+' onchange="storeCfg(\'enabled\',this.checked)"> Activo para huéspedes (QR)</label>'+
     '<label>Depósito $<br><input style="'+inp+';width:80px" value="'+stD(c.deposit_cents)+'" onchange="storeCfg(\'deposit_cents\',this)"></label>'+
     '<label>🔐 Combinación nevera<br><input style="'+inp+';width:110px" value="'+opsEsc(c.combo_fridge||'')+'" onchange="storeCfg(\'combo_fridge\',this.value.trim()||null)"></label>'+
-    '<label>🔐 Combinación vitrina<br><input style="'+inp+';width:110px" value="'+opsEsc(c.combo_display||'')+'" onchange="storeCfg(\'combo_display\',this.value.trim()||null)"></label>'+
+    '<label title="Déjala vacía si la llave de la vitrina está dentro de la nevera">🔐 Combinación vitrina <span class="muted" style="font-size:11px">(vacío = llave dentro de la nevera)</span><br><input style="'+inp+';width:110px" value="'+opsEsc(c.combo_display||'')+'" placeholder="llave en la nevera" onchange="storeCfg(\'combo_display\',this.value.trim()||null)"></label>'+
     '<span class="muted" style="font-size:12px;flex-basis:100%">Si el consumo pasa del depósito, se cobra la diferencia de la tarjeta guardada. El cobro final siempre lo aprueba Ingrid.</span></div>';
   if(c.qr_token) h+='<div class="note" style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:13.5px"><div id="storeQr" style="width:120px;height:120px;background:#fff"></div>'+
     '<div style="flex:1 1 220px"><b>QR del huésped</b> (fijo para esta propiedad)<br><a href="'+storeUrl(c)+'" target="_blank" style="font-size:12px;word-break:break-all">'+storeUrl(c)+'</a>'+

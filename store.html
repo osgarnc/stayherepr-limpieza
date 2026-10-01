@@ -81,6 +81,8 @@
       intro:"Snacks, drinks, essentials and Puerto Rico souvenirs — right here in your stay.",
       s1:function(d){ return "Place a <b>"+d+" refundable hold</b> on your card (you’re <b>not charged</b> now)."; },
       s2:"You’ll instantly get the codes for the <b>fridge</b> and the <b>display case</b>.",
+      s2key:"You’ll instantly get the <b>fridge</b> code. The <b>display case key</b> is inside the fridge.",
+      keyNote:"🔑 The display case key is inside the fridge. Please put it back there when you’re done.",
       s3:"After check-out we count what was used and charge <b>only what you took</b>. The rest of the hold is released.",
       hold:function(d){ return "If your purchases go over "+d+", the difference is charged to the same card. Prices include 11.5% PR sales tax (IVU)."; },
       menu:"See what’s inside & prices", each:"each", all:function(x){ return "Everything here "+x; },
@@ -90,7 +92,7 @@
       codesTitle:"You’re all set! 🎉",
       codesMsg:"Enjoy! At check-out we count what was used and charge only that; the rest of the hold is released.",
       fridge:"Fridge", display:"Display case",
-      lockNote:"Please close and scramble the locks when you’re done.",
+      lockNote:"When you’re done, lock the display case and close the fridge lock.",
       pending:"We’re confirming your hold with the bank… this takes a few seconds.",
       retry:"Check again",
       cancelTitle:"Not completed", cancelMsg:"No problem — no hold was placed. You can unlock the minibar whenever you like.", back:"Back",
@@ -102,6 +104,8 @@
       intro:"Meriendas, bebidas, artículos esenciales y souvenirs de Puerto Rico — aquí mismo en tu estadía.",
       s1:function(d){ return "Deja una <b>retención reembolsable de "+d+"</b> en tu tarjeta (<b>no se cobra</b> ahora)."; },
       s2:"Recibes al instante las combinaciones de la <b>nevera</b> y la <b>vitrina</b>.",
+      s2key:"Recibes al instante la combinación de la <b>nevera</b>. La <b>llave de la vitrina</b> está dentro de la nevera.",
+      keyNote:"🔑 La llave de la vitrina está dentro de la nevera. Por favor devuélvela ahí al terminar.",
       s3:"Después del check-out contamos lo usado y cobramos <b>solo lo que tomaste</b>. El resto de la retención se libera.",
       hold:function(d){ return "Si tus compras pasan de "+d+", la diferencia se cobra a la misma tarjeta. Los precios incluyen IVU (11.5%)."; },
       menu:"Ver qué hay y precios", each:"c/u", all:function(x){ return "Todo aquí "+x; },
@@ -111,7 +115,7 @@
       codesTitle:"¡Listo! 🎉",
       codesMsg:"¡Disfruta! Al check-out contamos lo usado y cobramos solo eso; el resto de la retención se libera.",
       fridge:"Nevera", display:"Vitrina",
-      lockNote:"Por favor cierra y revuelve los candados al terminar.",
+      lockNote:"Al terminar, cierra la vitrina con llave y pon el candado de la nevera.",
       pending:"Estamos confirmando la retención con el banco… toma unos segundos.",
       retry:"Verificar de nuevo",
       cancelTitle:"No completado", cancelMsg:"Sin problema — no se hizo ninguna retención. Puedes abrir el minibar cuando gustes.", back:"Volver",
@@ -137,7 +141,7 @@
     last=function(){ showCodes(c,prop); };
     body.innerHTML='<h1>'+esc(t().codesTitle)+'</h1><p class="prop">'+esc(prop||"")+'</p>'+
       (c.fridge?'<div class="combo"><div class="k">🧊 '+esc(t().fridge)+'</div><div class="v">'+esc(c.fridge)+'</div></div>':'')+
-      (c.display?'<div class="combo"><div class="k">🗄️ '+esc(t().display)+'</div><div class="v">'+esc(c.display)+'</div></div>':'')+
+      (c.display?'<div class="combo"><div class="k">🗄️ '+esc(t().display)+'</div><div class="v">'+esc(c.display)+'</div></div>':'<div class="hold" style="font-size:14px">'+esc(t().keyNote)+'</div>')+
       '<div class="hold">'+esc(t().codesMsg)+'</div><p class="secure">'+esc(t().lockNote)+'</p>';
   }
   function renderMenu(menu){
@@ -156,7 +160,7 @@
     var d=money(info.depositCents);
     body.innerHTML='<h1>'+esc(t().hi(info.guestFirstName))+'</h1><p class="prop">'+esc(info.propertyName)+'</p>'+
       '<p style="font-size:14.5px;line-height:1.5;margin:0 0 14px">'+esc(t().intro)+'</p>'+
-      '<ul class="steps"><li><b class="n">1</b><span>'+t().s1(d)+'</span></li><li><b class="n">2</b><span>'+t().s2+'</span></li><li><b class="n">3</b><span>'+t().s3+'</span></li></ul>'+
+      '<ul class="steps"><li><b class="n">1</b><span>'+t().s1(d)+'</span></li><li><b class="n">2</b><span>'+(info.displayKey?t().s2key:t().s2)+'</span></li><li><b class="n">3</b><span>'+t().s3+'</span></li></ul>'+
       '<div class="hold">'+esc(t().hold(d))+'</div>'+
       (info.menu&&info.menu.length?'<details><summary>🛍️ '+esc(t().menu)+'</summary><div class="menu">'+renderMenu(info.menu)+'</div></details>':'')+
       '<label class="agree"><input type="checkbox" id="ag"><span>'+esc(t().agree)+'</span></label>'+
