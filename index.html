@@ -5112,7 +5112,25 @@ async function msgLoadMode(){
 // precio único; NULL = precio por artículo) y ops_store_products (artículos + cantidad tope).
 // Una sub-pestaña por propiedad con el store configurado. RLS: is_owner().
 const STORE_LOC={vitrina:'🗄️ Vitrina',nevera:'🧊 Nevera',canasta:'🧺 Canasta'};
-window._st={props:[],cfg:{},shelves:[],products:[],cur:null};
+window._st={props:[],cfg:{},shelves:[],products:[],sessions:[],cur:null};
+const STORE_BASE='https://stayherepr-limpieza.vercel.app'; // mismo dominio de los enlaces /pay
+function storeUrl(c){ return STORE_BASE+'/store?p='+encodeURIComponent(c.qr_token); }
+let _qrLib=null;
+function storeQrLib(){ if(_qrLib) return _qrLib; _qrLib=new Promise((ok,ko)=>{ const sc=document.createElement('script'); sc.src='https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js'; sc.onload=()=>ok(window.qrcode); sc.onerror=()=>{_qrLib=null;ko(new Error('No cargó la librería de QR'));}; document.head.appendChild(sc); }); return _qrLib; }
+async function storeQrSvg(url,cell){ const q=(await storeQrLib())(0,'M'); q.addData(url); q.make(); return q.createSvgTag({cellSize:cell||4,margin:2,scalable:true}); }
+async function storeDrawQr(){ const el=document.getElementById('storeQr'), c=_st.cfg[_st.cur]; if(!el||!c||!c.qr_token) return; try{ el.innerHTML=await storeQrSvg(storeUrl(c),3); const sv=el.querySelector('svg'); if(sv){sv.style.width='120px';sv.style.height='120px';} }catch(e){ el.textContent=e.message; } }
+async function storePrintSign(){
+  const c=_st.cfg[_st.cur]; if(!c) return;
+  let svg; try{ svg=await storeQrSvg(storeUrl(c),8); }catch(e){ toast(e.message); return; }
+  const dep='$'+(c.deposit_cents/100).toFixed(0);
+  const w=window.open('','_blank'); if(!w){ toast('Permite ventanas emergentes para imprimir'); return; }
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Minibar QR</title><style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;text-align:center;margin:40px;color:#0f172a}h1{font-size:40px;margin:0 0 6px}h2{font-size:22px;font-weight:600;color:#0b8281;margin:0 0 24px}svg{width:340px;height:340px}p{font-size:19px;line-height:1.5;margin:8px 0}.es{color:#64748b;font-size:16px}.b{margin-top:28px;font-weight:800;color:#0b8281;font-size:15px}</style></head><body>'+
+    '<h1>🛒 Minibar &amp; Convenience Store</h1><h2>Snacks · Drinks · Essentials · PR Souvenirs</h2>'+svg+
+    '<p><b>Scan to unlock</b> the fridge &amp; display case.<br>'+dep+' refundable hold · pay only for what you use.</p>'+
+    '<p class="es">Escanea para abrir la nevera y la vitrina. Retención reembolsable de '+dep+' · pagas solo lo que uses.</p>'+
+    '<div class="b">Stay Here PR</div><script>setTimeout(function(){print()},300)<\/script></body></html>');
+  w.document.close();
+}
 function stD(c){ return c==null?'':(c/100).toFixed(2); }               // centavos → "4.99"
 function stC(v){ v=String(v||'').replace(/[$,\s]/g,''); if(v==='')return null; const n=parseFloat(v); return isNaN(n)||n<0?undefined:Math.round(n*100); }
 function stPropName(id){ const p=_st.props.find(x=>x.id===id); return p?p.name:'(propiedad)'; }
@@ -5137,11 +5155,12 @@ function storeRenderTabs(){
 async function storeLoadProp(pid){
   _st.cur=pid; try{localStorage.setItem('storeCur',pid);}catch(_e){}
   storeRenderTabs();
-  const [sh,pr]=await Promise.all([
+  const [sh,pr,se]=await Promise.all([
     sb.from('ops_store_shelves').select('*').eq('property_id',pid).order('sort'),
-    sb.from('ops_store_products').select('*').eq('property_id',pid).order('sort')]);
+    sb.from('ops_store_products').select('*').eq('property_id',pid).order('sort'),
+    sb.from('ops_store_sessions').select('*').eq('property_id',pid).neq('status','pending').order('created_at',{ascending:false}).limit(25)]);
   if(sh.error||pr.error){ toast('Store: '+((sh.error||pr.error).message)); return; }
-  _st.shelves=sh.data||[]; _st.products=pr.data||[];
+  _st.shelves=sh.data||[]; _st.products=pr.data||[]; _st.sessions=se.data||[];
   storeRender();
 }
 function stPrice(p){ if(p.price_cents!=null)return p.price_cents; const s=_st.shelves.find(x=>x.id===p.shelf_id); return s&&s.price_cents!=null?s.price_cents:null; }
@@ -5162,6 +5181,10 @@ function storeRender(){
     '<label>🔐 Combinación nevera<br><input style="'+inp+';width:110px" value="'+opsEsc(c.combo_fridge||'')+'" onchange="storeCfg(\'combo_fridge\',this.value.trim()||null)"></label>'+
     '<label>🔐 Combinación vitrina<br><input style="'+inp+';width:110px" value="'+opsEsc(c.combo_display||'')+'" onchange="storeCfg(\'combo_display\',this.value.trim()||null)"></label>'+
     '<span class="muted" style="font-size:12px;flex-basis:100%">Si el consumo pasa del depósito, se cobra la diferencia de la tarjeta guardada. El cobro final siempre lo aprueba Ingrid.</span></div>';
+  if(c.qr_token) h+='<div class="note" style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:13.5px"><div id="storeQr" style="width:120px;height:120px;background:#fff"></div>'+
+    '<div style="flex:1 1 220px"><b>QR del huésped</b> (fijo para esta propiedad)<br><a href="'+storeUrl(c)+'" target="_blank" style="font-size:12px;word-break:break-all">'+storeUrl(c)+'</a>'+
+    (c.enabled?'':'<div style="color:#b45309;font-size:12.5px;margin-top:4px">⚠️ Está <b>inactivo</b>: al escanearlo el huésped verá "no disponible". Marca "Activo para huéspedes" cuando esté montado.</div>')+
+    '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="storePrintSign()">🖨️ Imprimir letrero</button><a class="btn ghost sm" href="'+storeUrl(c)+'" target="_blank" style="text-decoration:none">🔗 Abrir página</a></div></div></div>';
   h+='<div id="storeStats" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">'+storeStatsHtml()+'</div>';
   h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"><button class="btn ghost sm" onclick="storeAddShelf()">➕ Piso / zona</button>'+
     (_st.shelves.length?'':'<button class="btn ghost sm" onclick="storeCopyFrom()">📋 Copiar catálogo de otra propiedad</button>')+
@@ -5175,6 +5198,7 @@ function storeRender(){
       '<input style="'+inp+';width:110px;font-weight:800" value="'+opsEsc(s.name)+'" placeholder="Tablilla 1" onchange="storeShelf(\''+s.id+'\',\'name\',this.value.trim())">'+
       '<input style="'+inp+';width:100px" value="'+opsEsc(s.zone||'')+'" placeholder="Zona (opcional)" onchange="storeShelf(\''+s.id+'\',\'zone\',this.value.trim()||null)">'+
       '<input style="'+inp+';width:150px" value="'+opsEsc(s.category||'')+'" placeholder="Categoría" onchange="storeShelf(\''+s.id+'\',\'category\',this.value.trim()||null)">'+
+      '<input style="'+inp+';width:130px" value="'+opsEsc(s.category_en||'')+'" placeholder="Category (EN)" title="Lo que ve el huésped en inglés" onchange="storeShelf(\''+s.id+'\',\'category_en\',this.value.trim()||null)">'+
       '<label style="font-size:13px">Precio del piso $ <input style="'+inp+';width:72px;font-weight:700" value="'+stD(s.price_cents)+'" placeholder="por artículo" onchange="storeShelf(\''+s.id+'\',\'price_cents\',this)"></label>'+
       '<label style="font-size:12px" title="Orden en la lista">Orden <input type="number" style="'+inp+';width:58px" value="'+s.sort+'" onchange="storeShelf(\''+s.id+'\',\'sort\',parseInt(this.value,10)||0)"></label>'+
       '<span style="margin-left:auto;white-space:nowrap"><button class="btn ghost sm" title="'+(s.active?'Desactivar piso':'Activar piso')+'" onclick="storeShelf(\''+s.id+'\',\'active\','+(!s.active)+')">'+(s.active?'⏸️':'▶️')+'</button> '+
@@ -5184,7 +5208,7 @@ function storeRender(){
     prods.forEach(p=>{
       const f=(k,v,w,ex)=>'<input style="'+inp+';width:'+w+'px'+(ex||'')+'" value="'+v+'" onchange="storeProd(\''+p.id+'\',\''+k+'\',this)">';
       h+='<tr style="'+(p.active?'':'opacity:.5')+'"><td>'+f('sku',opsEsc(p.sku||''),64)+'</td>'+
-        '<td>'+f('name',opsEsc(p.name),190)+(p.notes?'<div class="muted" style="font-size:11px;max-width:200px">'+opsEsc(p.notes)+'</div>':'')+'</td>'+
+        '<td>'+f('name',opsEsc(p.name),190)+'<br><input style="'+inp+';width:190px;margin-top:4px;font-size:12px" value="'+opsEsc(p.name_en||'')+'" placeholder="Name (EN)" title="Lo que ve el huésped en inglés" onchange="storeProd(\''+p.id+'\',\'name_en\',this)">'+(p.notes?'<div class="muted" style="font-size:11px;max-width:200px">'+opsEsc(p.notes)+'</div>':'')+'</td>'+
         '<td style="text-align:center"><input style="'+inp+';width:70px;text-align:center" value="'+stD(p.price_cents)+'" placeholder="'+ph+'" onchange="storeProd(\''+p.id+'\',\'price_cents\',this)"></td>'+
         '<td style="text-align:center">'+f('cost_cents',stD(p.cost_cents),64,';text-align:center')+'</td>'+
         '<td style="text-align:center"><input type="number" min="0" style="'+inp+';width:60px;text-align:center;font-weight:700" value="'+p.par_qty+'" onchange="storeProd(\''+p.id+'\',\'par_qty\',this)"></td>'+
@@ -5194,7 +5218,7 @@ function storeRender(){
         '<td><button class="btn ghost sm" title="Borrar artículo" onclick="storeDelProd(\''+p.id+'\')">🗑️</button></td></tr>';
     });
     const nid='n'+s.id.slice(0,8);
-    h+='<tr><td><input id="'+nid+'sku" style="'+inp+';width:64px" placeholder="SKU"></td><td><input id="'+nid+'name" style="'+inp+';width:190px" placeholder="Nuevo artículo"></td>'+
+    h+='<tr><td><input id="'+nid+'sku" style="'+inp+';width:64px" placeholder="SKU"></td><td><input id="'+nid+'name" style="'+inp+';width:190px" placeholder="Nuevo artículo"><br><input id="'+nid+'en" style="'+inp+';width:190px;margin-top:4px;font-size:12px" placeholder="Name (EN)"></td>'+
       '<td style="text-align:center"><input id="'+nid+'price" style="'+inp+';width:70px;text-align:center" placeholder="'+ph+'"></td>'+
       '<td style="text-align:center"><input id="'+nid+'cost" style="'+inp+';width:64px;text-align:center" placeholder="costo"></td>'+
       '<td style="text-align:center"><input id="'+nid+'par" type="number" min="0" style="'+inp+';width:60px;text-align:center" placeholder="0"></td>'+
@@ -5202,7 +5226,12 @@ function storeRender(){
     h+='</tbody></table></div></div>';
   });
   if(!_st.shelves.length) h+='<div class="note">Esta propiedad aún no tiene pisos. Añade uno o copia el catálogo de otra propiedad.</div>';
+  const SST={held:'🟡 Retenido',charged:'✅ Cobrado',released:'↩️ Liberado',failed:'❌ Falló',canceled:'⛔ Cancelado'};
+  h+='<h3 style="margin:18px 0 6px;font-size:15px">💳 Depósitos</h3><div style="overflow:auto"><table><thead><tr><th>Fecha</th><th>Huésped</th><th style="text-align:center">Check-out</th><th style="text-align:center">Depósito</th><th style="text-align:center">Cobrado</th><th>Estado</th></tr></thead><tbody>'+
+    (_st.sessions.map(x=>'<tr><td>'+fmtLockDT(x.held_at||x.created_at)+'</td><td>'+opsEsc(x.guest_name||'(sin reserva identificada)')+(x.guest_email?'<div class="muted" style="font-size:11px">'+opsEsc(x.guest_email)+'</div>':'')+'</td><td style="text-align:center">'+(x.check_out||'—')+'</td><td style="text-align:center">$'+stD(x.deposit_cents)+'</td><td style="text-align:center">'+(x.charged_cents==null?'—':'$'+stD(x.charged_cents))+'</td><td>'+(SST[x.status]||x.status)+'</td></tr>').join('')||
+     '<tr><td colspan="6" class="muted" style="padding:10px">Aún no hay depósitos.</td></tr>')+'</tbody></table></div>';
   body.innerHTML=h;
+  storeDrawQr();
 }
 function storeRefreshStats(){ const el=document.getElementById('storeStats'); if(el) el.innerHTML=storeStatsHtml(); }
 async function storeCfg(field,v){
@@ -5210,7 +5239,7 @@ async function storeCfg(field,v){
   const patch={property_id:_st.cur,[field]:v,updated_at:new Date().toISOString()};
   const {error}=await sb.from('ops_store_config').upsert(patch,{onConflict:'property_id'});
   if(error){ toast('No se guardó: '+error.message); return; }
-  Object.assign(_st.cfg[_st.cur],patch); toast('✅ Guardado'); if(field==='enabled') storeRenderTabs();
+  Object.assign(_st.cfg[_st.cur],patch); toast('✅ Guardado'); if(field==='enabled'){ storeRenderTabs(); storeRender(); }
 }
 async function storeShelf(id,field,v){
   if(v&&v.tagName){ const c=stC(v.value); if(c===undefined){ toast('Precio inválido'); return; } v=c; }
@@ -5227,7 +5256,7 @@ async function storeProd(id,field,el){
   else if(field==='price_cents'||field==='cost_cents'){ v=stC(el.value); if(v===undefined){ toast('Monto inválido'); el.value=stD(p[field]); return; } }
   else if(field==='par_qty'){ v=parseInt(el.value,10); if(isNaN(v)||v<0){ toast('Cantidad inválida'); el.value=p.par_qty; return; } }
   else if(field==='name'){ v=el.value.trim(); if(!v){ toast('El artículo necesita nombre'); el.value=p.name; return; } }
-  else if(field==='sku'){ v=el.value.trim()||null; }
+  else if(field==='sku'||field==='name_en'){ v=el.value.trim()||null; }
   else v=el.value;
   if(field==='price_cents'&&v==null){ const s=_st.shelves.find(x=>x.id===p.shelf_id); if(!s||s.price_cents==null){ toast('⚠️ Este piso no tiene precio único: el artículo necesita precio'); } }
   const {error}=await sb.from('ops_store_products').update({[field]:v}).eq('id',id);
@@ -5243,7 +5272,7 @@ async function storeAddProd(sid,nid){
   const s=_st.shelves.find(x=>x.id===sid);
   if(price==null&&(!s||s.price_cents==null)){ toast('Este piso no tiene precio único: pon el precio del artículo'); return; }
   const sort=Math.max(-1,..._st.products.filter(p=>p.shelf_id===sid).map(p=>p.sort))+1;
-  const row={property_id:_st.cur,shelf_id:sid,sku:g('sku').value.trim()||null,name,price_cents:price,cost_cents:cost,par_qty:parseInt(g('par').value,10)||0,consignment:g('cons').checked,sort};
+  const row={property_id:_st.cur,shelf_id:sid,sku:g('sku').value.trim()||null,name,name_en:g('en').value.trim()||null,price_cents:price,cost_cents:cost,par_qty:parseInt(g('par').value,10)||0,consignment:g('cons').checked,sort};
   const {data,error}=await sb.from('ops_store_products').insert(row).select().single();
   if(error){ toast('No se pudo: '+(/duplicate|unique/i.test(error.message)?'ese SKU ya existe en esta propiedad':error.message)); return; }
   _st.products.push(data); toast('✅ '+name+' añadido'); storeRender();
@@ -5298,9 +5327,9 @@ async function storeCopyFrom(){
   const [sh,pr]=await Promise.all([sb.from('ops_store_shelves').select('*').eq('property_id',from).order('sort'), sb.from('ops_store_products').select('*').eq('property_id',from).order('sort')]);
   if(sh.error||pr.error){ toast('No se pudo leer: '+((sh.error||pr.error).message)); return; }
   for(const s of sh.data||[]){
-    const {data:ns,error}=await sb.from('ops_store_shelves').insert({property_id:_st.cur,location:s.location,name:s.name,zone:s.zone,category:s.category,price_cents:s.price_cents,sort:s.sort,active:s.active}).select().single();
+    const {data:ns,error}=await sb.from('ops_store_shelves').insert({property_id:_st.cur,location:s.location,name:s.name,zone:s.zone,category:s.category,category_en:s.category_en,price_cents:s.price_cents,sort:s.sort,active:s.active}).select().single();
     if(error){ toast('Falló copiando '+s.name+': '+error.message); break; }
-    const rows=(pr.data||[]).filter(p=>p.shelf_id===s.id).map(p=>({property_id:_st.cur,shelf_id:ns.id,sku:p.sku,name:p.name,price_cents:p.price_cents,cost_cents:p.cost_cents,par_qty:p.par_qty,consignment:p.consignment,notes:p.notes,sort:p.sort,active:p.active}));
+    const rows=(pr.data||[]).filter(p=>p.shelf_id===s.id).map(p=>({property_id:_st.cur,shelf_id:ns.id,sku:p.sku,name:p.name,name_en:p.name_en,price_cents:p.price_cents,cost_cents:p.cost_cents,par_qty:p.par_qty,consignment:p.consignment,notes:p.notes,sort:p.sort,active:p.active}));
     if(rows.length){ const r=await sb.from('ops_store_products').insert(rows); if(r.error){ toast('Falló copiando artículos de '+s.name+': '+r.error.message); break; } }
   }
   toast('✅ Catálogo copiado de '+stShort(stPropName(from))); await storeLoadProp(_st.cur);

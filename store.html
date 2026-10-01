@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex" />
+<title>Stay Here PR — Minibar</title>
+<script src="config.js"></script>
+<style>
+  :root{
+    --card:#ffffff; --ink:#0f172a; --muted:#64748b;
+    --brand:#0ea5a4; --brand-dk:#0b8281; --line:#e2e8f0; --soft:#f0fdfa;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:linear-gradient(160deg,#0f172a 0%,#134e4a 100%);
+    color:var(--ink); min-height:100dvh; display:flex; align-items:flex-start; justify-content:center;
+    padding:24px 16px;
+  }
+  .card{ width:100%; max-width:440px; background:var(--card); border-radius:20px; box-shadow:0 18px 50px rgba(2,6,23,.35); overflow:hidden; }
+  .head{ padding:18px 22px 14px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+  .brand{ font-weight:800; color:var(--brand-dk); font-size:15px; }
+  .brand small{ color:var(--muted); font-weight:600 }
+  .lang{ background:none; border:1px solid var(--line); border-radius:999px; padding:5px 11px; font-size:12.5px; font-weight:700; color:var(--muted); cursor:pointer; width:auto }
+  .body{ padding:20px 22px 24px; }
+  h1{ font-size:21px; margin:2px 0 4px; }
+  .prop{ color:var(--muted); font-size:14px; margin:0 0 16px; }
+  .steps{ list-style:none; padding:0; margin:0 0 16px; }
+  .steps li{ display:flex; gap:10px; align-items:flex-start; font-size:14.5px; line-height:1.45; margin-bottom:10px }
+  .steps b.n{ flex:0 0 24px; height:24px; border-radius:50%; background:var(--soft); color:var(--brand-dk); display:flex; align-items:center; justify-content:center; font-size:13px }
+  .hold{ background:var(--soft); border:1px solid #99f6e4; color:#0f766e; border-radius:12px; padding:10px 12px; font-size:12.5px; line-height:1.45; margin:0 0 14px; }
+  details{ border:1px solid var(--line); border-radius:12px; margin:0 0 14px; }
+  summary{ padding:12px 14px; font-weight:700; font-size:14.5px; cursor:pointer; }
+  .menu{ padding:0 14px 10px; }
+  .grp{ margin:6px 0 12px; }
+  .grp h3{ font-size:13px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:0 0 4px; display:flex; justify-content:space-between }
+  .it{ display:flex; justify-content:space-between; gap:10px; font-size:14px; padding:3px 0; }
+  .it span:last-child{ font-weight:700; white-space:nowrap }
+  .grp p{ margin:0; font-size:13.5px; line-height:1.45 }
+  .agree{ display:flex; gap:10px; align-items:flex-start; font-size:13.5px; line-height:1.45; margin:0 0 14px; color:var(--ink) }
+  .agree input{ width:20px; height:20px; flex:0 0 auto; margin-top:1px }
+  button.main{ width:100%; border:0; border-radius:14px; padding:15px 16px; font-size:16px; font-weight:700; cursor:pointer; background:var(--brand); color:#fff; }
+  button.main:disabled{ opacity:.5; cursor:default }
+  .secure{ text-align:center; color:var(--muted); font-size:12px; margin:12px 0 0; }
+  .msg{ text-align:center; padding:6px 0 0 }
+  .msg .ico{ font-size:44px; line-height:1; margin-bottom:8px }
+  .msg p{ color:var(--muted); font-size:14.5px; line-height:1.5; margin:0 0 16px }
+  .combo{ border:2px solid var(--brand); border-radius:16px; padding:14px; margin:0 0 12px; text-align:center }
+  .combo .k{ font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px }
+  .combo .v{ font-size:40px; font-weight:800; letter-spacing:8px; margin-top:4px; font-variant-numeric:tabular-nums }
+  .err{ color:#b91c1c; font-size:13.5px; text-align:center; margin:10px 0 0 }
+  .link{ background:transparent; border:0; color:var(--brand-dk); text-decoration:underline; padding:6px; font-size:14.5px; cursor:pointer }
+  .skeleton{ color:var(--muted); text-align:center; padding:26px 0 }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <div class="brand">Stay&nbsp;Here&nbsp;PR <small>· Minibar</small></div>
+      <button class="lang" id="langBtn">ES</button>
+    </div>
+    <div class="body" id="body"><div class="skeleton">…</div></div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  var FN = (window.SUPABASE_URL || "") + "/functions/v1/store-checkout";
+  var ANON = window.SUPABASE_ANON_KEY || "";
+  var qs = new URLSearchParams(location.search);
+  var p = qs.get("p") || "", cs = qs.get("cs") || "", status = qs.get("status") || "";
+  var body = document.getElementById("body");
+  var L = (navigator.language||"").toLowerCase().indexOf("es")===0 ? "es" : "en";
+  var last = null; // último render, para repintar al cambiar de idioma
+
+  var T = {
+    en:{
+      hi:function(n){ return n ? "Hi "+n+"! 👋" : "Welcome! 👋"; },
+      intro:"Snacks, drinks, essentials and Puerto Rico souvenirs — right here in your stay.",
+      s1:function(d){ return "Place a <b>"+d+" refundable hold</b> on your card (you’re <b>not charged</b> now)."; },
+      s2:"You’ll instantly get the codes for the <b>fridge</b> and the <b>display case</b>.",
+      s3:"After check-out we count what was used and charge <b>only what you took</b>. The rest of the hold is released.",
+      hold:function(d){ return "If your purchases go over "+d+", the difference is charged to the same card. Prices include 11.5% PR sales tax (IVU)."; },
+      menu:"See what’s inside & prices", each:"each", all:function(x){ return "Everything here "+x; },
+      agree:"I agree to be charged at check-out for the items I use.",
+      btn:function(d){ return "Unlock minibar · "+d+" hold"; },
+      secure:"Secured by Stripe · we never see your card",
+      codesTitle:"You’re all set! 🎉",
+      codesMsg:"Enjoy! At check-out we count what was used and charge only that; the rest of the hold is released.",
+      fridge:"Fridge", display:"Display case",
+      lockNote:"Please close and scramble the locks when you’re done.",
+      pending:"We’re confirming your hold with the bank… this takes a few seconds.",
+      retry:"Check again",
+      cancelTitle:"Not completed", cancelMsg:"No problem — no hold was placed. You can unlock the minibar whenever you like.", back:"Back",
+      off:"The minibar isn’t available right now. Please message us if you need anything.",
+      gen:"Something went wrong. Please try again in a moment."
+    },
+    es:{
+      hi:function(n){ return n ? "¡Hola "+n+"! 👋" : "¡Bienvenido! 👋"; },
+      intro:"Meriendas, bebidas, artículos esenciales y souvenirs de Puerto Rico — aquí mismo en tu estadía.",
+      s1:function(d){ return "Deja una <b>retención reembolsable de "+d+"</b> en tu tarjeta (<b>no se cobra</b> ahora)."; },
+      s2:"Recibes al instante las combinaciones de la <b>nevera</b> y la <b>vitrina</b>.",
+      s3:"Después del check-out contamos lo usado y cobramos <b>solo lo que tomaste</b>. El resto de la retención se libera.",
+      hold:function(d){ return "Si tus compras pasan de "+d+", la diferencia se cobra a la misma tarjeta. Los precios incluyen IVU (11.5%)."; },
+      menu:"Ver qué hay y precios", each:"c/u", all:function(x){ return "Todo aquí "+x; },
+      agree:"Acepto que al check-out se me cobre lo que consuma.",
+      btn:function(d){ return "Abrir minibar · retención de "+d; },
+      secure:"Protegido por Stripe · nunca vemos tu tarjeta",
+      codesTitle:"¡Listo! 🎉",
+      codesMsg:"¡Disfruta! Al check-out contamos lo usado y cobramos solo eso; el resto de la retención se libera.",
+      fridge:"Nevera", display:"Vitrina",
+      lockNote:"Por favor cierra y revuelve los candados al terminar.",
+      pending:"Estamos confirmando la retención con el banco… toma unos segundos.",
+      retry:"Verificar de nuevo",
+      cancelTitle:"No completado", cancelMsg:"Sin problema — no se hizo ninguna retención. Puedes abrir el minibar cuando gustes.", back:"Volver",
+      off:"El minibar no está disponible ahora. Escríbenos si necesitas algo.",
+      gen:"Algo salió mal. Intenta de nuevo en un momento."
+    }
+  };
+  function t(){ return T[L]; }
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+  function money(c){ var v=c/100; return "$"+(v%1? v.toFixed(2) : v.toFixed(0)); }
+  function api(payload){
+    payload.p=p; payload.lang=L;
+    return fetch(FN,{ method:"POST", headers:{ "Content-Type":"application/json", "apikey":ANON, "Authorization":"Bearer "+ANON }, body:JSON.stringify(payload) })
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,status:r.status,j:j}; }); });
+  }
+  function msg(icon,title,text,btn){
+    last=function(){ msg(icon,title,typeof text==="function"?text:text,btn); };
+    body.innerHTML='<div class="msg"><div class="ico">'+icon+'</div><h1>'+esc(typeof title==="function"?title():title)+'</h1><p>'+(typeof text==="function"?text():text)+'</p>'+
+      (btn?'<button class="link" id="mb">'+esc(btn.label())+'</button>':'')+'</div>';
+    if(btn) document.getElementById("mb").onclick=btn.fn;
+  }
+  function showCodes(c, prop){
+    last=function(){ showCodes(c,prop); };
+    body.innerHTML='<h1>'+esc(t().codesTitle)+'</h1><p class="prop">'+esc(prop||"")+'</p>'+
+      (c.fridge?'<div class="combo"><div class="k">🧊 '+esc(t().fridge)+'</div><div class="v">'+esc(c.fridge)+'</div></div>':'')+
+      (c.display?'<div class="combo"><div class="k">🗄️ '+esc(t().display)+'</div><div class="v">'+esc(c.display)+'</div></div>':'')+
+      '<div class="hold">'+esc(t().codesMsg)+'</div><p class="secure">'+esc(t().lockNote)+'</p>';
+  }
+  function renderMenu(menu){
+    return menu.map(function(g){
+      var uniform = g.priceCents!=null && g.items.every(function(i){ return i.priceCents===g.priceCents; });
+      if(uniform){
+        return '<div class="grp"><h3><span>'+esc(g.title)+'</span><span>'+money(g.priceCents)+' '+esc(t().each)+'</span></h3><p>'+
+          g.items.map(function(i){ return esc(i.name); }).join(" · ")+'</p></div>';
+      }
+      return '<div class="grp"><h3><span>'+esc(g.title)+'</span></h3>'+g.items.map(function(i){
+        return '<div class="it"><span>'+esc(i.name)+'</span><span>'+money(i.priceCents)+'</span></div>'; }).join("")+'</div>';
+    }).join("");
+  }
+  function showOffer(info){
+    last=function(){ load(); }; // el menú viene traducido del servidor → recargar
+    var d=money(info.depositCents);
+    body.innerHTML='<h1>'+esc(t().hi(info.guestFirstName))+'</h1><p class="prop">'+esc(info.propertyName)+'</p>'+
+      '<p style="font-size:14.5px;line-height:1.5;margin:0 0 14px">'+esc(t().intro)+'</p>'+
+      '<ul class="steps"><li><b class="n">1</b><span>'+t().s1(d)+'</span></li><li><b class="n">2</b><span>'+t().s2+'</span></li><li><b class="n">3</b><span>'+t().s3+'</span></li></ul>'+
+      '<div class="hold">'+esc(t().hold(d))+'</div>'+
+      (info.menu&&info.menu.length?'<details><summary>🛍️ '+esc(t().menu)+'</summary><div class="menu">'+renderMenu(info.menu)+'</div></details>':'')+
+      '<label class="agree"><input type="checkbox" id="ag"><span>'+esc(t().agree)+'</span></label>'+
+      '<button class="main" id="go" disabled>'+esc(t().btn(d))+'</button>'+
+      '<div class="err" id="err" style="display:none"></div><p class="secure">'+esc(t().secure)+'</p>';
+    var ag=document.getElementById("ag"), go=document.getElementById("go"), err=document.getElementById("err");
+    ag.onchange=function(){ go.disabled=!ag.checked; };
+    go.onclick=function(){
+      go.disabled=true; err.style.display="none";
+      api({start:true}).then(function(r){
+        if(r.ok&&r.j&&r.j.url){ location.href=r.j.url; return; }
+        if(r.ok&&r.j&&r.j.held){ showCodes(r.j.combos||{}, r.j.propertyName); return; }
+        go.disabled=false; err.textContent=t().gen; err.style.display="block";
+      }).catch(function(){ go.disabled=false; err.textContent=t().gen; err.style.display="block"; });
+    };
+  }
+  function load(){
+    body.innerHTML='<div class="skeleton">…</div>';
+    api({}).then(function(r){
+      if(r.status===404){ msg("🔒","Stay Here PR",function(){ return esc(t().off); }); return; }
+      if(!r.ok||!r.j||!r.j.ok){ msg("⚠️","Stay Here PR",function(){ return esc(t().gen); }); return; }
+      if(r.j.held&&r.j.combos){ showCodes(r.j.combos, r.j.propertyName); return; }
+      showOffer(r.j);
+    }).catch(function(){ msg("⚠️","Stay Here PR",function(){ return esc(t().gen); }); });
+  }
+  // Vuelta de Stripe: la retención se verifica con Stripe (no depende del webhook). El banco puede
+  // tardar unos segundos → reintenta solo 4 veces y luego ofrece un botón.
+  function verify(tries){
+    api({cs:cs}).then(function(r){
+      if(r.ok&&r.j&&r.j.held){ showCodes(r.j.combos||{}, r.j.propertyName); return; }
+      if(tries>0){ msg("⏳","Stay Here PR",function(){ return esc(t().pending); }); setTimeout(function(){ verify(tries-1); },2500); return; }
+      msg("⏳","Stay Here PR",function(){ return esc(t().pending); },{label:function(){ return t().retry; },fn:function(){ verify(2); }});
+    }).catch(function(){ msg("⚠️","Stay Here PR",function(){ return esc(t().gen); },{label:function(){ return t().retry; },fn:function(){ verify(2); }}); });
+  }
+
+  var lb=document.getElementById("langBtn");
+  function setLang(l){ L=l; document.documentElement.lang=L; lb.textContent=L==="es"?"EN":"ES"; }
+  lb.onclick=function(){ setLang(L==="es"?"en":"es"); if(last) last(); };
+  setLang(L);
+
+  if(!p){ msg("🔗","Stay Here PR",function(){ return esc(t().off); }); return; }
+  if(cs){ verify(4); return; }
+  if(status==="cancel"){ msg("↩️",function(){ return t().cancelTitle; },function(){ return esc(t().cancelMsg); },{label:function(){ return t().back; },fn:function(){ location.search="?p="+encodeURIComponent(p); }}); return; }
+  load();
+})();
+</script>
+</body>
+</html>
