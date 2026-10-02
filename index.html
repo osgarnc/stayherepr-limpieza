@@ -5191,9 +5191,10 @@ function storeRender(){
     (c.enabled?'':'<div style="color:#b45309;font-size:12.5px;margin-top:4px">⚠️ Está <b>inactivo</b>: al escanearlo el huésped verá "no disponible". Marca "Activo para huéspedes" cuando esté montado.</div>')+
     '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="storePrintSign()">🖨️ Imprimir letrero</button><a class="btn ghost sm" href="'+storeUrl(c)+'" target="_blank" style="text-decoration:none">🔗 Abrir página</a></div></div></div>';
   const vb=(v,l)=>'<button class="'+((_st.view||'cat')===v?'on':'')+'" onclick="_st.view=\''+v+'\';storeRender()">'+l+'</button>';
-  h+='<div class="tabs" style="margin:12px 0 4px">'+vb('cat','🛍️ Catálogo')+vb('inv','📦 Inventario')+vb('dep','💳 Depósitos'+(_st.sessions.filter(x=>x.status==='held').length?' ('+_st.sessions.filter(x=>x.status==='held').length+')':''))+'</div>';
+  h+='<div class="tabs" style="margin:12px 0 4px">'+vb('cat','🛍️ Catálogo')+vb('inv','📦 Inventario')+vb('dep','💳 Depósitos'+(_st.sessions.filter(x=>x.status==='held').length?' ('+_st.sessions.filter(x=>x.status==='held').length+')':''))+vb('rep','📊 Reportes')+'</div>';
   if(_st.view==='inv'){ body.innerHTML=h+storeInvHtml(); storeDrawQr(); return; }
   if(_st.view==='dep'){ body.innerHTML=h+storeDepHtml(); storeDrawQr(); return; }
+  if(_st.view==='rep'){ body.innerHTML=h+'<div id="storeRep"><span class="muted">Cargando…</span></div>'; storeDrawQr(); storeRepLoad(); return; }
   h+='<div id="storeStats" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">'+storeStatsHtml()+'</div>';
   h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"><button class="btn ghost sm" onclick="storeAddShelf()">➕ Piso / zona</button>'+
     (_st.shelves.length?'':'<button class="btn ghost sm" onclick="storeCopyFrom()">📋 Copiar catálogo de otra propiedad</button>')+
@@ -5239,6 +5240,105 @@ function storeRender(){
   body.innerHTML=h;
   storeDrawQr();
 }
+// ── 📊 Reportes (mensuales, hora de PR) ───────────────────────────────────
+// 1) Consignación: lo que se le debe al suplidor = vendidas × costo CONGELADO en la venta.
+// 2) IVU: precios incluyen 11.5% (10.5% estatal + 1% municipal) → IVU = bruto − bruto/1.115.
+// 3) Ventas y ganancia: neto − costo de mercancía − comisión real de Stripe (estimada si falta).
+// Fuente: ops_store_stock_moves (ventas por artículo) + ops_store_sessions (dinero cobrado).
+const IVU=0.115;
+function stMonthRange(ym){ const [y,m]=ym.split('-').map(Number); return [Date.UTC(y,m-1,1,4), Date.UTC(y,m,1,4)]; } // 00:00 AST = 04:00 UTC
+function stInMonth(iso,r){ const t=Date.parse(iso||''); return t>=r[0]&&t<r[1]; }
+function stCurMonth(){ return new Date(Date.now()-4*3600e3).toISOString().slice(0,7); }
+async function storeRepLoad(){
+  const {data,error}=await sb.from('ops_store_stock_moves').select('*').eq('property_id',_st.cur).order('created_at');
+  const el=document.getElementById('storeRep'); if(!el) return;
+  if(error){ el.innerHTML='<div class="note">No se pudieron leer los movimientos: '+opsEsc(error.message)+'</div>'; return; }
+  _st.allMoves=data||[]; if(!_st.repMonth) _st.repMonth=stCurMonth();
+  el.innerHTML=storeRepHtml();
+}
+function storeReports(ym){
+  const r=stMonthRange(ym), prod={}; _st.products.forEach(p=>prod[p.id]=p);
+  const shelf={}; _st.shelves.forEach(s=>shelf[s.id]=s.name+(s.zone?' · '+s.zone:'')+(s.category?' — '+s.category:''));
+  const mv=_st.allMoves||[];
+  const sales=mv.filter(m=>m.kind==='sale'&&stInMonth(m.created_at,r));
+  const unitCost=m=>m.unit_cost_cents!=null?m.unit_cost_cents:(prod[m.product_id]?prod[m.product_id].cost_cents:null);
+  const unitPrice=m=>m.unit_price_cents!=null?m.unit_price_cents:(prod[m.product_id]?stPrice(prod[m.product_id]):null);
+  // 1) Consignación
+  const cons=_st.products.filter(p=>p.consignment).map(p=>{
+    const own=mv.filter(m=>m.product_id===p.id);
+    const before=own.filter(m=>Date.parse(m.created_at)<r[0]).reduce((t,m)=>t+m.qty,0);
+    const inM=own.filter(m=>stInMonth(m.created_at,r));
+    const recv=inM.filter(m=>m.kind==='initial'||m.kind==='in').reduce((t,m)=>t+m.qty,0);
+    const soldMv=inM.filter(m=>m.kind==='sale'); const sold=-soldMv.reduce((t,m)=>t+m.qty,0);
+    const other=inM.filter(m=>m.kind==='adjust'||m.kind==='loss').reduce((t,m)=>t+m.qty,0);
+    let pay=0,noCost=false; soldMv.forEach(m=>{ const c=unitCost(m); if(c==null) noCost=true; else pay+=(-m.qty)*c; });
+    return {sku:p.sku||'',name:p.name,cost:p.cost_cents,before,recv,sold,other,end:before+recv-sold+other,pay,noCost};
+  }).filter(x=>x.before||x.recv||x.sold||x.other||x.end).sort((a,b)=>String(a.sku).localeCompare(String(b.sku),undefined,{numeric:true}));
+  // 2) IVU  +  3) Ventas
+  const paid=_st.sessions.filter(x=>x.charged_cents>0&&stInMonth(x.closed_at,r));
+  const gross=paid.reduce((t,x)=>t+x.charged_cents,0);
+  const ivu=Math.round(gross-gross/(1+IVU)), net=gross-ivu;
+  let feeEst=false; const fees=paid.reduce((t,x)=>{ if(x.stripe_fee_cents!=null) return t+x.stripe_fee_cents; feeEst=true; return t+Math.round(x.charged_cents*0.029+30); },0);
+  let cogs=0,cogsMissing=false, itemGross=0; const byShelf={}, byItem={};
+  sales.forEach(m=>{ const q=-m.qty, c=unitCost(m), pr=unitPrice(m)||0, p=prod[m.product_id]||{};
+    if(c==null) cogsMissing=true; const cc=(c||0)*q; cogs+=cc; itemGross+=pr*q;
+    const sk=shelf[p.shelf_id]||'(piso borrado)'; const b=byShelf[sk]||(byShelf[sk]={units:0,gross:0,cost:0}); b.units+=q; b.gross+=pr*q; b.cost+=cc;
+    const ik=m.product_id; const it=byItem[ik]||(byItem[ik]={sku:p.sku||'',name:p.name||'(borrado)',shelf:sk,units:0,gross:0,cost:0}); it.units+=q; it.gross+=pr*q; it.cost+=cc; });
+  return {cons,paid,gross,ivu,net,fees,feeEst,cogs,cogsMissing,itemGross,byShelf,byItem,profit:net-cogs-fees};
+}
+function storeRepHtml(){
+  const ym=_st.repMonth||stCurMonth(), R=storeReports(ym), $=c=>'$'+stD(c||0);
+  const card=(k,v,sub,col)=>'<div style="flex:1 1 140px;padding:10px 12px;border:1.5px solid '+(col||'var(--line)')+';border-radius:10px"><div class="muted" style="font-size:12px">'+k+'</div><div style="font-weight:800;font-size:17px">'+v+'</div>'+(sub?'<div class="muted" style="font-size:11.5px">'+sub+'</div>':'')+'</div>';
+  const csvBtn=k=>'<button class="btn ghost sm" onclick="storeRepCsv(\''+k+'\')">⬇️ CSV</button>';
+  const sec=(t,btns)=>'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:22px 0 6px"><h3 style="margin:0;font-size:16px;flex:1">'+t+'</h3>'+btns+'</div>';
+  let h='<div style="display:flex;align-items:center;gap:10px;margin:12px 0"><label style="font-weight:700">Mes <input type="month" value="'+ym+'" onchange="_st.repMonth=this.value||stCurMonth();document.getElementById(\'storeRep\').innerHTML=storeRepHtml()" style="padding:7px 9px;border:1.5px solid var(--line);border-radius:8px"></label><span class="muted" style="font-size:12.5px">Hora de Puerto Rico. Las ventas cuentan el día que Ingrid aprueba el cobro.</span></div>';
+  // 1) Consignación
+  const cs=R.cons, totSold=cs.reduce((t,x)=>t+x.sold,0), totPay=cs.reduce((t,x)=>t+x.pay,0), anyNoCost=cs.some(x=>x.noCost);
+  h+='<div id="repCons">'+sec('🤝 Liquidación de consignación (souvenirs)',csvBtn('cons')+'<button class="btn ghost sm" onclick="storeRepPrint(\'repCons\')">🖨️ Imprimir</button>');
+  h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0">'+card('Unidades vendidas',totSold)+card('A pagar al suplidor',$(totPay),'vendidas × costo del suplidor',anyNoCost?'#f59e0b':null)+card('Inventario al cierre',cs.reduce((t,x)=>t+x.end,0)+' uds')+'</div>';
+  if(anyNoCost) h+='<div class="note" style="border-color:#f59e0b;background:#fffbeb;font-size:13px">⚠️ Hay ventas de artículos <b>sin costo del suplidor</b>: ponlo en 🛍️ Catálogo → Costo para que cuenten en lo que se debe.</div>';
+  h+='<div style="overflow:auto"><table><thead><tr><th>SKU</th><th>Artículo</th><th style="text-align:center">Inicio de mes</th><th style="text-align:center">Recibido</th><th style="text-align:center">Vendido</th><th style="text-align:center">Ajustes / pérdidas</th><th style="text-align:center">Cierre</th><th style="text-align:center">Costo suplidor</th><th style="text-align:center">A pagar</th></tr></thead><tbody>'+
+    (cs.map(x=>'<tr><td class="muted" style="font-size:12px">'+opsEsc(x.sku)+'</td><td>'+opsEsc(x.name)+'</td><td style="text-align:center">'+x.before+'</td><td style="text-align:center">'+(x.recv||'')+'</td><td style="text-align:center;font-weight:700">'+(x.sold||'')+'</td><td style="text-align:center;color:'+(x.other<0?'#b91c1c':'inherit')+'">'+(x.other||'')+'</td><td style="text-align:center">'+x.end+'</td><td style="text-align:center">'+(x.cost==null?'<span style="color:#b45309">—</span>':$(x.cost))+'</td><td style="text-align:center;font-weight:700">'+(x.sold?$(x.pay)+(x.noCost?' ⚠️':''):'')+'</td></tr>').join('')||'<tr><td colspan="9" class="muted" style="padding:10px">Sin artículos en consignación con movimiento.</td></tr>')+
+    '</tbody></table></div><p class="muted" style="font-size:12px">Ajustes / pérdidas: conteos físicos y dañados del mes (no entran en "A pagar"; acuerda con el suplidor cómo se manejan).</p></div>';
+  // 2) IVU
+  const est=Math.round(R.ivu*10.5/11.5), mun=R.ivu-est;
+  h+=sec('🧾 IVU del mes',csvBtn('ivu'));
+  h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0">'+card('Ventas brutas (con IVU)',$(R.gross),R.paid.length+' cobro(s)')+card('IVU recaudado (11.5%)',$(R.ivu),'Estatal 10.5%: '+$(est)+' · Municipal 1%: '+$(mun))+card('Venta neta (sin IVU)',$(R.net))+'</div>';
+  h+='<div style="overflow:auto"><table><thead><tr><th>Fecha</th><th>Huésped</th><th style="text-align:center">Bruto</th><th style="text-align:center">IVU</th><th style="text-align:center">Neto</th></tr></thead><tbody>'+
+    (R.paid.map(x=>{ const i=Math.round(x.charged_cents-x.charged_cents/(1+IVU)); return '<tr><td>'+fmtLockDT(x.closed_at)+'</td><td>'+opsEsc(x.guest_name||'—')+'</td><td style="text-align:center">'+$(x.charged_cents)+'</td><td style="text-align:center">'+$(i)+'</td><td style="text-align:center">'+$(x.charged_cents-i)+'</td></tr>'; }).join('')||'<tr><td colspan="5" class="muted" style="padding:10px">Sin cobros este mes.</td></tr>')+'</tbody></table></div>'+
+    '<p class="muted" style="font-size:12px">Para la planilla de IVU en SURI. Confirma con tu contador si el minibar se reporta junto a la renta o por separado.</p>';
+  // 3) Ventas y ganancia
+  const margin=R.net?Math.round(R.profit/R.net*100):0, diff=R.gross-R.itemGross;
+  h+=sec('📈 Ventas y ganancia',csvBtn('sales'));
+  h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0">'+card('Venta neta',$(R.net))+card('Costo de mercancía',$(R.cogs),R.cogsMissing?'⚠️ hay artículos sin costo':'',R.cogsMissing?'#f59e0b':null)+
+    card('Comisión Stripe',$(R.fees),R.feeEst?'incluye estimados (2.9% + $0.30)':'real')+card('Ganancia',$(R.profit),R.net?margin+'% de la venta neta':'',R.profit<0?'#ef4444':'#16a34a')+'</div>';
+  if(diff) h+='<div class="note" style="font-size:13px">ℹ️ Lo cobrado ('+$(R.gross)+') difiere de lo contado a precio de lista ('+$(R.itemGross)+') por '+$(Math.abs(diff))+': montos ajustados por Ingrid o consumo sin cobro.</div>';
+  const shelves=Object.entries(R.byShelf).sort((a,b)=>b[1].gross-a[1].gross);
+  h+='<div style="font-weight:800;margin:10px 0 4px">Por piso / categoría</div><div style="overflow:auto"><table><thead><tr><th>Piso</th><th style="text-align:center">Unidades</th><th style="text-align:center">Venta (lista, con IVU)</th><th style="text-align:center">Costo</th></tr></thead><tbody>'+
+    (shelves.map(([k,v])=>'<tr><td>'+opsEsc(k)+'</td><td style="text-align:center">'+v.units+'</td><td style="text-align:center">'+$(v.gross)+'</td><td style="text-align:center">'+$(v.cost)+'</td></tr>').join('')||'<tr><td colspan="4" class="muted" style="padding:10px">Sin ventas este mes.</td></tr>')+'</tbody></table></div>';
+  const items=Object.values(R.byItem).sort((a,b)=>b.gross-a.gross);
+  h+='<div style="font-weight:800;margin:10px 0 4px">Por artículo</div><div style="overflow:auto"><table><thead><tr><th>SKU</th><th>Artículo</th><th style="text-align:center">Unidades</th><th style="text-align:center">Venta (con IVU)</th><th style="text-align:center">Costo</th><th style="text-align:center">Ganancia bruta*</th></tr></thead><tbody>'+
+    (items.map(v=>{ const g=Math.round(v.gross/(1+IVU))-v.cost; return '<tr><td class="muted" style="font-size:12px">'+opsEsc(v.sku)+'</td><td>'+opsEsc(v.name)+'</td><td style="text-align:center">'+v.units+'</td><td style="text-align:center">'+$(v.gross)+'</td><td style="text-align:center">'+$(v.cost)+'</td><td style="text-align:center;color:'+(g<0?'#b91c1c':'inherit')+'">'+$(g)+'</td></tr>'; }).join('')||'<tr><td colspan="6" class="muted" style="padding:10px">Sin ventas este mes.</td></tr>')+
+    '</tbody></table></div><p class="muted" style="font-size:12px">* Venta sin IVU − costo, a precio de lista; no descuenta la comisión de Stripe.</p>';
+  return h;
+}
+function storeRepCsv(kind){
+  const ym=_st.repMonth||stCurMonth(), R=storeReports(ym), d=c=>(c==null?'':(c/100).toFixed(2));
+  let rows;
+  if(kind==='cons') rows=[['SKU','Artículo','Inicio de mes','Recibido','Vendido','Ajustes/pérdidas','Cierre','Costo suplidor','A pagar']].concat(R.cons.map(x=>[x.sku,x.name,x.before,x.recv,x.sold,x.other,x.end,d(x.cost),d(x.pay)]));
+  else if(kind==='ivu') rows=[['Fecha','Huésped','Bruto','IVU','Neto']].concat(R.paid.map(x=>{ const i=Math.round(x.charged_cents-x.charged_cents/(1+IVU)); return [String(x.closed_at||'').slice(0,10),x.guest_name||'',d(x.charged_cents),d(i),d(x.charged_cents-i)]; }));
+  else rows=[['SKU','Artículo','Piso','Unidades','Venta con IVU','Costo','Ganancia bruta']].concat(Object.values(R.byItem).map(v=>[v.sku,v.name,v.shelf,v.units,d(v.gross),d(v.cost),d(Math.round(v.gross/(1+IVU))-v.cost)]));
+  const csv='﻿'+rows.map(r=>r.map(c=>{ const s=String(c==null?'':c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(',')).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='minibar-'+({cons:'consignacion',ivu:'ivu',sales:'ventas'}[kind])+'-'+stShort(stPropName(_st.cur)).replace(/\s+/g,'_')+'-'+ym+'.csv'; a.click();
+}
+function storeRepPrint(id){
+  const el=document.getElementById(id); if(!el) return; const w=window.open('','_blank'); if(!w){ toast('Permite ventanas emergentes'); return; }
+  w.document.write('<!doctype html><meta charset="utf-8"><title>Liquidación de consignación</title><style>body{font-family:-apple-system,Helvetica,Arial;margin:24px}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid #ddd;padding:6px}button{display:none}</style>'+
+    '<h2>Stay Here PR — '+opsEsc(stPropName(_st.cur))+'</h2><div>Mes: <b>'+(_st.repMonth||stCurMonth())+'</b></div>'+el.innerHTML+'<script>setTimeout(function(){print()},300)<\/script>');
+  w.document.close();
+}
+
 // ── 💳 Depósitos y dinero (pestaña propia) ────────────────────────────────
 function storeDepHtml(){
   const ses=_st.sessions, now=new Date(Date.now()-4*3600e3), ym=now.toISOString().slice(0,7);
