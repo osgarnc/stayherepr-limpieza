@@ -139,6 +139,14 @@
   }
   function showCodes(c, prop){
     last=function(){ showCodes(c,prop); };
+    // Instrucciones del dueño (panel) en el idioma actual; si no hay, el texto por defecto.
+    var st=c.steps||{}, steps=(st[L]&&st[L].length)?st[L]:(st[L==="es"?"en":"es"]||[]);
+    if(steps.length){
+      body.innerHTML='<h1>'+esc(t().codesTitle)+'</h1><p class="prop">'+esc(prop||"")+'</p>'+
+        (c.fridge?'<div class="combo"><div class="k">🧊 '+esc(t().fridge)+'</div><div class="v">'+esc(c.fridge)+'</div></div>':'')+
+        '<ol class="steps" style="padding:0;margin:0 0 6px">'+steps.map(function(x,i){ return '<li><b class="n">'+(i+1)+'</b><span>'+esc(x)+'</span></li>'; }).join('')+'</ol>';
+      return;
+    }
     body.innerHTML='<h1>'+esc(t().codesTitle)+'</h1><p class="prop">'+esc(prop||"")+'</p>'+
       (c.fridge?'<div class="combo"><div class="k">🧊 '+esc(t().fridge)+'</div><div class="v">'+esc(c.fridge)+'</div></div>':'')+
       (c.display?'<div class="combo"><div class="k">🗄️ '+esc(t().display)+'</div><div class="v">'+esc(c.display)+'</div></div>':'<div class="hold" style="font-size:14px">'+esc(t().keyNote)+'</div>')+

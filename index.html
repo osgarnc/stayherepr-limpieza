@@ -5227,6 +5227,12 @@ function storeRender(){
     '<label>🔐 Combinación nevera<br><input style="'+inp+';width:110px" value="'+opsEsc(c.combo_fridge||'')+'" onchange="storeCfg(\'combo_fridge\',this.value.trim()||null)"></label>'+
     '<label title="Déjala vacía si la llave de la vitrina está dentro de la nevera">🔐 Combinación vitrina <span class="muted" style="font-size:11px">(vacío = llave dentro de la nevera)</span><br><input style="'+inp+';width:110px" value="'+opsEsc(c.combo_display||'')+'" placeholder="llave en la nevera" onchange="storeCfg(\'combo_display\',this.value.trim()||null)"></label>'+
     '<span class="muted" style="font-size:12px;flex-basis:100%">Si el consumo pasa del depósito, se cobra la diferencia de la tarjeta guardada. El cobro final siempre lo aprueba Ingrid.</span></div>';
+  { const ins=c.instructions||{}; const ta='width:100%;min-height:120px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit';
+    h+='<div class="note" style="font-size:13.5px"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:700"><input type="checkbox" '+(c.welcome_enabled?'checked':'')+' onchange="storeCfg(\'welcome_enabled\',this.checked)"> 👋 Enviar bienvenida con la tienda al detectar que el huésped ENTRA</label>'+
+      '<div class="muted" style="font-size:12px;margin:2px 0 10px">Cuando su código abre la cerradura el día de llegada, se le encola (2 min, con tarjeta para cancelar) un mensaje de bienvenida que promociona la tienda con el enlace. Una vez por reserva; no se envía si ya dejó depósito. Solo funciona con "Activo para huéspedes".</div>'+
+      '<b>📋 Instrucciones después de pagar</b> <span class="muted" style="font-size:12px">(una por línea · la combinación de la nevera se muestra aparte, en grande)</span>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px"><label style="flex:1 1 300px">🇺🇸 English<textarea style="'+ta+'" onchange="storeInstr(\'en\',this.value)">'+opsEsc((ins.en||[]).join('\n'))+'</textarea></label>'+
+      '<label style="flex:1 1 300px">🇵🇷 Español<textarea style="'+ta+'" onchange="storeInstr(\'es\',this.value)">'+opsEsc((ins.es||[]).join('\n'))+'</textarea></label></div></div>'; }
   if(c.qr_token) h+='<div class="note" style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:13.5px"><div id="storeQr" style="width:120px;height:120px;background:#fff"></div>'+
     '<div style="flex:1 1 220px"><b>QR del huésped</b> (fijo para esta propiedad)<br><a href="'+storeUrl(c)+'" target="_blank" style="font-size:12px;word-break:break-all">'+storeUrl(c)+'</a>'+
     (c.enabled?'':'<div style="color:#b45309;font-size:12.5px;margin-top:4px">⚠️ Está <b>inactivo</b>: al escanearlo el huésped verá "no disponible". Marca "Activo para huéspedes" cuando esté montado.</div>')+
@@ -5491,6 +5497,10 @@ async function storeInvSave(){
   const {error}=await sb.from('ops_store_stock_moves').insert(ins);
   if(error){ toast('No se guardó: '+error.message); return; }
   toast('✅ '+rows.length+' movimiento(s) guardado(s)'); _st.view='inv'; await storeLoadProp(_st.cur);
+}
+async function storeInstr(lang,txt){
+  const c=_st.cfg[_st.cur]; const ins=Object.assign({},c.instructions||{}); ins[lang]=txt.split('\n').map(x=>x.trim()).filter(Boolean);
+  await storeCfg('instructions',ins);
 }
 function storeRefreshStats(){ const el=document.getElementById('storeStats'); if(el) el.innerHTML=storeStatsHtml(); }
 async function storeCfg(field,v){
