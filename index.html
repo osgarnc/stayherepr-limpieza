@@ -807,7 +807,7 @@
   </div>
   <div id="tabRecowners" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>🏠 Dueños de propiedad</h2></div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Crea los dueños, asígnales propiedades y fija el % de comisión de Stay Here por propiedad.</p>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Crea los dueños, asígnales propiedades y fija el % de comisión de Stay Here por propiedad. Los datos del dueño se editan en la misma tabla: cambia el texto y sale del campo para guardar.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:12px 0">
       <div class="field" style="margin:0"><label>Nombre del dueño</label><input id="ownName" placeholder="Ej: Juan Pérez"></div>
       <div class="field" style="margin:0"><label>Email (opcional)</label><input id="ownEmail"></div>
@@ -820,7 +820,7 @@
   </div>
   <div id="tabRecexpenses" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>💸 Gastos</h2><span class="muted" id="recExpTotal"></span></div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Gastos por propiedad. Marca <b>facturable</b> (se resta en el reporte del dueño) o no. <span style="color:var(--ink-soft)">Aquí es donde crece el trabajo de gastos cuando decidas cómo lo quieres.</span></p>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Gastos por propiedad. Marca <b>facturable</b> (se resta en el reporte del dueño) o no. <span style="color:var(--ink-soft)">Todo se edita en la misma tabla: propiedad, fecha, descripción, monto y facturable. Se guarda al salir del campo.</span></p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:12px 0">
       <div class="field" style="margin:0"><label>Propiedad</label><select id="expProp"></select></div>
       <div class="field" style="margin:0"><label>Fecha</label><input id="expDate" type="date"></div>
@@ -3194,6 +3194,8 @@ async function contSetAccount(key,val){
 /* ---------- RECONCILIACIÓN DE DUEÑOS (back office, solo can_reconcile) ---------- */
 let recOwners=[],recOpsProps=[],recExpenses=[],recPropOwner={};
 const _recEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const _recAttr=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+const _recInp='padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;width:100%';
 async function recLoadProps(){const pr=await sb.from('ops_properties').select('id,name').eq('is_active',true).order('name');recOpsProps=pr.data||[];return recOpsProps;}
 async function renderRecOwners(){
   const el=document.getElementById('ownersTable');if(!el)return;
@@ -3203,7 +3205,10 @@ async function renderRecOwners(){
   recPropOwner={};(po.data||[]).forEach(x=>{recPropOwner[x.property_id]={owner_id:x.owner_id,commission_pct:x.commission_pct};});
   el.innerHTML='<tr><th>Dueño</th><th>Email</th><th>Teléfono</th><th># props</th><th></th></tr>'+
     (recOwners.length?recOwners.map(function(ow){const n=Object.values(recPropOwner).filter(function(v){return v.owner_id===ow.id;}).length;
-      return '<tr><td><b>'+_recEsc(ow.name)+'</b></td><td class="muted">'+_recEsc(ow.email||'—')+'</td><td class="muted">'+_recEsc(ow.phone||'—')+'</td><td>'+n+'</td><td style="text-align:right"><button class="btn sm dgr" onclick="deleteOwner(\''+ow.id+'\')">Eliminar</button></td></tr>';
+      return '<tr><td><input value="'+_recAttr(ow.name)+'" onchange="updateOwner(\''+ow.id+'\',\'name\',this)" style="'+_recInp+';font-weight:600"></td>'+
+        '<td><input value="'+_recAttr(ow.email||'')+'" placeholder="—" onchange="updateOwner(\''+ow.id+'\',\'email\',this)" style="'+_recInp+'"></td>'+
+        '<td><input value="'+_recAttr(ow.phone||'')+'" placeholder="—" onchange="updateOwner(\''+ow.id+'\',\'phone\',this)" style="'+_recInp+'"></td>'+
+        '<td>'+n+'</td><td style="text-align:right"><button class="btn sm dgr" onclick="deleteOwner(\''+ow.id+'\')">Eliminar</button></td></tr>';
     }).join(''):'<tr><td colspan="5" class="muted" style="padding:16px;text-align:center">Aún no hay dueños. Añade el primero arriba.</td></tr>');
   const ae=document.getElementById('ownAssignTable');
   if(ae)ae.innerHTML='<tr><th>Propiedad</th><th>Dueño</th><th>Comisión</th></tr>'+
@@ -3220,6 +3225,14 @@ async function addOwner(){
   if(error){console.error(error);toast('No se pudo añadir el dueño');return;}
   document.getElementById('ownName').value='';document.getElementById('ownEmail').value='';document.getElementById('ownPhone').value='';
   renderRecOwners();toast('Dueño añadido');
+}
+async function updateOwner(id,field,el){
+  const v=(el.value||'').trim();
+  if(field==='name'&&!v){toast('El nombre no puede quedar vacío');renderRecOwners();return;}
+  const {error}=await sb.from('ops_owners').update({[field]:v||null}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo guardar');renderRecOwners();return;}
+  const ow=recOwners.find(function(o){return o.id===id;});if(ow)ow[field]=v||null;
+  toast('Dueño actualizado');
 }
 async function deleteOwner(id){if(!confirm('¿Eliminar este dueño? Sus propiedades quedarán sin asignar.'))return;
   const {error}=await sb.from('ops_owners').delete().eq('id',id);if(error){console.error(error);toast('No se pudo eliminar');return;}
@@ -3245,8 +3258,13 @@ async function renderRecExpenses(){
   const tEl=document.getElementById('recExpTotal');if(tEl)tEl.textContent=recExpenses.length+' gasto(s) · '+money(total)+' (facturable '+money(bill)+')';
   el.innerHTML='<tr><th>Propiedad</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Facturable</th><th></th></tr>'+
     (recExpenses.length?recExpenses.map(function(e){
-      return '<tr><td>'+_recEsc(pname[e.property_id]||'—')+'</td><td>'+_recEsc(e.date)+'</td><td>'+_recEsc(e.description)+'</td><td><b>'+money(e.amount)+'</b></td>'+
-        '<td>'+(e.billable?'<span class="pill approved">Sí</span>':'<span class="pill pending">No</span>')+'</td>'+
+      const opts=recOpsProps.map(function(p){return '<option value="'+p.id+'" '+(p.id===e.property_id?'selected':'')+'>'+_recEsc(p.name)+'</option>';}).join('');
+      return '<tr><td><select onchange="updatePropExpense(\''+e.id+'\',\'property_id\',this)" style="'+_recInp+'">'+
+          (recOpsProps.some(function(p){return p.id===e.property_id;})?'':'<option value="'+_recAttr(e.property_id||'')+'" selected>'+_recEsc(pname[e.property_id]||'— sin propiedad —')+'</option>')+opts+'</select></td>'+
+        '<td><input type="date" value="'+_recAttr(e.date)+'" onchange="updatePropExpense(\''+e.id+'\',\'date\',this)" style="'+_recInp+'"></td>'+
+        '<td><input value="'+_recAttr(e.description)+'" onchange="updatePropExpense(\''+e.id+'\',\'description\',this)" style="'+_recInp+'"></td>'+
+        '<td><input type="number" step="0.01" value="'+Number(e.amount||0)+'" onchange="updatePropExpense(\''+e.id+'\',\'amount\',this)" style="'+_recInp+';width:100px;font-weight:600"></td>'+
+        '<td style="text-align:center"><input type="checkbox" '+(e.billable?'checked':'')+' onchange="updatePropExpense(\''+e.id+'\',\'billable\',this)"></td>'+
         '<td style="text-align:right"><button class="btn sm dgr" onclick="deletePropExpense(\''+e.id+'\')">Eliminar</button></td></tr>';
     }).join(''):'<tr><td colspan="6" class="muted" style="padding:16px;text-align:center">Aún no hay gastos.</td></tr>');
 }
@@ -3259,6 +3277,18 @@ async function addPropExpense(){
   if(error){console.error(error);toast('No se pudo añadir el gasto');return;}
   document.getElementById('expDesc').value='';document.getElementById('expAmt').value='';
   renderRecExpenses();toast('Gasto añadido');
+}
+async function updatePropExpense(id,field,el){
+  let v;
+  if(field==='billable')v=!!el.checked;
+  else if(field==='amount'){v=parseFloat(el.value);if(!(v>0)){toast('Monto inválido');renderRecExpenses();return;}v=Math.round(v*100)/100;}
+  else{v=(el.value||'').trim();
+    if(field==='description'&&!v){toast('La descripción no puede quedar vacía');renderRecExpenses();return;}
+    if(field==='date'&&!v){toast('Fecha inválida');renderRecExpenses();return;}
+    if(field==='property_id'&&!v){toast('Elige una propiedad');renderRecExpenses();return;}}
+  const {error}=await sb.from('ops_property_expenses').update({[field]:v}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo guardar');renderRecExpenses();return;}
+  renderRecExpenses();toast('Gasto actualizado');
 }
 async function deletePropExpense(id){if(!confirm('¿Eliminar este gasto?'))return;
   const {error}=await sb.from('ops_property_expenses').delete().eq('id',id);if(error){console.error(error);toast('No se pudo eliminar');return;}
