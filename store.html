@@ -87,7 +87,7 @@
       s2key:"You’ll instantly get the <b>fridge</b> code. The <b>display case key</b> is inside the fridge.",
       keyNote:"🔑 The display case key is inside the fridge. Please put it back there when you’re done.",
       s3:"After check-out we count what was used and charge <b>only what you took</b>. The rest of the hold is released.",
-      hold:function(d){ return "If your purchases go over "+d+", the difference is charged to the same card. Prices include 11.5% PR sales tax (IVU)."; },
+      hold:function(d){ return "Prices are marked on the display case and include PR sales tax (IVU). If your purchases go over "+d+", the difference is charged to the same card."; },
       menu:"See what’s inside & prices", each:"each", all:function(x){ return "Everything here "+x; },
       agree:"I agree to be charged at check-out for the items I use.",
       btn:function(d){ return "Unlock minibar · "+d+" hold"; },
@@ -110,7 +110,7 @@
       s2key:"Recibes al instante la combinación de la <b>nevera</b>. La <b>llave de la vitrina</b> está dentro de la nevera.",
       keyNote:"🔑 La llave de la vitrina está dentro de la nevera. Por favor devuélvela ahí al terminar.",
       s3:"Después del check-out contamos lo usado y cobramos <b>solo lo que tomaste</b>. El resto de la retención se libera.",
-      hold:function(d){ return "Si tus compras pasan de "+d+", la diferencia se cobra a la misma tarjeta. Los precios incluyen IVU (11.5%)."; },
+      hold:function(d){ return "Los precios están marcados en la vitrina e incluyen IVU. Si tus compras pasan de "+d+", la diferencia se cobra a la misma tarjeta."; },
       menu:"Ver qué hay y precios", each:"c/u", all:function(x){ return "Todo aquí "+x; },
       agree:"Acepto que al check-out se me cobre lo que consuma.",
       btn:function(d){ return "Abrir minibar · retención de "+d; },
@@ -173,7 +173,8 @@
       '<p style="font-size:14.5px;line-height:1.5;margin:0 0 14px">'+esc(t().intro)+'</p>'+
       '<ul class="steps"><li><b class="n">1</b><span>'+t().s1(d)+'</span></li><li><b class="n">2</b><span>'+(info.displayKey?t().s2key:t().s2)+'</span></li><li><b class="n">3</b><span>'+t().s3+'</span></li></ul>'+
       '<div class="hold">'+esc(t().hold(d))+'</div>'+
-      (info.menu&&info.menu.length?'<details><summary>🛍️ '+esc(t().menu)+'</summary><div class="menu">'+renderMenu(info.menu)+'</div></details>':'')+
+      // Sin menú ni precios en la página (decisión del dueño): los precios están marcados en la vitrina.
+
       '<label class="agree"><input type="checkbox" id="ag"><span>'+esc(t().agree)+'</span></label>'+
       '<button class="main" id="go" disabled>'+esc(t().btn(d))+'</button>'+
       '<div class="err" id="err" style="display:none"></div><p class="secure">'+esc(t().secure)+'</p>';
