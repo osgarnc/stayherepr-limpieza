@@ -5112,7 +5112,7 @@ async function msgLoadMode(){
 // precio único; NULL = precio por artículo) y ops_store_products (artículos + cantidad tope).
 // Una sub-pestaña por propiedad con el store configurado. RLS: is_owner().
 const STORE_LOC={vitrina:'🗄️ Vitrina',nevera:'🧊 Nevera',canasta:'🧺 Canasta'};
-window._st={props:[],cfg:{},shelves:[],products:[],sessions:[],cur:null};
+window._st={props:[],cfg:{},shelves:[],products:[],sessions:[],stock:{},moves:[],view:'cat',cur:null};
 const STORE_BASE='https://stayherepr-limpieza.vercel.app'; // mismo dominio de los enlaces /pay
 function storeUrl(c){ return STORE_BASE+'/store?p='+encodeURIComponent(c.qr_token); }
 let _qrLib=null;
@@ -5161,6 +5161,11 @@ async function storeLoadProp(pid){
     sb.from('ops_store_sessions').select('*').eq('property_id',pid).neq('status','pending').order('created_at',{ascending:false}).limit(25)]);
   if(sh.error||pr.error){ toast('Store: '+((sh.error||pr.error).message)); return; }
   _st.shelves=sh.data||[]; _st.products=pr.data||[]; _st.sessions=se.data||[];
+  // 📦 Inventario: saldo por artículo (vista ops_store_stock) + últimos movimientos.
+  const [sk,mv]=await Promise.all([
+    sb.from('ops_store_stock').select('product_id,stock').eq('property_id',pid),
+    sb.from('ops_store_stock_moves').select('*').eq('property_id',pid).order('created_at',{ascending:false}).limit(150)]);
+  _st.stock={}; (sk.data||[]).forEach(r=>_st.stock[r.product_id]=r.stock); _st.moves=mv.data||[];
   storeRender();
 }
 function stPrice(p){ if(p.price_cents!=null)return p.price_cents; const s=_st.shelves.find(x=>x.id===p.shelf_id); return s&&s.price_cents!=null?s.price_cents:null; }
@@ -5185,6 +5190,8 @@ function storeRender(){
     '<div style="flex:1 1 220px"><b>QR del huésped</b> (fijo para esta propiedad)<br><a href="'+storeUrl(c)+'" target="_blank" style="font-size:12px;word-break:break-all">'+storeUrl(c)+'</a>'+
     (c.enabled?'':'<div style="color:#b45309;font-size:12.5px;margin-top:4px">⚠️ Está <b>inactivo</b>: al escanearlo el huésped verá "no disponible". Marca "Activo para huéspedes" cuando esté montado.</div>')+
     '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="storePrintSign()">🖨️ Imprimir letrero</button><a class="btn ghost sm" href="'+storeUrl(c)+'" target="_blank" style="text-decoration:none">🔗 Abrir página</a></div></div></div>';
+  h+='<div class="tabs" style="margin:12px 0 4px"><button class="'+(_st.view!=='inv'?'on':'')+'" onclick="_st.view=\'cat\';storeRender()">🛍️ Catálogo</button><button class="'+(_st.view==='inv'?'on':'')+'" onclick="_st.view=\'inv\';storeRender()">📦 Inventario</button></div>';
+  if(_st.view==='inv'){ body.innerHTML=h+storeInvHtml(); storeDrawQr(); return; }
   h+='<div id="storeStats" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">'+storeStatsHtml()+'</div>';
   h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"><button class="btn ghost sm" onclick="storeAddShelf()">➕ Piso / zona</button>'+
     (_st.shelves.length?'':'<button class="btn ghost sm" onclick="storeCopyFrom()">📋 Copiar catálogo de otra propiedad</button>')+
@@ -5263,6 +5270,60 @@ async function storeSessionPhotos(sid){
       (u.data?'<img src="'+u.data.signedUrl+'" style="max-width:100%;max-height:520px;border-radius:10px;margin-top:6px">':'');
   }
   w.document.write(h+'</body>'); w.document.close();
+}
+// ── 📦 Inventario ──────────────────────────────────────────────────────────
+// Saldo = suma de movimientos (ops_store_stock_moves). "Conteo físico" fija el total (delta =
+// contado − saldo; 'initial' si el artículo nunca tuvo movimientos). "Entrada" suma mercancía
+// nueva; "Pérdida" resta dañados/vencidos. Las ventas las descuenta el bot al aprobar Ingrid.
+const STORE_MV={initial:'🟦 Inicial',adjust:'⚖️ Conteo físico',in:'📥 Entrada',sale:'🛒 Venta',loss:'🗑️ Pérdida'};
+function storeInvHtml(){
+  const inp='padding:6px 7px;border:1.5px solid var(--line);border-radius:8px;width:62px;text-align:center';
+  const act=_st.products.filter(p=>p.active);
+  let units=0,sale=0,cost=0,low=0,unset=0;
+  act.forEach(p=>{ const st=_st.stock[p.id]; if(st==null){unset++;return;} units+=st; const pr=stPrice(p); if(pr!=null)sale+=pr*st; cost+=(p.cost_cents||0)*st; if(st<p.par_qty)low++; });
+  const box=(k,v,c)=>'<div style="flex:1 1 120px;padding:10px 12px;border:1.5px solid '+(c||'var(--line)')+';border-radius:10px"><div class="muted" style="font-size:12px">'+k+'</div><div style="font-weight:800;font-size:17px">'+v+'</div></div>';
+  let h='<div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">'+box('Unidades en inventario',units)+box('Valor a precio de venta','$'+stD(sale))+box('Valor a costo','$'+stD(cost))+
+    box('Bajo el tope',low,low?'#f59e0b':null)+(unset?box('Sin inventario cargado',unset,'#f59e0b'):'')+'</div>';
+  h+='<p class="muted" style="font-size:12.5px;margin:0 0 8px"><b>Inventario</b> = todo lo que tienes (exhibición + almacén). <b>Tope</b> = lo que va en exhibición. Llena solo lo que cambió y toca <b>Guardar</b>: <b>Conteo físico</b> fija el total contado, <b>Entrada</b> suma mercancía nueva, <b>Pérdida</b> resta dañados o vencidos. Las ventas se descuentan solas cuando Ingrid aprueba el cobro.</p>';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><input id="invNote" placeholder="Nota (opcional): ej. compra en Costco, pedido del suplidor…" style="flex:1 1 260px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px"><button class="btn sm" onclick="storeInvSave()">💾 Guardar cambios</button></div>';
+  _st.shelves.forEach(s=>{
+    const prods=act.filter(p=>p.shelf_id===s.id); if(!prods.length) return;
+    h+='<div style="margin:12px 0 4px;font-weight:800;font-size:14px">'+opsEsc(s.name+(s.zone?' · '+s.zone:''))+(s.category?' <span class="muted" style="font-weight:400">— '+opsEsc(s.category)+'</span>':'')+'</div>';
+    h+='<div style="overflow:auto"><table><thead><tr><th>SKU</th><th>Artículo</th><th style="text-align:center">Tope</th><th style="text-align:center">Inventario</th><th style="text-align:center">Almacén</th><th style="text-align:center">Conteo físico</th><th style="text-align:center">Entrada +</th><th style="text-align:center">Pérdida −</th></tr></thead><tbody>';
+    prods.forEach(p=>{
+      const st=_st.stock[p.id]; const lowp=st!=null&&st<p.par_qty;
+      const stc=st==null?'<span class="muted" title="Aún no tiene inventario cargado">—</span>':'<b style="font-size:15px;color:'+(lowp?'#b91c1c':'inherit')+'">'+st+'</b>';
+      const alm=st==null?'—':(st-p.par_qty<0?'<span style="color:#b91c1c">'+(st-p.par_qty)+'</span>':(st-p.par_qty));
+      h+='<tr><td class="muted" style="font-size:12px">'+opsEsc(p.sku||'')+'</td><td>'+opsEsc(p.name)+'</td><td style="text-align:center">'+p.par_qty+'</td><td style="text-align:center">'+stc+'</td><td style="text-align:center">'+alm+'</td>'+
+        '<td style="text-align:center"><input type="number" min="0" data-inv="count" data-id="'+p.id+'" style="'+inp+'" placeholder="'+(st==null?'total':st)+'"></td>'+
+        '<td style="text-align:center"><input type="number" min="0" data-inv="in" data-id="'+p.id+'" style="'+inp+'" placeholder="+"></td>'+
+        '<td style="text-align:center"><input type="number" min="0" data-inv="loss" data-id="'+p.id+'" style="'+inp+'" placeholder="−"></td></tr>';
+    });
+    h+='</tbody></table></div>';
+  });
+  h+='<div style="margin-top:10px"><button class="btn sm" onclick="storeInvSave()">💾 Guardar cambios</button></div>';
+  const pn={}; _st.products.forEach(p=>pn[p.id]=p.name);
+  h+='<h3 style="margin:18px 0 6px;font-size:15px">📜 Movimientos</h3><div style="overflow:auto;max-height:420px"><table><thead><tr><th>Fecha</th><th>Artículo</th><th>Tipo</th><th style="text-align:center">Cant.</th><th>Nota</th><th>Por</th></tr></thead><tbody>'+
+    (_st.moves.map(m=>'<tr><td style="white-space:nowrap">'+fmtLockDT(m.created_at)+'</td><td>'+opsEsc(pn[m.product_id]||'(borrado)')+'</td><td>'+(STORE_MV[m.kind]||m.kind)+'</td><td style="text-align:center;font-weight:700;color:'+(m.qty<0?'#b91c1c':'#166534')+'">'+(m.qty>0?'+':'')+m.qty+'</td><td class="muted" style="font-size:12px">'+opsEsc(m.note||'')+'</td><td class="muted" style="font-size:12px">'+opsEsc(m.created_by||'')+'</td></tr>').join('')||
+     '<tr><td colspan="6" class="muted" style="padding:10px">Aún no hay movimientos.</td></tr>')+'</tbody></table></div>';
+  return h;
+}
+async function storeInvSave(){
+  const note=(document.getElementById('invNote')||{}).value; const nt=(note||'').trim()||null;
+  let who='Panel'; try{ const u=(await sb.auth.getUser()).data.user; if(u&&u.email) who=u.email.split('@')[0]; }catch(_e){}
+  const rows=[]; let bad=false;
+  document.querySelectorAll('#storeBody input[data-inv]').forEach(el=>{
+    if(el.value==='') return; const n=parseInt(el.value,10); if(isNaN(n)||n<0){ bad=true; return; }
+    const id=el.dataset.id, k=el.dataset.inv, st=_st.stock[id];
+    if(k==='count'){ const d=n-(st||0); if(st==null) rows.push({kind:'initial',qty:n,id}); else if(d!==0) rows.push({kind:'adjust',qty:d,id}); }
+    else if(n>0) rows.push({kind:k,qty:k==='loss'?-n:n,id});
+  });
+  if(bad){ toast('Hay cantidades inválidas'); return; }
+  if(!rows.length){ toast('No hay cambios'); return; }
+  const ins=rows.map(r=>({property_id:_st.cur,product_id:r.id,kind:r.kind,qty:r.qty,note:nt,created_by:who}));
+  const {error}=await sb.from('ops_store_stock_moves').insert(ins);
+  if(error){ toast('No se guardó: '+error.message); return; }
+  toast('✅ '+rows.length+' movimiento(s) guardado(s)'); _st.view='inv'; await storeLoadProp(_st.cur);
 }
 function storeRefreshStats(){ const el=document.getElementById('storeStats'); if(el) el.innerHTML=storeStatsHtml(); }
 async function storeCfg(field,v){
