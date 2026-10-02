@@ -5158,7 +5158,7 @@ async function storeLoadProp(pid){
   const [sh,pr,se]=await Promise.all([
     sb.from('ops_store_shelves').select('*').eq('property_id',pid).order('sort'),
     sb.from('ops_store_products').select('*').eq('property_id',pid).order('sort'),
-    sb.from('ops_store_sessions').select('*').eq('property_id',pid).neq('status','pending').order('created_at',{ascending:false}).limit(25)]);
+    sb.from('ops_store_sessions').select('*').eq('property_id',pid).neq('status','pending').order('created_at',{ascending:false}).limit(300)]);
   if(sh.error||pr.error){ toast('Store: '+((sh.error||pr.error).message)); return; }
   _st.shelves=sh.data||[]; _st.products=pr.data||[]; _st.sessions=se.data||[];
   // 📦 Inventario: saldo por artículo (vista ops_store_stock) + últimos movimientos.
@@ -5190,8 +5190,10 @@ function storeRender(){
     '<div style="flex:1 1 220px"><b>QR del huésped</b> (fijo para esta propiedad)<br><a href="'+storeUrl(c)+'" target="_blank" style="font-size:12px;word-break:break-all">'+storeUrl(c)+'</a>'+
     (c.enabled?'':'<div style="color:#b45309;font-size:12.5px;margin-top:4px">⚠️ Está <b>inactivo</b>: al escanearlo el huésped verá "no disponible". Marca "Activo para huéspedes" cuando esté montado.</div>')+
     '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="storePrintSign()">🖨️ Imprimir letrero</button><a class="btn ghost sm" href="'+storeUrl(c)+'" target="_blank" style="text-decoration:none">🔗 Abrir página</a></div></div></div>';
-  h+='<div class="tabs" style="margin:12px 0 4px"><button class="'+(_st.view!=='inv'?'on':'')+'" onclick="_st.view=\'cat\';storeRender()">🛍️ Catálogo</button><button class="'+(_st.view==='inv'?'on':'')+'" onclick="_st.view=\'inv\';storeRender()">📦 Inventario</button></div>';
+  const vb=(v,l)=>'<button class="'+((_st.view||'cat')===v?'on':'')+'" onclick="_st.view=\''+v+'\';storeRender()">'+l+'</button>';
+  h+='<div class="tabs" style="margin:12px 0 4px">'+vb('cat','🛍️ Catálogo')+vb('inv','📦 Inventario')+vb('dep','💳 Depósitos'+(_st.sessions.filter(x=>x.status==='held').length?' ('+_st.sessions.filter(x=>x.status==='held').length+')':''))+'</div>';
   if(_st.view==='inv'){ body.innerHTML=h+storeInvHtml(); storeDrawQr(); return; }
+  if(_st.view==='dep'){ body.innerHTML=h+storeDepHtml(); storeDrawQr(); return; }
   h+='<div id="storeStats" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">'+storeStatsHtml()+'</div>';
   h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"><button class="btn ghost sm" onclick="storeAddShelf()">➕ Piso / zona</button>'+
     (_st.shelves.length?'':'<button class="btn ghost sm" onclick="storeCopyFrom()">📋 Copiar catálogo de otra propiedad</button>')+
@@ -5234,12 +5236,27 @@ function storeRender(){
     h+='</tbody></table></div></div>';
   });
   if(!_st.shelves.length) h+='<div class="note">Esta propiedad aún no tiene pisos. Añade uno o copia el catálogo de otra propiedad.</div>';
-  const SST={held:'🟡 Retenido',charged:'✅ Cobrado',released:'↩️ Liberado',failed:'❌ Falló',canceled:'⛔ Cancelado'};
-  h+='<h3 style="margin:18px 0 6px;font-size:15px">💳 Depósitos</h3><div style="overflow:auto"><table><thead><tr><th>Fecha</th><th>Huésped</th><th style="text-align:center">Check-out</th><th style="text-align:center">Depósito</th><th style="text-align:center">Cobrado</th><th>Estado</th><th>Conteo</th></tr></thead><tbody>'+
-    (_st.sessions.map(x=>'<tr><td>'+fmtLockDT(x.held_at||x.created_at)+'</td><td>'+opsEsc(x.guest_name||'(sin reserva identificada)')+(x.guest_email?'<div class="muted" style="font-size:11px">'+opsEsc(x.guest_email)+'</div>':'')+'</td><td style="text-align:center">'+(x.check_out||'—')+'</td><td style="text-align:center">$'+stD(x.deposit_cents)+'</td><td style="text-align:center">'+(x.charged_cents==null?'—':'$'+stD(x.charged_cents))+'</td><td>'+(SST[x.status]||x.status)+'</td><td style="font-size:12px">'+storeCountCell(x)+'</td></tr>').join('')||
-     '<tr><td colspan="7" class="muted" style="padding:10px">Aún no hay depósitos.</td></tr>')+'</tbody></table></div>';
   body.innerHTML=h;
   storeDrawQr();
+}
+// ── 💳 Depósitos y dinero (pestaña propia) ────────────────────────────────
+function storeDepHtml(){
+  const ses=_st.sessions, now=new Date(Date.now()-4*3600e3), ym=now.toISOString().slice(0,7);
+  const held=ses.filter(x=>x.status==='held'), done=ses.filter(x=>x.charged_cents>0);
+  const sum=a=>a.reduce((t,x)=>t+(x||0),0);
+  const month=done.filter(x=>String(x.closed_at||'').slice(0,7)===ym);
+  const box=(k,v,sub)=>'<div style="flex:1 1 140px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px"><div class="muted" style="font-size:12px">'+k+'</div><div style="font-weight:800;font-size:17px">'+v+'</div>'+(sub?'<div class="muted" style="font-size:11.5px">'+sub+'</div>':'')+'</div>';
+  let h='<div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">'+
+    box('Retenido ahora','$'+stD(sum(held.map(x=>x.deposit_cents))),held.length+' estadía(s) con depósito')+
+    box('Cobrado este mes','$'+stD(sum(month.map(x=>x.charged_cents))),month.length+' cobro(s)')+
+    box('Cobrado total','$'+stD(sum(done.map(x=>x.charged_cents))),done.length+' cobro(s)')+
+    box('Estadías con minibar',ses.length,ses.filter(x=>x.status==='released').length+' sin consumo')+'</div>';
+  h+='<p class="muted" style="font-size:12.5px;margin:0 0 8px">Cada estadía en la que el huésped dejó depósito. <b>Retenido</b> = la retención sigue en la tarjeta (aún no se cobra). El cobro final lo aprueba Ingrid por Telegram.</p>';
+  const SST={held:'🟡 Retenido',charged:'✅ Cobrado',released:'↩️ Liberado',failed:'❌ Falló',canceled:'⛔ Cancelado'};
+  h+='<div style="overflow:auto"><table><thead><tr><th>Fecha</th><th>Huésped</th><th style="text-align:center">Check-out</th><th style="text-align:center">Depósito</th><th style="text-align:center">Cobrado</th><th>Estado</th><th>Conteo</th></tr></thead><tbody>'+
+    (_st.sessions.map(x=>'<tr><td>'+fmtLockDT(x.held_at||x.created_at)+'</td><td>'+opsEsc(x.guest_name||'(sin reserva identificada)')+(x.guest_email?'<div class="muted" style="font-size:11px">'+opsEsc(x.guest_email)+'</div>':'')+'</td><td style="text-align:center">'+(x.check_out||'—')+'</td><td style="text-align:center">$'+stD(x.deposit_cents)+'</td><td style="text-align:center">'+(x.charged_cents==null?'—':'$'+stD(x.charged_cents))+'</td><td>'+(SST[x.status]||x.status)+'</td><td style="font-size:12px">'+storeCountCell(x)+'</td></tr>').join('')||
+     '<tr><td colspan="7" class="muted" style="padding:10px">Aún no hay depósitos.</td></tr>')+'</tbody></table></div>';
+  return h;
 }
 const STORE_CST={counting:'📸 Contando',submitted:'⏳ Esperando a Ingrid',charging:'⏳ Cobrando',done:'✔️ Cerrado'};
 function storeCountCell(x){
