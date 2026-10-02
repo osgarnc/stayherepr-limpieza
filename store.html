@@ -72,7 +72,10 @@
   var qs = new URLSearchParams(location.search);
   var p = qs.get("p") || "", cs = qs.get("cs") || "", status = qs.get("status") || "";
   var body = document.getElementById("body");
-  var L = (navigator.language||"").toLowerCase().indexOf("es")===0 ? "es" : "en";
+  // Idioma: el del HUÉSPED (lo decide el servidor según sus mensajes); sin certeza → inglés.
+  // Si el huésped toca EN/ES, se respeta su elección.
+  var L = "en", userPicked = false;
+  function guestLang(j){ return (!userPicked && j && (j.language==="es"||j.language==="en") && j.language!==L) ? j.language : null; }
   var last = null; // último render, para repintar al cambiar de idioma
 
   var T = {
@@ -190,6 +193,7 @@
     api({}).then(function(r){
       if(r.status===404){ msg("🔒","Stay Here PR",function(){ return esc(t().off); }); return; }
       if(!r.ok||!r.j||!r.j.ok){ msg("⚠️","Stay Here PR",function(){ return esc(t().gen); }); return; }
+      var gl=guestLang(r.j); if(gl){ setLang(gl); load(); return; } // el menú viene traducido: recargar en su idioma
       if(r.j.held&&r.j.combos){ showCodes(r.j.combos, r.j.propertyName); return; }
       showOffer(r.j);
     }).catch(function(){ msg("⚠️","Stay Here PR",function(){ return esc(t().gen); }); });
@@ -198,6 +202,7 @@
   // tardar unos segundos → reintenta solo 4 veces y luego ofrece un botón.
   function verify(tries){
     api({cs:cs}).then(function(r){
+      var gl=r.j&&guestLang(r.j); if(gl) setLang(gl);
       if(r.ok&&r.j&&r.j.held){ showCodes(r.j.combos||{}, r.j.propertyName); return; }
       if(tries>0){ msg("⏳","Stay Here PR",function(){ return esc(t().pending); }); setTimeout(function(){ verify(tries-1); },2500); return; }
       msg("⏳","Stay Here PR",function(){ return esc(t().pending); },{label:function(){ return t().retry; },fn:function(){ verify(2); }});
@@ -206,7 +211,7 @@
 
   var lb=document.getElementById("langBtn");
   function setLang(l){ L=l; document.documentElement.lang=L; lb.textContent=L==="es"?"EN":"ES"; }
-  lb.onclick=function(){ setLang(L==="es"?"en":"es"); if(last) last(); };
+  lb.onclick=function(){ userPicked=true; setLang(L==="es"?"en":"es"); if(last) last(); };
   setLang(L);
 
   if(!p){ msg("🔗","Stay Here PR",function(){ return esc(t().off); }); return; }
