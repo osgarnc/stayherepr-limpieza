@@ -5258,7 +5258,7 @@ function storeRender(){
       '<input style="'+inp+';width:130px" value="'+opsEsc(s.category_en||'')+'" placeholder="Category (EN)" title="Lo que ve el huésped en inglés" onchange="storeShelf(\''+s.id+'\',\'category_en\',this.value.trim()||null)">'+
       '<label style="font-size:13px">Precio del piso $ <input style="'+inp+';width:72px;font-weight:700" value="'+stD(s.price_cents)+'" placeholder="por artículo" onchange="storeShelf(\''+s.id+'\',\'price_cents\',this)"></label>'+
       '<label style="font-size:12px" title="Orden en la lista">Orden <input type="number" style="'+inp+';width:58px" value="'+s.sort+'" onchange="storeShelf(\''+s.id+'\',\'sort\',parseInt(this.value,10)||0)"></label>'+
-      (s.ref_photo_path?'<a style="font-size:12px;cursor:pointer;color:#166534;font-weight:700" title="Ver foto de referencia" onclick="storePhoto(\''+s.ref_photo_path+'\')">🖼️ Ref. '+fmtLockDT(s.ref_photo_at).split(' ')[0]+'</a>':'<span style="font-size:12px;color:#b45309" title="Tómala por Telegram: /minibar → Fotos de referencia">⚠️ Sin foto de referencia</span>')+
+      (s.ref_photo_path?'<a style="font-size:12px;cursor:pointer;color:#166534;font-weight:700" title="Ver foto de referencia" onclick="storePhoto(\''+s.ref_photo_path+'\')">🖼️ Ref. '+fmtLockDT(s.ref_photo_at).split(' ')[0]+'</a>'+(s.ref_side_path?' <a style="font-size:12px;cursor:pointer;color:#166534;font-weight:700" title="Ver foto lateral de referencia" onclick="storePhoto(\''+s.ref_side_path+'\')">📐 Lateral</a>':''):'<span style="font-size:12px;color:#b45309" title="Tómala por Telegram: /minibar → Fotos de referencia">⚠️ Sin foto de referencia</span>')+
       '<span style="margin-left:auto;white-space:nowrap"><button class="btn ghost sm" title="'+(s.active?'Desactivar piso':'Activar piso')+'" onclick="storeShelf(\''+s.id+'\',\'active\','+(!s.active)+')">'+(s.active?'⏸️':'▶️')+'</button> '+
       '<button class="btn ghost sm" title="Borrar piso y sus artículos" onclick="storeDelShelf(\''+s.id+'\')">🗑️</button></span></div>';
     const ph=s.price_cents!=null?'= '+stD(s.price_cents):'requerido';
@@ -5441,6 +5441,7 @@ async function storeSessionPhotos(sid){
     const ai=r.ai||{};
     h+='<h3 style="margin:18px 0 4px">'+opsEsc(sh[r.shelf_id]||'Piso')+'</h3><div style="color:#64748b;font-size:13px">Confianza IA: '+(ai.confidence!=null?Math.round(ai.confidence*100)+'%':'—')+(ai.notes?' · '+opsEsc(ai.notes):'')+'</div>'+
       (u.data?'<img src="'+u.data.signedUrl+'" style="max-width:100%;max-height:520px;border-radius:10px;margin-top:6px">':'');
+    if(ai.side_path){ const u2=await sb.storage.from('store-photos').createSignedUrl(ai.side_path,1800); if(u2.data) h+='<div style="color:#64748b;font-size:12px;margin-top:6px">Lateral</div><img src="'+u2.data.signedUrl+'" style="max-width:100%;max-height:520px;border-radius:10px">'; }
   }
   w.document.write(h+'</body>'); w.document.close();
 }
