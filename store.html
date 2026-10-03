@@ -39,6 +39,10 @@
   .it{ display:flex; justify-content:space-between; gap:10px; font-size:14px; padding:3px 0; }
   .it span:last-child{ font-weight:700; white-space:nowrap }
   .grp p{ margin:0; font-size:13.5px; line-height:1.45 }
+  .terms{ border:1px solid var(--line); border-radius:12px; padding:10px 12px 4px; margin:0 0 14px; background:#f8fafc }
+  .terms .tt{ font-weight:700; font-size:13.5px; margin:0 0 6px }
+  .terms ul{ margin:0; padding-left:18px }
+  .terms li{ font-size:12.8px; line-height:1.45; margin:0 0 6px; color:var(--ink) }
   .agree{ display:flex; gap:10px; align-items:flex-start; font-size:13.5px; line-height:1.45; margin:0 0 14px; color:var(--ink) }
   .agree input{ width:20px; height:20px; flex:0 0 auto; margin-top:1px }
   button.main{ width:100%; border:0; border-radius:14px; padding:15px 16px; font-size:16px; font-weight:700; cursor:pointer; background:var(--brand); color:#fff; }
@@ -89,7 +93,16 @@
       s3:"After check-out we count what was used and charge <b>only what you took</b>. The rest of the hold is released.",
       hold:function(d){ return "Prices are marked on the display case. If your purchases go over "+d+", the difference is charged to the same card."; },
       menu:"See what’s inside & prices", each:"each", all:function(x){ return "Everything here "+x; },
-      agree:"I agree to be charged at check-out for the items I use.",
+      termsTitle:"Please read before unlocking",
+      terms:[
+        "This is an <b>optional</b> service. You're only charged for what you take.",
+        "<b>Alcoholic beverages are for guests 18 and older</b> (legal drinking age in Puerto Rico). Please drink responsibly.",
+        "Check labels for <b>allergens and expiration dates</b> before consuming. Products are sold as packaged by the manufacturer.",
+        "<b>Over-the-counter medicines:</b> follow the package directions.",
+        "Use of the minibar is <b>at your own discretion and risk</b>.",
+        "Charges are based on our post-checkout inventory. If you have questions about your receipt, contact us within 48 hours."
+      ],
+      agree:"I've read the terms above and agree to be charged at check-out for the items I use.",
       btn:function(d){ return "Unlock minibar · "+d+" hold"; },
       secure:"Secured by Stripe · we never see your card",
       codesTitle:"You’re all set! 🎉",
@@ -112,7 +125,16 @@
       s3:"Después del check-out contamos lo usado y cobramos <b>solo lo que tomaste</b>. El resto de la retención se libera.",
       hold:function(d){ return "Los precios están marcados en la vitrina. Si tus compras pasan de "+d+", la diferencia se cobra a la misma tarjeta."; },
       menu:"Ver qué hay y precios", each:"c/u", all:function(x){ return "Todo aquí "+x; },
-      agree:"Acepto que al check-out se me cobre lo que consuma.",
+      termsTitle:"Lee esto antes de abrir",
+      terms:[
+        "Este es un servicio <b>opcional</b>. Solo se cobra lo que tomes.",
+        "<b>Las bebidas alcohólicas son solo para mayores de 18 años</b> (edad legal en Puerto Rico). Consume con responsabilidad.",
+        "Revisa las etiquetas por <b>alérgenos y fechas de expiración</b> antes de consumir. Los productos se venden tal como los empaca el fabricante.",
+        "<b>Medicinas sin receta:</b> sigue las instrucciones del empaque.",
+        "El uso del minibar es <b>a tu discreción y bajo tu responsabilidad</b>.",
+        "El cobro se basa en nuestro inventario después del check-out. Si tienes preguntas sobre tu recibo, escríbenos dentro de 48 horas."
+      ],
+      agree:"Leí los términos de arriba y acepto que al check-out se me cobre lo que consuma.",
       btn:function(d){ return "Abrir minibar · retención de "+d; },
       secure:"Protegido por Stripe · nunca vemos tu tarjeta",
       codesTitle:"¡Listo! 🎉",
@@ -175,6 +197,8 @@
       '<div class="hold">'+esc(t().hold(d))+'</div>'+
       // Sin menú ni precios en la página (decisión del dueño): los precios están marcados en la vitrina.
 
+      // Aviso de responsabilidad (texto fijo nuestro, con <b>; no lleva datos del huésped).
+      '<div class="terms"><div class="tt">⚠️ '+esc(t().termsTitle)+'</div><ul>'+t().terms.map(function(x){ return '<li>'+x+'</li>'; }).join('')+'</ul></div>'+
       '<label class="agree"><input type="checkbox" id="ag"><span>'+esc(t().agree)+'</span></label>'+
       '<button class="main" id="go" disabled>'+esc(t().btn(d))+'</button>'+
       '<div class="err" id="err" style="display:none"></div><p class="secure">'+esc(t().secure)+'</p>';
