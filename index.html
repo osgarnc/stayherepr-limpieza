@@ -5207,6 +5207,16 @@ async function storeLoadProp(pid){
     sb.from('ops_store_stock').select('product_id,stock').eq('property_id',pid),
     sb.from('ops_store_stock_moves').select('*').eq('property_id',pid).order('created_at',{ascending:false}).limit(150)]);
   _st.stock={}; (sk.data||[]).forEach(r=>_st.stock[r.product_id]=r.stock); _st.moves=mv.data||[];
+  // 📈 Embudo: enlaces enviados (ops_store_welcomes) → abrieron/tocaron pagar (ops_store_events) → depositaron.
+  try{
+    const [wl,ev]=await Promise.all([
+      sb.from('ops_store_welcomes').select('lead_uid,sent_at,error').eq('property_id',pid).order('sent_at',{ascending:false}).limit(200),
+      sb.from('ops_store_events').select('lead_uid,event,created_at').eq('property_id',pid).order('created_at').limit(2000)]);
+    _st.welcomes=wl.data||[]; _st.events=ev.data||[];
+    const leads=[...new Set([..._st.welcomes.map(w=>w.lead_uid),..._st.events.map(e=>e.lead_uid).filter(Boolean)])];
+    _st.resvName={};
+    if(leads.length){ const {data:rv}=await sb.from('ops_reservations').select('lead_uid,guest_name,check_in,check_out').in('lead_uid',leads); (rv||[]).forEach(r=>_st.resvName[r.lead_uid]=r); }
+  }catch(_e){ _st.welcomes=[]; _st.events=[]; _st.resvName={}; }
   storeRender();
 }
 function stPrice(p){ if(p.price_cents!=null)return p.price_cents; const s=_st.shelves.find(x=>x.id===p.shelf_id); return s&&s.price_cents!=null?s.price_cents:null; }
@@ -5395,6 +5405,29 @@ function storeRepPrint(id){
   w.document.close();
 }
 
+// ── 📈 Embudo del minibar ────────────────────────────────────────────────
+function storeFunnelHtml(){
+  const ev=_st.events||[], wl=_st.welcomes||[], ses=_st.sessions||[];
+  const first=(lead,kind)=>{ const e=ev.find(x=>x.lead_uid===lead&&x.event===kind); return e?e.created_at:null; };
+  const leads=[...new Set([...wl.map(w=>w.lead_uid),...ev.map(e=>e.lead_uid).filter(Boolean)])];
+  const dep=lead=>ses.find(x=>x.lead_uid===lead&&['held','charged','released'].includes(x.status));
+  const nOpen=leads.filter(l=>first(l,'open')).length, nStart=leads.filter(l=>first(l,'start')).length, nDep=leads.filter(l=>dep(l)).length;
+  const anon=ev.filter(e=>!e.lead_uid&&e.event==='open').length;
+  const pct=(a,b)=>b?Math.round(a/b*100)+'%':'—';
+  const box=(k,v,sub)=>'<div style="flex:1 1 130px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px"><div class="muted" style="font-size:12px">'+k+'</div><div style="font-weight:800;font-size:17px">'+v+'</div>'+(sub?'<div class="muted" style="font-size:11.5px">'+sub+'</div>':'')+'</div>';
+  let h='<h3 style="margin:14px 0 6px;font-size:15px">📈 Embudo</h3><div style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px">'+
+    box('Recibieron el enlace',wl.length)+box('Abrieron la página',nOpen,pct(nOpen,wl.length)+' de los que lo recibieron')+
+    box('Tocaron "Abrir minibar"',nStart,pct(nStart,nOpen)+' de los que abrieron')+box('Dejaron depósito',nDep,pct(nDep,nStart)+' de los que tocaron pagar')+'</div>';
+  if(anon) h+='<div class="muted" style="font-size:12px;margin:-2px 0 8px">+ '+anon+' apertura(s) sin reserva activa identificada (p. ej. QR escaneado fuera de una estadía).</div>';
+  const t=iso=>iso?fmtLockDT(iso):'—';
+  h+='<div style="overflow:auto;margin-bottom:6px"><table><thead><tr><th>Huésped</th><th>Estadía</th><th>Enlace enviado</th><th>Abrió</th><th>Tocó pagar</th><th>Depositó</th></tr></thead><tbody>'+
+    (leads.map(l=>{ const r=_st.resvName[l]||{}, w=wl.find(x=>x.lead_uid===l), d=dep(l);
+      return '<tr><td>'+opsEsc(r.guest_name||'—')+'</td><td style="font-size:12px">'+(r.check_in?r.check_in+' → '+r.check_out:'—')+'</td><td style="font-size:12px">'+(w?t(w.sent_at)+(w.error?' ⚠️':''):'—')+'</td><td style="font-size:12px">'+t(first(l,'open'))+'</td><td style="font-size:12px">'+t(first(l,'start'))+'</td><td style="font-size:12px">'+(d?t(d.held_at||d.created_at):'—')+'</td></tr>'; }).join('')||
+     '<tr><td colspan="6" class="muted" style="padding:10px">Aún no hay datos.</td></tr>')+'</tbody></table></div>'+
+    '<p class="muted" style="font-size:12px;margin:0 0 12px">"Abrió" se mide desde el 5 de octubre de 2026; antes de esa fecha no se registraban las aperturas.</p>';
+  return h;
+}
+
 // ── 💳 Depósitos y dinero (pestaña propia) ────────────────────────────────
 function storeDepHtml(){
   const ses=_st.sessions, now=new Date(Date.now()-4*3600e3), ym=now.toISOString().slice(0,7);
@@ -5407,6 +5440,7 @@ function storeDepHtml(){
     box('Cobrado este mes','$'+stD(sum(month.map(x=>x.charged_cents))),month.length+' cobro(s)')+
     box('Cobrado total','$'+stD(sum(done.map(x=>x.charged_cents))),done.length+' cobro(s)')+
     box('Estadías con minibar',ses.length,ses.filter(x=>x.status==='released').length+' sin consumo')+'</div>';
+  h+=storeFunnelHtml();
   h+='<p class="muted" style="font-size:12.5px;margin:0 0 8px">Cada estadía en la que el huésped dejó depósito. <b>Retenido</b> = la retención sigue en la tarjeta (aún no se cobra). El cobro final lo aprueba Ingrid por Telegram.</p>';
   const SST={held:'🟡 Retenido',charged:'✅ Cobrado',released:'↩️ Liberado',failed:'❌ Falló',canceled:'⛔ Cancelado'};
   h+='<div style="overflow:auto"><table><thead><tr><th>Fecha</th><th>Huésped</th><th style="text-align:center">Check-out</th><th style="text-align:center">Depósito</th><th style="text-align:center">Cobrado</th><th>Estado</th><th>Conteo</th></tr></thead><tbody>'+
