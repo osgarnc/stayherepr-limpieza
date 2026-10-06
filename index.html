@@ -3145,15 +3145,29 @@ async function contResolver(payoutId,ix){
 }
 
 /* ---------- 3 · postear ---------- */
+// El motivo del fallo viene en el CUERPO de la respuesta, y cuando el status no
+// es 2xx supabase-js lo deja en error.context, no en data. Sin leerlo, la app
+// decía "no se pudo postear" sin decir por qué.
+async function contMotivo(r){
+  if(r&&r.data&&r.data.error)return String(r.data.error);
+  try{ const j=await r.error.context.json(); if(j&&j.error)return String(j.error); }catch(_e){}
+  try{ const t=await r.error.context.text(); if(t)return t.slice(0,180); }catch(_e){}
+  return (r&&r.error&&r.error.message)||'';
+}
 async function contPostear(id){
   const btnAll=document.getElementById('contPostAllBtn');if(btnAll)btnAll.disabled=true;
   try{
     const r=await sb.functions.invoke('cont-qbo',{body:{action:'postear',payout_id:id}});
     const d=r.data||{};
-    if(!d.ok){toast(d.error||'No se pudo postear');return false;}
+    if(!d.ok){
+      const m=await contMotivo(r);
+      console.error('postear',id,m);
+      toast(m||'No se pudo postear');
+      return m||'No se pudo postear';
+    }
     toast(d.adoptado?'Ya existía en QuickBooks, quedó ligado':'Posteado · depósito '+d.deposit_id);
     return true;
-  }catch(e){console.error(e);toast('QuickBooks no respondió');return false;}
+  }catch(e){console.error(e);toast('QuickBooks no respondió');return 'QuickBooks no respondió';}
   finally{ if(btnAll)btnAll.disabled=false; }
 }
 async function contPostearListos(){
@@ -3161,10 +3175,19 @@ async function contPostearListos(){
   if(!listos.length){toast('No hay nada que cuadre todavía');return;}
   if(!confirm('Se van a crear '+listos.length+' depósito(s) en QuickBooks por '+
     money(listos.reduce((a,p)=>a+Number(p.amount),0))+'. ¿Seguimos?'))return;
-  let ok=0,mal=0;
-  for(const p of listos){ if(await contPostear(p.id))ok++;else mal++; }
+  let ok=0;const fallos=[];
+  for(const p of listos){ const r=await contPostear(p.id); if(r===true)ok++;else fallos.push(String(r)); }
   await contReload();
-  toast('Posteados '+ok+(mal?' · fallaron '+mal:''));
+  if(!fallos.length){toast('Posteados '+ok);return;}
+  // Casi siempre los 11 fallan por lo MISMO: se enseña el motivo, no el conteo.
+  const cuenta={};fallos.forEach(m=>{cuenta[m]=(cuenta[m]||0)+1;});
+  const lista=Object.keys(cuenta).map(m=>cuenta[m]+'× '+m).join(' · ');
+  toast('Posteados '+ok+' · fallaron '+fallos.length+': '+lista.slice(0,220));
+  const out=document.getElementById('contResumen');
+  if(out)out.innerHTML='<div style="color:var(--danger);font-size:13px;padding:8px 0">'+
+    '<b>No se pudieron postear '+fallos.length+':</b><br>'+_cEsc(lista)+
+    (/no existe/i.test(lista)?'<br><span class="muted">La lista estaba vieja: dale otra vez a <b>Cuadrar el mes</b> y vuelve a postear.</span>':'')+
+    '</div>'+(out.innerHTML||'');
 }
 async function contAnular(id){
   if(!confirm('Esto borra el depósito en QuickBooks. ¿Seguro?'))return;
