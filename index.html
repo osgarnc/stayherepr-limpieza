@@ -2620,6 +2620,17 @@ function contBuscarFin(guest,fecha){
   // familiar). Los alias los va creando el usuario desde la lista de pendientes.
   if(contAlias[k])k=contAlias[k];
   let cands=contFin.filter(f=>f.guest_key===k);
+  // Nombre al revés: PayPal manda "Jeffrey Wienecke" y Hostfully lo guarda como
+  // "Wienecke Jeffrey". Si las PALABRAS son las mismas en otro orden, es la
+  // misma persona.
+  if(!cands.length){
+    const orden=x=>String(x||'').split(' ').filter(Boolean).sort().join(' ');
+    const ko=orden(k);
+    if(ko.indexOf(' ')>0){
+      const mismo=contFin.filter(f=>orden(f.guest_key)===ko);
+      if(mismo.length===1)cands=mismo;
+    }
+  }
   // Segundo nombre: el que paga suele escribir "Andres Refuerzo" y Hostfully lo
   // guarda como "Andres Ray Refuerzo". Si el PRIMER y el ÚLTIMO nombre calzan,
   // es la misma persona (y solo si no hay más de un candidato).
@@ -2807,6 +2818,10 @@ function contArmarPaypal(rows,month){
   orden.forEach(function(r){const id=contGet(r,['Transaction ID']);if(id)porTxn[id]=r;});
   for(const r of orden){
     const tipo=contGet(r,['Type']);
+    // PayPal lista la AUTORIZACIÓN y después el cobro de verdad. La
+    // autorización no mueve plata: contarla descuadra el retiro (sept/2026: dos
+    // "General Authorization" de Vistaprint metieron $332.66 de más).
+    if(/authorization|account hold|payment review/i.test(tipo))continue;
     const bruto=_c2(_cNum(contGet(r,['Gross'])));
     const fee=_c2(_cNum(contGet(r,['Fee'])));
     if(/withdrawal/i.test(tipo)){
