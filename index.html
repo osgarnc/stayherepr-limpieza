@@ -2887,6 +2887,16 @@ function contArmarStripe(rows,month,label){
           guest_name:null,description:desc||'fee de Stripe'});
         continue;
       }
+      // Stripe DEVUELVE un reembolso que falló (tarjeta cerrada, cuenta sin
+      // fondos): entra plata y hay que revertir el gasto de reembolso.
+      if(cat==='refund_failure'){
+        const f=guest?contBuscarFin(guest,null):null;
+        const pid=(f&&f.property_id)||((contPropMatch(pname)||{}).id)||((contServicio(desc)||{}).propId)||null;
+        p.lines.push({kind:'reembolso',amount:neto,property_id:pid,qbo_class_id:contClassOf(pid),
+          guest_name:guest||null,
+          description:(guest||'Stripe')+' — Stripe devolvió el reembolso (falló): revierte el gasto'});
+        continue;
+      }
       if(cat==='refund'||cat==='dispute'){
         const f=guest?contBuscarFin(guest,null):null;
         // El reembolso de un extra no trae huésped, pero su descripción sí dice
@@ -2935,7 +2945,10 @@ function contArmarStripe(rows,month,label){
           continue;
         }
         if(guest){ contAgrega(p,guest,neto,'no aparece en el reporte de dueños',month); continue; }
-        if(!contAgrega(p,desc||'cargo sin nombre',neto,'Stripe no trae nombre en ese cargo',month)){
+        const razon=cat==='other_adjustment'
+          ? 'ajuste de Stripe sin nombre (suele ser la retención que entra o sale)'
+          : 'Stripe no trae nombre en ese cargo';
+        if(!contAgrega(p,desc||(cat==='other_adjustment'?'ajuste de Stripe':'cargo sin nombre'),neto,razon,month)){
           const uu=p.unresolved[p.unresolved.length-1];
           if(uu&&!uu.property_id){const pp=contPropEnTexto(desc);if(pp)uu.property_id=pp.id;}
         }
