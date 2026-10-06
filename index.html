@@ -803,6 +803,9 @@
       <div style="overflow:auto"><table id="contClassTable"></table></div>
       <h3 style="font-size:14px;color:var(--brand);margin:18px 0 6px">Cuentas por tipo de renglón</h3>
       <div style="overflow:auto"><table id="contAcctTable"></table></div>
+      <h4 style="font-size:13px;color:var(--brand);margin:16px 0 4px">Reglas aprendidas</h4>
+      <p class="muted" style="font-size:12px;margin:0 0 6px">Lo que marcas como «recordar» al resolver un pendiente. El motor las aplica solo en los próximos meses.</p>
+      <div style="overflow:auto"><table id="contRulesTable"></table></div>
     </div>
   </div>
   <div id="tabRecowners" class="card hide" style="padding:18px">
@@ -2114,7 +2117,7 @@ const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Pago al due�
   reserva:'Retención de Stripe',prepago:'Pasivo (por devolver)',sobrecobro:'Cobro doble (por devolver)',
   seguro:'Reclamación de seguro',reembolso:'Reembolso',reparaciones:'Reembolso de gastos',
   earlyci:'Early check-in',extraguest:'Huésped extra',servicio:'Servicios'};
-let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={},contComision={};
+let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={},contComision={},contRules=[],contCat=null;
 const _cEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const _c2=n=>Math.round((Number(n)||0)*100)/100;
 const _cNum=v=>{if(v==null)return 0;const s=String(v).replace(/[$,\s]/g,'').replace(/[()]/g,m=>m==='('?'-':'');const n=parseFloat(s);return isNaN(n)?0:n;};
@@ -2476,18 +2479,35 @@ function contLineasReserva(fin,recibido,nota){
 }
 // Cargos de servicio de Stripe: no son reservas, son extras que vende Stay Here.
 // El nombre de la propiedad viene después del guion largo.
+// La propiedad de un cargo de la tienda viene escrita en la descripción, después
+// del guión: "2 noches extra — Salo Corner Urban Stay". Se prueba cada pedazo,
+// sin paréntesis, y de último la descripción completa.
+function contPropEnTexto(desc){
+  const d=String(desc||'').replace(/\(.*?\)/g,' ');
+  const partes=d.split(/[—–|]/).map(x=>x.trim()).filter(Boolean);
+  for(let i=partes.length-1;i>=0;i--){
+    const p=contPropMatch(partes[i]);
+    if(p)return p;
+  }
+  return contPropMatch(d);
+}
 function contServicio(desc){
   const d=String(desc||'');if(!d)return null;
   // La noche extra es RENTA de la propiedad, no un servicio de Stay Here: la
   // mayor parte es del dueño. Por eso tiene su propio tipo y se reparte.
-  const kind=/extra night|noche extra/i.test(d)?'nocheextra'
-            :/early check.?in/i.test(d)?'earlyci'
+  const kind=/extra nights?|noches? extra|noches? adicional/i.test(d)?'nocheextra'
+            :/early check.?in|entrada tempran/i.test(d)?'earlyci'
             :/extra guest|hu.sped extra/i.test(d)?'extraguest'
-            :(/late check.?out|reservation total/i.test(d)?'servicio':null);
-  if(!kind)return null;
-  const m=d.split(/[—–]/);
-  const pname=m.length>1?m[1].replace(/\(.*?\)/g,'').trim():'';
-  const p=pname?contPropMatch(pname):null;
+            :(/late check.?out|late special|salida tard|reservation total|pet fee|mascota/i.test(d)?'servicio':null);
+  const p=contPropEnTexto(d);
+  // Catch-all: todo lo que la tienda vende lleva el nombre de la propiedad en la
+  // descripción (cumpleaños, decoración, lo que se invente después). Si nombra
+  // una propiedad y no es ninguno de los tipos de arriba, es un servicio de
+  // Stay Here. Antes esto caía en "Stripe no trae nombre" y trababa el payout.
+  if(!kind){
+    if(!p)return null;
+    return {kind:'servicio',propId:p.id,catchall:true};
+  }
   return {kind,propId:p?p.id:null};
 }
 // Cobro doble del impuesto: el huésped pagó exactamente un 7% de más.
@@ -2505,6 +2525,51 @@ function contSobrecobro(fin,cobrado){
 // ledger de Hostfully (ops_reservations_ledger) tiene TODAS las reservas con su
 // propiedad y fechas, aunque no traiga el dinero: si el huésped está ahí, al
 // menos decimos de qué propiedad es y preseleccionamos su clase.
+// ¿Hay una regla aprendida para este texto? Las reglas las crea el usuario desde
+// la lista de pendientes ("recordar") y evitan volver a clasificar lo mismo cada
+// mes: compras por PayPal (Vistaprint), movimientos internos, cargos raros.
+function contRegla(label){
+  const k=_cKey(label);if(!k)return null;
+  for(const r of contRules){
+    const rk=_cKey(r.pattern);
+    if(rk&&k.indexOf(rk)>-1)return r;
+  }
+  return null;
+}
+// Intenta resolver solo lo que antes quedaba pendiente. Devuelve un renglón o null.
+//   1) una regla aprendida
+//   2) el histórico de reservas: si el check-in es de un mes posterior, el dinero
+//      es un PREPAGO (pasivo), no ingreso del mes
+function contAutoLinea(label,amount,month){
+  const r=contRegla(label);
+  if(r){
+    const pid=r.property_id||null;
+    const cls=pid?contClassOf(pid):null;
+    if(!r.qbo_account_id&&!cls)return null;     // sin cuenta ni clase no se puede
+    return {kind:r.kind||'servicio',amount:_c2(amount),property_id:pid,qbo_class_id:cls,
+      qbo_account_id:r.qbo_account_id||null,guest_name:null,
+      description:label+' — regla: '+(r.note||r.pattern)};
+  }
+  const k=_cKey(label);
+  const led=k?contLedger[contAlias[k]||k]:null;
+  if(led&&month&&led.check_in&&String(led.check_in).slice(0,7)>month){
+    const cls=contClassOf(led.property_id);
+    if(!cls)return null;                        // esa propiedad aún no tiene clase
+    const pn=(contProps.find(x=>x.id===led.property_id)||{}).name||'';
+    return {kind:'prepago',amount:_c2(amount),property_id:led.property_id,qbo_class_id:cls,
+      guest_name:label,
+      description:label+' — prepago de reserva futura ('+pn+', check-in '+led.check_in+
+        '). Entra como pasivo hasta que se quede.'};
+  }
+  return null;
+}
+// Empuja un renglón si el motor pudo resolverlo solo; si no, lo deja pendiente.
+function contAgrega(p,label,amount,reason,month){
+  const l=contAutoLinea(label,amount,month);
+  if(l){p.lines.push(l);return true;}
+  p.unresolved.push(contPendiente(label,amount,reason));
+  return false;
+}
 function contPendiente(label,amount,reason){
   const k=_cKey(label);
   const r=k?contLedger[contAlias[k]||k]:null;
@@ -2548,11 +2613,13 @@ async function contAnalizar(){
   if(out)out.innerHTML='<p class="muted" style="padding:10px">Cuadrando…</p>';
   await contLoadProps();
 
-  const [fin,als,led]=await Promise.all([
+  const [fin,als,led,rul]=await Promise.all([
     sb.from('cont_reservation_finance').select('*'),
     sb.from('cont_alias').select('*'),
-    sb.from('ops_reservations_ledger').select('guest_name,property_id,check_in,source')
+    sb.from('ops_reservations_ledger').select('guest_name,property_id,check_in,source'),
+    sb.from('cont_rules').select('*')
   ]);
+  contRules=rul.error?[]:(rul.data||[]);   // si aún no corriste el SQL, sigue sin reglas
   contFin=fin.data||[];
   contAlias={};(als.data||[]).forEach(a=>{contAlias[a.payer_key]=a.guest_key;});
   // Nos quedamos con la estadía más reciente de cada huésped: es la que suele
@@ -2629,8 +2696,8 @@ function contArmarAirbnb(rows,month){
     }
     const f=contBuscarFin(guest,inicio);
     if(!f){
-      cur.unresolved.push(contPendiente(guest||contGet(r,['Confirmation code'])||tipo,monto,
-        'no aparece en el reporte de dueños'));
+      contAgrega(cur,guest||contGet(r,['Confirmation code'])||tipo,monto,
+        'no aparece en el reporte de dueños',month);
       continue;
     }
     cur.lines=cur.lines.concat(contSplitReserva(f,monto,tipo==='Adjustment'?'ajuste de Airbnb':''));
@@ -2682,7 +2749,7 @@ function contArmarPaypal(rows,month){
           continue;
         }
         const f=contBuscarFin(g,null);
-        if(!f){ p.unresolved.push(contPendiente(g||t,_c2(gb+mf),'no aparece en el reporte de dueños')); continue; }
+        if(!f){ contAgrega(p,g||asunto||t,_c2(gb+mf),'no aparece en el reporte de dueños',month); continue; }
         if(gb<0){ // reembolso al huésped
           p.lines.push({kind:'prepago',amount:gb,property_id:f.property_id,
             qbo_class_id:contClassOf(f.property_id),guest_name:f.guest_name,
@@ -2782,9 +2849,11 @@ function contArmarStripe(rows,month,label){
             guest_name:null,description:'Fee de Stripe — '+desc});
           continue;
         }
-        p.unresolved.push(guest
-          ? contPendiente(guest,neto,'no aparece en el reporte de dueños')
-          : {label:desc||'cargo sin nombre',amount:_c2(neto),reason:'Stripe no trae nombre en ese cargo'});
+        if(guest){ contAgrega(p,guest,neto,'no aparece en el reporte de dueños',month); continue; }
+        if(!contAgrega(p,desc||'cargo sin nombre',neto,'Stripe no trae nombre en ese cargo',month)){
+          const uu=p.unresolved[p.unresolved.length-1];
+          if(uu&&!uu.property_id){const pp=contPropEnTexto(desc);if(pp)uu.property_id=pp.id;}
+        }
         continue;
       }
       // El desglose de Hostfully cuadra contra el BRUTO; el fee va aparte.
@@ -2831,6 +2900,7 @@ async function contGuardarPayouts(month,payouts){
     if(p.lines.length){
       const ls=p.lines.map((l,i)=>({payout_id:ins.data.id,ord:i,kind:l.kind,amount:l.amount,
         property_id:l.property_id||null,qbo_class_id:l.qbo_class_id||null,
+        qbo_account_id:l.qbo_account_id||null,
         guest_name:l.guest_name||null,description:l.description||null}));
       const {error}=await sb.from('cont_payout_lines').insert(ls);
       if(error)console.error(error);
@@ -2928,7 +2998,11 @@ function contResolverHTML(p,u,ix){
       '<span class="muted" style="font-size:11px">o</span>'+
       '<select id="cR-k-'+id+'" style="'+inp+'"><option value="">— clasificar como… —</option>'+tipos+'</select>'+
       '<select id="cR-p-'+id+'" style="'+inp+'"><option value="">— propiedad —</option>'+props+'</select>'+
+      (contCatalogo.cuentas.length?'<select id="cR-c-'+id+'" style="'+inp+'"><option value="">— cuenta (opcional) —</option>'+
+        contCatalogo.cuentas.map(c=>'<option value="'+c.id+'">'+_cEsc(c.name)+'</option>').join('')+'</select>':'')+
       '<input id="cR-a-'+id+'" type="number" step="0.01" value="'+(u.amount||0)+'" style="'+inp+';width:92px">'+
+      '<label style="display:flex;align-items:center;gap:4px;font-size:11.5px" title="La próxima vez que aparezca este texto, el motor lo clasifica solo">'+
+        '<input type="checkbox" id="cR-r-'+id+'"> recordar</label>'+
       '<button class="btn sm" onclick="contResolver(\''+p.id+'\','+ix+')">Aplicar</button>'+
     '</div></div>';
 }
@@ -2951,15 +3025,27 @@ async function contResolver(payoutId,ix){
     return;
   }
   // (b) clasificación manual contra una cuenta
-  if(!kv){toast('Elige el huésped o el tipo de renglón');return;}
+  const cv=(document.getElementById('cR-c-'+id)||{}).value||'';   // cuenta de QBO, opcional
+  if(!kv&&!cv){toast('Elige el huésped, el tipo de renglón o la cuenta');return;}
   if(!pv){toast('Toda línea lleva clase: elige la propiedad');return;}
   const cls=contClassOf(pv);
   if(!cls){toast('Esa propiedad no tiene clase de QuickBooks asignada');return;}
   if(!av){toast('El monto no puede ser cero');return;}
   const {error}=await sb.from('cont_payout_lines').insert({
-    payout_id:payoutId,ord:999+ix,kind:kv,amount:av,property_id:pv,qbo_class_id:cls,
+    payout_id:payoutId,ord:999+ix,kind:kv||'servicio',amount:av,property_id:pv,qbo_class_id:cls,
+    qbo_account_id:cv||null,
     guest_name:null,description:u.label+' — clasificado a mano'});
   if(error){console.error(error);toast('No se pudo añadir el renglón');return;}
+  // "recordar": la próxima vez que aparezca este texto, el motor lo hace solo.
+  if((document.getElementById('cR-r-'+id)||{}).checked){
+    const pat=String(u.label||'').trim().slice(0,60);
+    const cn=cv?(contCatalogo.cuentas.find(c=>String(c.id)===String(cv))||{}).name:null;
+    const et=cn||CONT_KINDLBL[kv]||kv;
+    const {error:er}=await sb.from('cont_rules').upsert({pattern:pat,kind:kv||'servicio',property_id:pv,
+      qbo_account_id:cv||null,note:et,updated_at:new Date().toISOString()},{onConflict:'pattern'});
+    if(er){console.error(er);toast('El renglón entró, pero la regla no se guardó (¿corriste el SQL?)');}
+    else toast('Regla guardada: "'+pat+'" → '+et);
+  }
   // Si clasificas menos de lo que trae el pendiente, el resto sigue pendiente.
   // Asi una cancelacion retenida se puede repartir entre comision y dueño en
   // dos pasos, en vez de forzar todo a una sola cuenta.
@@ -3131,6 +3217,26 @@ async function contRenderSetup(){
         _cEsc(contCatalogo.cuentas.filter(c=>/Bank/i.test(c.type||'')).map(c=>c.name+' (id '+c.id+')').join(' · ')||'—')+
         '</td></tr>':'');
   }
+  await contRenderRules();
+}
+async function contRenderRules(){
+  const el=document.getElementById('contRulesTable');if(!el)return;
+  const {data,error}=await sb.from('cont_rules').select('*').order('pattern');
+  if(error){el.innerHTML='<tr><td class="muted" style="padding:12px">Falta correr <b>fase-contabilidad-reglas.sql</b> en Supabase.</td></tr>';return;}
+  contRules=data||[];
+  const pn={};contProps.forEach(x=>{pn[x.id]=x.name;});
+  el.innerHTML='<tr><th>Si el texto trae…</th><th>Lo trata como</th><th>Propiedad</th><th>Usos</th><th></th></tr>'+
+    (contRules.length?contRules.map(function(r){
+      return '<tr><td><b>'+_cEsc(r.pattern)+'</b></td><td>'+_cEsc(r.note||CONT_KINDLBL[r.kind]||r.kind)+'</td>'+
+        '<td>'+_cEsc(r.property_id?(pn[r.property_id]||'—'):'—')+'</td><td>'+(r.hits||0)+'</td>'+
+        '<td style="text-align:right"><button class="btn sm dgr" onclick="contBorrarRegla(\''+r.id+'\')">Borrar</button></td></tr>';
+    }).join(''):'<tr><td colspan="5" class="muted" style="padding:12px;text-align:center">Todavía no hay reglas. Marca «recordar» cuando resuelvas un pendiente.</td></tr>');
+}
+async function contBorrarRegla(id){
+  if(!confirm('¿Borrar esta regla? Los pendientes que resolvía volverán a salir en rojo.'))return;
+  const {error}=await sb.from('cont_rules').delete().eq('id',id);
+  if(error){console.error(error);toast('No se pudo borrar');return;}
+  toast('Regla borrada');contRenderRules();
 }
 async function contSetClass(propId,classId,classText){
   if(!classId){await sb.from('cont_qbo_class').delete().eq('property_id',propId);delete contClassMap[propId];toast('Clase quitada');return;}
