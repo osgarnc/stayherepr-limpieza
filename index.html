@@ -2582,10 +2582,14 @@ function contAutoLinea(label,amount,month,fecha){
   return null;
 }
 // Empuja un renglón si el motor pudo resolverlo solo; si no, lo deja pendiente.
-function contAgrega(p,label,amount,reason,month){
+function contAgrega(p,label,amount,reason,month,pista){
   const l=contAutoLinea(label,amount,month,p.pay_date);
   if(l){p.lines.push(l);return true;}
-  p.unresolved.push(contPendiente(label,amount,reason,p.pay_date));
+  const u=contPendiente(label,amount,reason,p.pay_date);
+  // Pista: la propiedad que dice el propio reporte (la columna Listing de
+  // Airbnb). Así el panel ya trae la clase puesta y resolverlo es un clic.
+  if(pista&&!u.property_id)u.property_id=pista;
+  p.unresolved.push(u);
   return false;
 }
 function contPendiente(label,amount,reason,fecha){
@@ -2765,8 +2769,17 @@ function contArmarAirbnb(rows,month){
     }
     const f=contBuscarFin(guest,inicio);
     if(!f){
+      const lst=(contPropMatch(contGet(r,['Listing']))||{}).id||null;
+      // En una reserva de co-anfitrión Airbnb le paga al dueño directo y a Stay
+      // Here solo le manda su parte: casi siempre es comisión, y cuando la
+      // estadía quedó a caballo entre dos meses, la comisión de una noche extra.
+      const cohost=/co-?host/i.test(tipo);
       contAgrega(cur,guest||contGet(r,['Confirmation code'])||tipo,monto,
-        'no aparece en el reporte de dueños',month);
+        'no aparece en el reporte de dueños'+
+        (cohost?' · es un pago de co-anfitrión ('+_cEsc(contGet(r,['Nights'])||'?')+
+          ' noches desde '+_cEsc(inicio||'?')+'): Airbnb le paga al dueño directo, '+
+          'esto suele ser tu comisión':''),
+        month,lst);
       continue;
     }
     cur.lines=cur.lines.concat(contSplitReserva(f,monto,tipo==='Adjustment'?'ajuste de Airbnb':''));
