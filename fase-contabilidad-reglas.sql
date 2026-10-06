@@ -26,6 +26,10 @@ create unique index if not exists idx_cont_rules_pattern on cont_rules(pattern);
 
 alter table cont_payout_lines add column if not exists qbo_account_id text;
 
+-- Una regla puede llevar la CLASE directa (ej. Office para una compra de la
+-- oficina o un movimiento interno), no solo la de una propiedad.
+alter table cont_rules add column if not exists qbo_class_id text;
+
 alter table cont_rules enable row level security;
 drop policy if exists p_cont_rules on cont_rules;
 create policy p_cont_rules on cont_rules for all to authenticated

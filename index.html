@@ -2562,7 +2562,7 @@ function contAutoLinea(label,amount,month,fecha){
   const r=contRegla(label);
   if(r){
     const pid=r.property_id||null;
-    const cls=pid?contClassOf(pid):null;
+    const cls=r.qbo_class_id||(pid?contClassOf(pid):null);
     if(!r.qbo_account_id&&!cls)return null;     // sin cuenta ni clase no se puede
     return {kind:r.kind||'servicio',amount:_c2(amount),property_id:pid,qbo_class_id:cls,
       qbo_account_id:r.qbo_account_id||null,guest_name:null,
@@ -3059,7 +3059,12 @@ function contResolverHTML(p,u,ix){
   const invitados=contFin.slice().sort((a,b)=>a.guest_name<b.guest_name?-1:1)
     .map(f=>'<option value="'+_cEsc(f.guest_key)+'">'+_cEsc(f.guest_name)+' · '+_cEsc(f.check_in)+'</option>').join('');
   const tipos=Object.keys(CONT_KINDLBL).map(k=>'<option value="'+k+'">'+_cEsc(CONT_KINDLBL[k])+'</option>').join('');
-  const props=contProps.map(x=>'<option value="'+x.id+'"'+(u.property_id===x.id?' selected':'')+
+  // El selector es de CLASES: así se puede mandar algo a Office (una compra de la
+  // oficina, un movimiento interno) y no solo a una propiedad.
+  const clsSel=contProps.map(x=>({id:contClassOf(x.id),name:x.name,prop:x.id})).filter(x=>x.id)
+    .concat((contCatalogo.clases||[]).filter(c=>!contProps.some(p=>contClassOf(p.id)===String(c.id)))
+      .map(c=>({id:String(c.id),name:c.name,prop:null})));
+  const props=clsSel.map(x=>'<option value="'+x.id+'"'+(u.property_id&&contClassOf(u.property_id)===x.id?' selected':'')+
     '>'+_cEsc(x.name)+'</option>').join('');
   const inp='padding:5px 7px;border:1.5px solid var(--line);border-radius:8px;font-size:12px';
   return '<div style="margin-bottom:7px">'+
@@ -3069,7 +3074,7 @@ function contResolverHTML(p,u,ix){
       '<select id="cR-g-'+id+'" style="'+inp+'"><option value="">— es el huésped… —</option>'+invitados+'</select>'+
       '<span class="muted" style="font-size:11px">o</span>'+
       '<select id="cR-k-'+id+'" style="'+inp+'"><option value="">— clasificar como… —</option>'+tipos+'</select>'+
-      '<select id="cR-p-'+id+'" style="'+inp+'"><option value="">— propiedad —</option>'+props+'</select>'+
+      '<select id="cR-p-'+id+'" style="'+inp+'"><option value="">— clase —</option>'+props+'</select>'+
       (contCatalogo.cuentas.length?'<select id="cR-c-'+id+'" style="'+inp+'"><option value="">— cuenta (opcional) —</option>'+
         contCatalogo.cuentas.map(c=>'<option value="'+c.id+'">'+_cEsc(c.name)+'</option>').join('')+'</select>':'')+
       '<input id="cR-a-'+id+'" type="number" step="0.01" value="'+(u.amount||0)+'" style="'+inp+';width:92px">'+
@@ -3084,7 +3089,8 @@ async function contResolver(payoutId,ix){
   const id=payoutId+'-'+ix;
   const gv=(document.getElementById('cR-g-'+id)||{}).value||'';
   const kv=(document.getElementById('cR-k-'+id)||{}).value||'';
-  const pv=(document.getElementById('cR-p-'+id)||{}).value||'';
+  const clsSelV=(document.getElementById('cR-p-'+id)||{}).value||'';   // ahora es la clase
+  const pv=(contProps.find(x=>contClassOf(x.id)===clsSelV)||{}).id||null;   // la propiedad, si la clase es de una
   const av=_c2(parseFloat((document.getElementById('cR-a-'+id)||{}).value)||0);
 
   // (a) alias: el pagador es un huésped con otro nombre
@@ -3099,9 +3105,8 @@ async function contResolver(payoutId,ix){
   // (b) clasificación manual contra una cuenta
   const cv=(document.getElementById('cR-c-'+id)||{}).value||'';   // cuenta de QBO, opcional
   if(!kv&&!cv){toast('Elige el huésped, el tipo de renglón o la cuenta');return;}
-  if(!pv){toast('Toda línea lleva clase: elige la propiedad');return;}
-  const cls=contClassOf(pv);
-  if(!cls){toast('Esa propiedad no tiene clase de QuickBooks asignada');return;}
+  if(!clsSelV){toast('Toda línea lleva clase: elige una');return;}
+  const cls=clsSelV;
   if(!av){toast('El monto no puede ser cero');return;}
   const {error}=await sb.from('cont_payout_lines').insert({
     payout_id:payoutId,ord:999+ix,kind:kv||'servicio',amount:av,property_id:pv,qbo_class_id:cls,
@@ -3114,7 +3119,7 @@ async function contResolver(payoutId,ix){
     const cn=cv?(contCatalogo.cuentas.find(c=>String(c.id)===String(cv))||{}).name:null;
     const et=cn||CONT_KINDLBL[kv]||kv;
     const {error:er}=await sb.from('cont_rules').upsert({pattern:pat,kind:kv||'servicio',property_id:pv,
-      qbo_account_id:cv||null,note:et,updated_at:new Date().toISOString()},{onConflict:'pattern'});
+      qbo_class_id:cls,qbo_account_id:cv||null,note:et,updated_at:new Date().toISOString()},{onConflict:'pattern'});
     if(er){console.error(er);toast('El renglón entró, pero la regla no se guardó (¿corriste el SQL?)');}
     else toast('Regla guardada: "'+pat+'" → '+et);
   }
@@ -3300,7 +3305,7 @@ async function contRenderRules(){
   el.innerHTML='<tr><th>Si el texto trae…</th><th>Lo trata como</th><th>Propiedad</th><th>Usos</th><th></th></tr>'+
     (contRules.length?contRules.map(function(r){
       return '<tr><td><b>'+_cEsc(r.pattern)+'</b></td><td>'+_cEsc(r.note||CONT_KINDLBL[r.kind]||r.kind)+'</td>'+
-        '<td>'+_cEsc(r.property_id?(pn[r.property_id]||'—'):'—')+'</td><td>'+(r.hits||0)+'</td>'+
+        '<td>'+_cEsc(r.property_id?(pn[r.property_id]||'—'):(r.qbo_class_id?('clase '+r.qbo_class_id):'—'))+'</td><td>'+(r.hits||0)+'</td>'+
         '<td style="text-align:right"><button class="btn sm dgr" onclick="contBorrarRegla(\''+r.id+'\')">Borrar</button></td></tr>';
     }).join(''):'<tr><td colspan="5" class="muted" style="padding:12px;text-align:center">Todavía no hay reglas. Marca «recordar» cuando resuelvas un pendiente.</td></tr>');
 }
