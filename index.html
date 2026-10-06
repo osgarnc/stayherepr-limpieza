@@ -2770,7 +2770,7 @@ async function contAnalizar(){
     '<span style="color:'+(pend?'var(--danger)':'var(--ink-soft)')+'">⚠️ <b>'+pend+'</b> por revisar</span>'+
     '<span class="muted">Total '+money(payouts.reduce((a,p)=>a+p.amount,0))+'</span></div>'+
     (faltaCls?'<div style="margin-top:8px;font-size:13px">Los '+faltaCls+' que solo esperan la clase están bien cuadrados. '+
-      '<button class="btn sm" onclick="contToggleSetup()">⚙️ Asignar clases ahora</button></div>':'');
+      '<button class="btn sm" onclick="contToggleSetup(true)">⚙️ Asignar clases ahora</button></div>':'');
 }
 
 /* --- Airbnb: cada fila "Payout" abre un grupo; las de abajo son su contenido --- */
@@ -2919,9 +2919,16 @@ function contArmarStripe(rows,month,label){
       const desc=contGet(r,['description']);
       if(cat==='risk_reserved_funds'){
         const f=guest?contBuscarFin(guest,null):null;
-        const pid=(f&&f.property_id)||((contPropMatch(pname)||{}).id)||null;
+        let pid=(f&&f.property_id)||((contPropMatch(pname)||{}).id)||null;
+        // Stripe suelta la retención en una fila SIN nombre ni propiedad. Su
+        // contraparte (el mismo monto al revés) sí los trae: se copia de ahí.
+        if(!pid){
+          const par=p.lines.find(l=>l.kind==='reserva'&&l.property_id&&Math.abs(l.amount+neto)<0.005);
+          if(par)pid=par.property_id;
+        }
         p.lines.push({kind:'reserva',amount:neto,property_id:pid,qbo_class_id:contClassOf(pid),
-          guest_name:guest||null,description:(guest?guest+' — ':'')+'liberación de retención de Stripe'});
+          guest_name:guest||null,description:(guest?guest+' — ':'')+'liberación de retención de Stripe'+
+            (!guest&&pid?' (contraparte del mismo monto)':'')});
         continue;
       }
       if(cat==='fee'){
@@ -3119,7 +3126,7 @@ async function contReload(){
           return '<div style="font-size:12.5px;margin-top:6px">'+
             '<span style="color:var(--sea)">Cuadra al centavo.</span> Falta la clase de QuickBooks de: <b>'+
             _cEsc(faltan.join(', '))+'</b> '+
-            '<button class="btn sm ghost" onclick="contToggleSetup()">⚙️ Asignar</button></div>';
+            '<button class="btn sm ghost" onclick="contToggleSetup(true)">⚙️ Asignar clase</button></div>';
         })():'')+
         (unres.length?'<div style="margin-top:8px;border-top:1px dashed var(--line);padding-top:7px">'+
           unres.map(function(u,ix){ return contResolverHTML(p,u,ix); }).join('')+'</div>':'')+
@@ -3353,10 +3360,15 @@ async function contGuardarCreds(){
 }
 
 /* ---------- ajustes: clases y cuentas ---------- */
-function contToggleSetup(){
+function contToggleSetup(abrir){
   const e=document.getElementById('contSetup');if(!e)return;
-  e.classList.toggle('hide');
-  if(!e.classList.contains('hide'))contRenderSetup();
+  // El panel está DEBAJO de la lista de payouts: si solo se le quita la clase,
+  // se abre fuera de pantalla y parece que el botón no hace nada.
+  if(abrir)e.classList.remove('hide'); else e.classList.toggle('hide');
+  if(!e.classList.contains('hide')){
+    contRenderSetup();
+    try{e.scrollIntoView({behavior:'smooth',block:'start'});}catch(_e){e.scrollIntoView();}
+  }
 }
 let contCatalogo={clases:[],cuentas:[]};
 async function contCargarCatalogo(){
