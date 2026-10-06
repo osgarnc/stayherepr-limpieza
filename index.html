@@ -2609,6 +2609,20 @@ function contBuscarFin(guest,fecha){
   // familiar). Los alias los va creando el usuario desde la lista de pendientes.
   if(contAlias[k])k=contAlias[k];
   let cands=contFin.filter(f=>f.guest_key===k);
+  // Segundo nombre: el que paga suele escribir "Andres Refuerzo" y Hostfully lo
+  // guarda como "Andres Ray Refuerzo". Si el PRIMER y el ÚLTIMO nombre calzan,
+  // es la misma persona (y solo si no hay más de un candidato).
+  if(!cands.length){
+    const t=k.split(' ').filter(Boolean);
+    if(t.length>=2){
+      const pri=t[0],ult=t[t.length-1];
+      const mismo=contFin.filter(function(f){
+        const ft=String(f.guest_key||'').split(' ').filter(Boolean);
+        return ft.length>=2&&ft[0]===pri&&ft[ft.length-1]===ult;
+      });
+      if(mismo.length===1)cands=mismo;
+    }
+  }
   // Airbnb y Hostfully no siempre traen el mismo nombre de pila de la MISMA
   // reserva ("Kennie Ruiz" en el payout, "Luis Ruiz" en el reporte de dueños).
   // Si el apellido y el check-in calzan (±3 días), es la misma estadía.
