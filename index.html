@@ -2833,10 +2833,16 @@ function contArmarPaypal(rows,month){
   orden.forEach(function(r){const id=contGet(r,['Transaction ID']);if(id)porTxn[id]=r;});
   for(const r of orden){
     const tipo=contGet(r,['Type']);
-    // PayPal lista la AUTORIZACIÓN y después el cobro de verdad. La
-    // autorización no mueve plata: contarla descuadra el retiro (sept/2026: dos
-    // "General Authorization" de Vistaprint metieron $332.66 de más).
-    if(/authorization|account hold|payment review/i.test(tipo))continue;
+    // PayPal trae filas que NO mueven el balance: autorizaciones, fees denegados
+    // y avisos de transferencias. Las marca en "Balance Impact" = Memo. Contarlas
+    // descuadra el retiro (sept/2026: $332.66 de autorizaciones de Vistaprint y
+    // $9.64 de dos Partner Fee denegados).
+    const impacto=contGet(r,['Balance Impact']);
+    const estado=contGet(r,['Status']);
+    if(/memo/i.test(impacto))continue;
+    if(/denied|pending|reversed/i.test(estado))continue;
+    // Respaldo para archivos sin esa columna.
+    if(!impacto&&/authorization|account hold|payment review/i.test(tipo))continue;
     const bruto=_c2(_cNum(contGet(r,['Gross'])));
     const fee=_c2(_cNum(contGet(r,['Fee'])));
     if(/withdrawal/i.test(tipo)){
