@@ -2631,6 +2631,21 @@ function contBuscarFin(guest,fecha){
       if(mismo.length===1)cands=mismo;
     }
   }
+  // Apellido de más o de menos: PayPal manda "ISAAC RAMOS YURDA" y el reporte
+  // dice "Isaac Ramos". Si el nombre de pila calza y las palabras de uno están
+  // todas dentro del otro, es la misma persona.
+  if(!cands.length){
+    const tk=k.split(' ').filter(Boolean), pri=tk[0], set=new Set(tk);
+    if(tk.length>=2){
+      const mismo=contFin.filter(function(f){
+        const ft=String(f.guest_key||'').split(' ').filter(Boolean);
+        if(ft.length<2||ft[0]!==pri)return false;
+        const fs=new Set(ft);
+        return ft.every(w=>set.has(w))||tk.every(w=>fs.has(w));
+      });
+      if(mismo.length===1)cands=mismo;
+    }
+  }
   // Segundo nombre: el que paga suele escribir "Andres Refuerzo" y Hostfully lo
   // guarda como "Andres Ray Refuerzo". Si el PRIMER y el ÚLTIMO nombre calzan,
   // es la misma persona (y solo si no hay más de un candidato).
