@@ -2117,7 +2117,7 @@ const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Pago al due�
   reserva:'Retención de Stripe',prepago:'Pasivo (por devolver)',sobrecobro:'Cobro doble (por devolver)',
   seguro:'Reclamación de seguro',reembolso:'Reembolso',reparaciones:'Reembolso de gastos',
   earlyci:'Early check-in',extraguest:'Huésped extra',servicio:'Servicios'};
-let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={},contComision={},contRules=[],contCat=null;
+let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={},contLedgerPila={},contComision={},contRules=[],contCat=null;
 const _cEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const _c2=n=>Math.round((Number(n)||0)*100)/100;
 const _cNum=v=>{if(v==null)return 0;const s=String(v).replace(/[$,\s]/g,'').replace(/[()]/g,m=>m==='('?'-':'');const n=parseFloat(s);return isNaN(n)?0:n;};
@@ -2525,6 +2525,24 @@ function contSobrecobro(fin,cobrado){
 // ledger de Hostfully (ops_reservations_ledger) tiene TODAS las reservas con su
 // propiedad y fechas, aunque no traiga el dinero: si el huésped está ahí, al
 // menos decimos de qué propiedad es y preseleccionamos su clase.
+// Busca la reserva en el histórico de Hostfully. Primero por nombre completo;
+// si no, por nombre de pila, que es lo único que guarda el sync. Cuando hay
+// varias del mismo nombre de pila, gana la que empieza DESPUÉS del pago (el
+// dinero que entra suele ser de la estadía que viene); si quedan dos, se
+// devuelve la duda para que el usuario escoja.
+function contLedgerBuscar(label,fecha){
+  const k0=_cKey(label);if(!k0)return null;
+  const k=contAlias[k0]||k0;
+  if(contLedger[k])return {r:contLedger[k]};
+  const cands=contLedgerPila[k.split(' ')[0]]||[];
+  if(!cands.length)return null;
+  if(cands.length===1)return {r:cands[0]};
+  const futuras=fecha?cands.filter(x=>String(x.check_in)>=String(fecha)):cands.slice();
+  const lista=(futuras.length?futuras:cands).slice()
+    .sort((a,b)=>String(a.check_in)<String(b.check_in)?-1:1);
+  if(lista.length===1)return {r:lista[0]};
+  return {ambiguo:lista};
+}
 // ¿Hay una regla aprendida para este texto? Las reglas las crea el usuario desde
 // la lista de pendientes ("recordar") y evitan volver a clasificar lo mismo cada
 // mes: compras por PayPal (Vistaprint), movimientos internos, cargos raros.
@@ -2540,7 +2558,7 @@ function contRegla(label){
 //   1) una regla aprendida
 //   2) el histórico de reservas: si el check-in es de un mes posterior, el dinero
 //      es un PREPAGO (pasivo), no ingreso del mes
-function contAutoLinea(label,amount,month){
+function contAutoLinea(label,amount,month,fecha){
   const r=contRegla(label);
   if(r){
     const pid=r.property_id||null;
@@ -2550,8 +2568,8 @@ function contAutoLinea(label,amount,month){
       qbo_account_id:r.qbo_account_id||null,guest_name:null,
       description:label+' — regla: '+(r.note||r.pattern)};
   }
-  const k=_cKey(label);
-  const led=k?contLedger[contAlias[k]||k]:null;
+  const hit=contLedgerBuscar(label,fecha);
+  const led=hit&&hit.r?hit.r:null;
   if(led&&month&&led.check_in&&String(led.check_in).slice(0,7)>month){
     const cls=contClassOf(led.property_id);
     if(!cls)return null;                        // esa propiedad aún no tiene clase
@@ -2565,15 +2583,21 @@ function contAutoLinea(label,amount,month){
 }
 // Empuja un renglón si el motor pudo resolverlo solo; si no, lo deja pendiente.
 function contAgrega(p,label,amount,reason,month){
-  const l=contAutoLinea(label,amount,month);
+  const l=contAutoLinea(label,amount,month,p.pay_date);
   if(l){p.lines.push(l);return true;}
-  p.unresolved.push(contPendiente(label,amount,reason));
+  p.unresolved.push(contPendiente(label,amount,reason,p.pay_date));
   return false;
 }
-function contPendiente(label,amount,reason){
-  const k=_cKey(label);
-  const r=k?contLedger[contAlias[k]||k]:null;
-  if(!r)return {label,amount:_c2(amount),reason};
+function contPendiente(label,amount,reason,fecha){
+  const hit=contLedgerBuscar(label,fecha);
+  if(!hit)return {label,amount:_c2(amount),reason};
+  if(hit.ambiguo){
+    const op=hit.ambiguo.slice(0,3).map(function(x){
+      const pp=contProps.find(y=>y.id===x.property_id);
+      return (pp?pp.name:'—')+' '+x.check_in;}).join(' · ');
+    return {label,amount:_c2(amount),reason:reason+' · en Hostfully hay varias reservas con ese nombre de pila: '+op+'. Dime cuál es.'};
+  }
+  const r=hit.r;
   const p=contProps.find(x=>x.id===r.property_id);
   return {label,amount:_c2(amount),property_id:r.property_id||null,
     reason:reason+' · en Hostfully es '+(p?p.name:'—')+', check-in '+r.check_in+
@@ -2584,7 +2608,21 @@ function contBuscarFin(guest,fecha){
   // El que paga no siempre es el huésped (paga la pareja, la empresa, un
   // familiar). Los alias los va creando el usuario desde la lista de pendientes.
   if(contAlias[k])k=contAlias[k];
-  const cands=contFin.filter(f=>f.guest_key===k);
+  let cands=contFin.filter(f=>f.guest_key===k);
+  // Airbnb y Hostfully no siempre traen el mismo nombre de pila de la MISMA
+  // reserva ("Kennie Ruiz" en el payout, "Luis Ruiz" en el reporte de dueños).
+  // Si el apellido y el check-in calzan (±3 días), es la misma estadía.
+  if(!cands.length&&fecha){
+    const ap=k.split(' ').slice(-1)[0];
+    if(ap&&ap.length>2){
+      const cerca=contFin.filter(function(f){
+        const fk=String(f.guest_key||'');
+        if(fk.split(' ').slice(-1)[0]!==ap)return false;
+        return Math.abs(new Date(f.check_in)-new Date(fecha))<=3*86400000;
+      });
+      if(cerca.length===1)cands=cerca;
+    }
+  }
   if(!cands.length)return null;
   if(cands.length===1)return cands[0];
   if(fecha){ let best=cands[0],bd=1e9;
@@ -2624,9 +2662,16 @@ async function contAnalizar(){
   contAlias={};(als.data||[]).forEach(a=>{contAlias[a.payer_key]=a.guest_key;});
   // Nos quedamos con la estadía más reciente de cada huésped: es la que suele
   // corresponder al payout que estamos cuadrando.
-  contLedger={};(led.data||[]).forEach(function(r){
+  // El histórico de Hostfully guarda solo el NOMBRE DE PILA ("Hongming"), pero
+  // Airbnb y PayPal traen el nombre completo ("Hongming Zhang"). Se indexa por
+  // los dos para poder ligarlos.
+  contLedger={};contLedgerPila={};
+  (led.data||[]).forEach(function(r){
     const k=_cKey(r.guest_name);if(!k)return;
-    if(!contLedger[k]||String(r.check_in)>String(contLedger[k].check_in))contLedger[k]=r;});
+    if(!contLedger[k]||String(r.check_in)>String(contLedger[k].check_in))contLedger[k]=r;
+    const pila=k.split(' ')[0];
+    (contLedgerPila[pila]=contLedgerPila[pila]||[]).push(r);
+  });
   if(!contFin.length){
     if(out)out.innerHTML='<p class="muted" style="padding:10px">Todavía no has subido el reporte de dueños de Hostfully. Sin él no hay desglose que cuadrar.</p>';
     return;
@@ -2652,6 +2697,16 @@ async function contAnalizar(){
   }
   contRepartir(payouts);
   contPropagarFees(payouts);
+  // Si el mismo reporte se subió dos veces (p.ej. "payouts.csv" y "payouts (1).csv"),
+  // el mismo payout aparece dos veces. Se queda uno por fuente+cuenta+referencia.
+  const vistos={},unicos=[];
+  payouts.forEach(function(p){
+    const k=[p.source,p.account_label||'',p.ref].join('|');
+    if(vistos[k])return;
+    vistos[k]=1;unicos.push(p);
+  });
+  if(unicos.length<payouts.length)console.log('payouts repetidos por archivos duplicados:',payouts.length-unicos.length);
+  payouts=unicos;
   await contGuardarPayouts(month,payouts);
   await contReload();
   const listos=payouts.filter(p=>p.status==='listo').length;
