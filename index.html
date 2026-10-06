@@ -2530,12 +2530,18 @@ function contSobrecobro(fin,cobrado){
 // varias del mismo nombre de pila, gana la que empieza DESPUÉS del pago (el
 // dinero que entra suele ser de la estadía que viene); si quedan dos, se
 // devuelve la duda para que el usuario escoja.
-function contLedgerBuscar(label,fecha){
+function contLedgerBuscar(label,fecha,pistaProp){
   const k0=_cKey(label);if(!k0)return null;
   const k=contAlias[k0]||k0;
   if(contLedger[k])return {r:contLedger[k]};
-  const cands=contLedgerPila[k.split(' ')[0]]||[];
+  let cands=contLedgerPila[k.split(' ')[0]]||[];
   if(!cands.length)return null;
+  // El propio reporte suele decir la propiedad: PayPal la escribe en el asunto
+  // ("Rental for Justin 401-Atlantis..."). Con eso se rompe el empate.
+  if(cands.length>1&&pistaProp){
+    const f=cands.filter(x=>x.property_id===pistaProp);
+    if(f.length)cands=f;
+  }
   if(cands.length===1)return {r:cands[0]};
   const futuras=fecha?cands.filter(x=>String(x.check_in)>=String(fecha)):cands.slice();
   const lista=(futuras.length?futuras:cands).slice()
@@ -2558,7 +2564,7 @@ function contRegla(label){
 //   1) una regla aprendida
 //   2) el histórico de reservas: si el check-in es de un mes posterior, el dinero
 //      es un PREPAGO (pasivo), no ingreso del mes
-function contAutoLinea(label,amount,month,fecha){
+function contAutoLinea(label,amount,month,fecha,texto){
   const r=contRegla(label);
   if(r){
     const pid=r.property_id||null;
@@ -2568,7 +2574,8 @@ function contAutoLinea(label,amount,month,fecha){
       qbo_account_id:r.qbo_account_id||null,guest_name:null,
       description:label+' — regla: '+(r.note||r.pattern)};
   }
-  const hit=contLedgerBuscar(label,fecha);
+  const pistaProp=texto?((contPropEnTexto(texto)||{}).id||null):null;
+  const hit=contLedgerBuscar(label,fecha,pistaProp);
   const led=hit&&hit.r?hit.r:null;
   if(led&&month&&led.check_in&&String(led.check_in).slice(0,7)>month){
     const cls=contClassOf(led.property_id);
@@ -2582,20 +2589,20 @@ function contAutoLinea(label,amount,month,fecha){
   return null;
 }
 // Empuja un renglón si el motor pudo resolverlo solo; si no, lo deja pendiente.
-function contAgrega(p,label,amount,reason,month,pista){
-  const l=contAutoLinea(label,amount,month,p.pay_date);
+function contAgrega(p,label,amount,reason,month,pista,texto){
+  const l=contAutoLinea(label,amount,month,p.pay_date,texto);
   if(l){p.lines.push(l);return true;}
-  const u=contPendiente(label,amount,reason,p.pay_date);
+  const u=contPendiente(label,amount,reason,p.pay_date,texto?((contPropEnTexto(texto)||{}).id||null):null);
   // Pista: la propiedad que dice el propio reporte (la columna Listing de
   // Airbnb). Así el panel ya trae la clase puesta y resolverlo es un clic.
   if(pista&&!u.property_id)u.property_id=pista;
   p.unresolved.push(u);
   return false;
 }
-function contPendiente(label,amount,reason,fecha){
-  const hit=contLedgerBuscar(label,fecha);
+function contPendiente(label,amount,reason,fecha,pistaProp){
+  const hit=contLedgerBuscar(label,fecha,pistaProp);
   if(!hit)return {label,amount:_c2(amount),reason};
-  if(hit.ambiguo){
+  if(hit&&hit.ambiguo){
     const op=hit.ambiguo.slice(0,3).map(function(x){
       const pp=contProps.find(y=>y.id===x.property_id);
       return (pp?pp.name:'—')+' '+x.check_in;}).join(' · ');
@@ -2603,7 +2610,7 @@ function contPendiente(label,amount,reason,fecha){
   }
   const r=hit.r;
   const p=contProps.find(x=>x.id===r.property_id);
-  return {label,amount:_c2(amount),property_id:r.property_id||null,
+  return {label,amount:_c2(amount),property_id:r.property_id||pistaProp||null,
     reason:reason+' · en Hostfully es '+(p?p.name:'—')+', check-in '+r.check_in+
            (r.source?' ('+r.source+')':'')+'. Falta su desglose en el reporte de dueños.'};
 }
@@ -2831,7 +2838,7 @@ function contArmarPaypal(rows,month){
           continue;
         }
         const f=contBuscarFin(g,null);
-        if(!f){ contAgrega(p,g||asunto||t,_c2(gb+mf),'no aparece en el reporte de dueños',month); continue; }
+        if(!f){ contAgrega(p,g||asunto||t,_c2(gb+mf),'no aparece en el reporte de dueños',month,null,asunto); continue; }
         if(gb<0){ // reembolso al huésped
           p.lines.push({kind:'prepago',amount:gb,property_id:f.property_id,
             qbo_class_id:contClassOf(f.property_id),guest_name:f.guest_name,
