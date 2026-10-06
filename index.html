@@ -2117,7 +2117,7 @@ const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Pago al due�
   reserva:'Retención de Stripe',prepago:'Pasivo (por devolver)',sobrecobro:'Cobro doble (por devolver)',
   seguro:'Reclamación de seguro',reembolso:'Reembolso',reparaciones:'Reembolso de gastos',
   earlyci:'Early check-in',extraguest:'Huésped extra',servicio:'Servicios'};
-let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={},contLedgerPila={},contComision={},contRules=[],contCat=null;
+let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={},contLedgerPila={},contComision={},contRules=[],contCat=null,contFiltro='';
 const _cEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const _c2=n=>Math.round((Number(n)||0)*100)/100;
 const _cNum=v=>{if(v==null)return 0;const s=String(v).replace(/[$,\s]/g,'').replace(/[()]/g,m=>m==='('?'-':'');const n=parseFloat(s);return isNaN(n)?0:n;};
@@ -2996,9 +2996,32 @@ async function contReload(){
   const pname={};contProps.forEach(p=>{pname[p.id]=p.name;});
   const tot=contPayouts.reduce((a,p)=>a+Number(p.amount||0),0);
   const post=contPayouts.filter(p=>p.status==='posteado');
-  el.innerHTML='<div class="muted" style="font-size:12.5px;margin:6px 0 10px">'+
-      contPayouts.length+' payout(s) · '+money(tot)+' · <b style="color:var(--sea)">'+post.length+' en QuickBooks</b></div>'+
-    contPayouts.map(function(p){
+  // Con el mes ya trabajado, la lista completa es un muro de datos. Por defecto
+  // se enseña SOLO lo que falta por cuadrar o por postear; los chips cambian la
+  // vista y siempre dicen cuántos hay.
+  const grupos={
+    falta:contPayouts.filter(p=>p.status==='pendiente'||p.status==='sin_clase'),
+    listo:contPayouts.filter(p=>p.status==='listo'),
+    posteado:post, todos:contPayouts };
+  if(!contFiltro||!grupos[contFiltro]||!grupos[contFiltro].length)
+    contFiltro=grupos.falta.length?'falta':(grupos.listo.length?'listo':'todos');
+  const ver=grupos[contFiltro];
+  const chip=function(k,txt,color){
+    const n=grupos[k].length;if(!n&&k!=='todos')return '';
+    const on=contFiltro===k;
+    return '<button class="btn sm'+(on?'':' ghost')+'" style="font-size:12px;padding:4px 9px'+
+      (on&&color?';background:'+color+';border-color:'+color:'')+'" onclick="contVer(\''+k+'\')">'+
+      txt+' <b>'+n+'</b></button>';
+  };
+  el.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0 10px">'+
+      chip('falta','⚠️ Por cuadrar','var(--danger)')+chip('listo','✅ Listos para postear','var(--sea)')+
+      chip('posteado','📘 En QuickBooks','')+chip('todos','Todos','')+
+      '<span class="muted" style="font-size:12px;margin-left:4px">'+money(tot)+' en el mes</span>'+
+      (contFiltro!=='todos'?'<span class="muted" style="font-size:12px">· viendo '+ver.length+' de '+contPayouts.length+'</span>':'')+
+    '</div>'+
+    (ver.length?'':'<p class="muted" style="text-align:center;padding:16px">Nada en esta vista. '+
+      (grupos.falta.length?'':'Ya no queda nada por cuadrar este mes. 🎉')+'</p>')+
+    ver.map(function(p){
       const ls=byPayout[p.id]||[];
       const pill=p.status==='posteado'?'<span class="pill paid">En QuickBooks</span>'
                 :p.status==='listo'?'<span class="pill approved">Cuadra</span>'
@@ -3043,6 +3066,7 @@ async function contReload(){
       '</div>';
     }).join('');
 }
+function contVer(k){contFiltro=k;contReload();}
 function contToggleLines(id){const e=document.getElementById('contL-'+id);if(e)e.classList.toggle('hide');}
 
 /* ---------- resolver pendientes ----------
