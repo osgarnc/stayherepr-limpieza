@@ -1020,24 +1020,34 @@
   </div>
 
   <div id="tabLlamadas" class="hide">
-    <div class="sectitle"><h2>📞 Llamadas</h2>
-      <span style="display:flex;align-items:center;gap:10px"><span id="callModeBadge"></span><button class="btn ghost sm" onclick="callLoad()">Actualizar</button></span>
+    <div class="sectitle"><h2>📞 Llamadas y SMS</h2>
+      <span id="callModeBadge"></span>
     </div>
-    <p class="muted" style="font-size:13px;margin-top:0">El recepcionista de voz contesta en inglés, da información general y <b>escala a ti</b> lo demás (español, dinero, reservas específicas, quejas). Si no contestas la transferencia, el huésped deja un <b>voicemail</b> que llega a tu Telegram para responder. Con el interruptor <b>apagado</b>, el agente no usa IA: transfiere directo (modo pasivo).</p>
-    <div class="card" style="padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <label style="display:inline-flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" id="callEnabledToggle" onchange="callToggleEnabled(this)"> <b>Agente de voz activo</b></label>
-      <span class="muted" style="font-size:12px">Apagado = modo pasivo (transfiere directo, sin IA).</span>
-    </div>
-    <div class="card" style="padding:14px">
-      <div style="overflow:auto"><table id="callTable"></table></div>
+    <div style="display:flex;gap:6px;margin:4px 0 14px;flex-wrap:wrap">
+      <button id="subTabCalls" class="btn sm" onclick="callSub('calls')">📞 Llamadas</button>
+      <button id="subTabSms" class="btn ghost sm" onclick="callSub('sms')">📱 SMS</button>
     </div>
 
-    <div class="sectitle" style="margin-top:20px"><h2>📱 SMS</h2>
-      <button class="btn ghost sm" onclick="smsLoad()">Actualizar</button>
+    <div id="subCalls">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn ghost sm" onclick="callLoad()">Actualizar</button></div>
+      <p class="muted" style="font-size:13px;margin-top:0">El recepcionista de voz contesta en inglés, da información general y <b>escala a ti</b> lo demás (español, dinero, reservas específicas, quejas). Si no contestas la transferencia, el huésped deja un <b>voicemail</b> que llega a tu Telegram para responder. Con el interruptor <b>apagado</b>, el agente no usa IA: transfiere directo (modo pasivo).</p>
+      <div class="card" style="padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label style="display:inline-flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" id="callEnabledToggle" onchange="callToggleEnabled(this)"> <b>Agente de voz activo</b></label>
+        <span class="muted" style="font-size:12px">Apagado = modo pasivo (transfiere directo, sin IA).</span>
+      </div>
+      <div class="card" style="padding:14px">
+        <div style="overflow:auto"><table id="callTable"></table></div>
+      </div>
     </div>
-    <p class="muted" style="font-size:13px;margin-top:0">Mensajes de texto con huéspedes (entrantes y salientes) por el número de Twilio. Responde desde el bot de Telegram con el botón <b>✍️ Responder por SMS</b> o el comando <code>/sms</code>.</p>
-    <div class="card" style="padding:14px">
-      <div style="overflow:auto"><table id="smsTable"></table></div>
+
+    <div id="subSms" class="hide">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <p class="muted" style="font-size:13px;margin:0">Mensajes de texto con huéspedes (entrantes/salientes) por el número de Twilio. Responde con <b>✍️</b> o envía uno nuevo.</p>
+        <span style="display:flex;gap:8px"><button class="btn sm" onclick="smsCompose()">➕ Nuevo SMS</button><button class="btn ghost sm" onclick="smsLoad()">Actualizar</button></span>
+      </div>
+      <div class="card" style="padding:14px">
+        <div style="overflow:auto"><table id="smsTable"></table></div>
+      </div>
     </div>
   </div>
 </div>
@@ -6822,7 +6832,40 @@ function callC(){ return window.sb; } // cliente/sesión de la app (dueño). RLS
 const CALL_OUTCOME={answered_info:['#dcfce7','#166534','contestada'],bridged:['#e0f2fe','#075985','transferida'],voicemail:['#fef3c7','#92400e','voicemail'],error:['#fee2e2','#991b1b','error'],in_progress:['#eef1f4','#6b7885','en curso']};
 function callOutcomeChip(o){const c=CALL_OUTCOME[o]||['#eef1f4','#6b7885',o||'—'];return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+c[0]+';color:'+c[1]+'">'+c[2]+'</span>';}
 function callLang(l){return l==='es'?'🇪🇸 español':l==='en'?'🇺🇸 inglés':(l?opsEsc(l):'—');}
-async function callInit(){ await callLoad(); await smsLoad(); }
+async function callInit(){ callSub('calls'); await callLoad(); }
+// Sub-tabs Llamadas / SMS dentro del tab.
+function callSub(which){
+  const c=which==='calls';
+  const sc=document.getElementById('subCalls'), ss=document.getElementById('subSms');
+  if(sc)sc.className=c?'':'hide'; if(ss)ss.className=c?'hide':'';
+  const bc=document.getElementById('subTabCalls'), bs=document.getElementById('subTabSms');
+  if(bc)bc.className=c?'btn sm':'btn ghost sm'; if(bs)bs.className=c?'btn ghost sm':'btn sm';
+  if(!c)smsLoad();
+}
+// Enviar un SMS desde el panel (función ops-sms-send, owner-only). Registra el saliente.
+async function smsSend(to, body){
+  if(!to||!body)return;
+  const {data:{session}}=await callC().auth.getSession();
+  if(!session){ toast('Sesión expirada, entra de nuevo.'); return; }
+  try{
+    const r=await fetch(window.SUPABASE_URL+'/functions/v1/ops-sms-send',{method:'POST',
+      headers:{'content-type':'application/json',Authorization:'Bearer '+session.access_token},
+      body:JSON.stringify({to:to,body:body})});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok&&j.ok){ toast('✅ SMS enviado'); smsLoad(); }
+    else{ toast('❌ '+(j.error||('Error '+r.status))); }
+  }catch(e){ toast('❌ '+(e&&e.message||e)); }
+}
+function smsReply(to,name){
+  const t=prompt('Responder por SMS a '+(name?name+' · ':'')+to+':');
+  if(t&&t.trim())smsSend(to,t.trim());
+}
+function smsCompose(){
+  const to=prompt('Número destino (10 dígitos US/PR o +1XXXXXXXXXX):');
+  if(!to||!to.trim())return;
+  const t=prompt('Mensaje:');
+  if(t&&t.trim())smsSend(to.trim(),t.trim());
+}
 async function callLoadMode(){
   const {data,error}=await callC().from('ops_app_settings').select('value').eq('key','voice_enabled').maybeSingle();
   const on=!error&&data&&String(data.value).toLowerCase()==='true';
@@ -6889,14 +6932,18 @@ async function smsLoad(){
     const inb=s.direction==='inbound';
     const num=inb?(s.from_number||'—'):(s.to_number||'—');
     const who=(s.matched_guest_name?'<b>'+opsEsc(s.matched_guest_name)+'</b><br>':'')+'<span class="muted" style="font-size:12px">'+opsEsc(num)+'</span>';
+    const act=num&&num!=='—'
+      ? '<button class="btn ghost sm" onclick=\'smsReply('+JSON.stringify(num)+','+JSON.stringify(s.matched_guest_name||'')+')\'>✍️ Responder</button>'
+      : '';
     return '<tr>'+
       '<td class="muted" style="white-space:nowrap;vertical-align:top">'+msgFmtDate(s.created_at)+'</td>'+
       '<td style="vertical-align:top">'+smsDirChip(inb)+'</td>'+
       '<td style="vertical-align:top">'+who+'</td>'+
-      '<td style="vertical-align:top;font-size:13px;max-width:360px;white-space:pre-wrap">'+opsEsc(s.body||'')+'</td>'+
+      '<td style="vertical-align:top;font-size:13px;max-width:340px;white-space:pre-wrap">'+opsEsc(s.body||'')+'</td>'+
       '<td style="vertical-align:top">'+smsStatChip(s.status)+'</td>'+
+      '<td style="vertical-align:top;white-space:nowrap">'+act+'</td>'+
     '</tr>';
   }).join('');
-  tb.innerHTML='<thead><tr><th>Fecha</th><th>Dirección</th><th>Número</th><th>Mensaje</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody>';
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Dirección</th><th>Número</th><th>Mensaje</th><th>Estado</th><th>Acción</th></tr></thead><tbody>'+rows+'</tbody>';
 }
 </script>
