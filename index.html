@@ -1031,6 +1031,14 @@
     <div class="card" style="padding:14px">
       <div style="overflow:auto"><table id="callTable"></table></div>
     </div>
+
+    <div class="sectitle" style="margin-top:20px"><h2>📱 SMS</h2>
+      <button class="btn ghost sm" onclick="smsLoad()">Actualizar</button>
+    </div>
+    <p class="muted" style="font-size:13px;margin-top:0">Mensajes de texto con huéspedes (entrantes y salientes) por el número de Twilio. Responde desde el bot de Telegram con el botón <b>✍️ Responder por SMS</b> o el comando <code>/sms</code>.</p>
+    <div class="card" style="padding:14px">
+      <div style="overflow:auto"><table id="smsTable"></table></div>
+    </div>
   </div>
 </div>
 
@@ -6814,7 +6822,7 @@ function callC(){ return window.sb; } // cliente/sesión de la app (dueño). RLS
 const CALL_OUTCOME={answered_info:['#dcfce7','#166534','contestada'],bridged:['#e0f2fe','#075985','transferida'],voicemail:['#fef3c7','#92400e','voicemail'],error:['#fee2e2','#991b1b','error'],in_progress:['#eef1f4','#6b7885','en curso']};
 function callOutcomeChip(o){const c=CALL_OUTCOME[o]||['#eef1f4','#6b7885',o||'—'];return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+c[0]+';color:'+c[1]+'">'+c[2]+'</span>';}
 function callLang(l){return l==='es'?'🇪🇸 español':l==='en'?'🇺🇸 inglés':(l?opsEsc(l):'—');}
-async function callInit(){ await callLoad(); }
+async function callInit(){ await callLoad(); await smsLoad(); }
 async function callLoadMode(){
   const {data,error}=await callC().from('ops_app_settings').select('value').eq('key','voice_enabled').maybeSingle();
   const on=!error&&data&&String(data.value).toLowerCase()==='true';
@@ -6868,5 +6876,27 @@ async function opsPlayRec(id, btn){
     audio.style.cssText='margin-top:6px;display:block;max-width:320px';
     btn.replaceWith(audio);
   }catch(e){ toast('Error: '+(e&&e.message||e)); btn.disabled=false; btn.textContent=orig; }
+}
+// SMS (entrantes/salientes) manejados por el bot — tabla ops_sms_messages (RLS is_owner).
+function smsDirChip(inb){const c=inb?['#e0f2fe','#075985','📥 Entrante']:['#ede9fe','#5b21b6','📤 Saliente'];return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;background:'+c[0]+';color:'+c[1]+'">'+c[2]+'</span>';}
+function smsStatChip(s){const M={sent:['#dcfce7','#166534','enviado'],received:['#eef1f4','#374151','recibido'],failed:['#fee2e2','#991b1b','falló']};const c=M[s]||['#eef1f4','#6b7885',s||'—'];return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:'+c[0]+';color:'+c[1]+'">'+c[2]+'</span>';}
+async function smsLoad(){
+  const tb=document.getElementById('smsTable'); if(!tb)return;
+  const {data,error}=await callC().from('ops_sms_messages').select('id,created_at,direction,from_number,to_number,body,matched_guest_name,status').order('created_at',{ascending:false}).limit(300);
+  if(error){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">No se pudo cargar los SMS ('+opsEsc(error.message)+')</td></tr></tbody>';return;}
+  if(!data.length){tb.innerHTML='<tbody><tr><td class="muted" style="padding:16px">Aún no hay SMS.</td></tr></tbody>';return;}
+  const rows=data.map(s=>{
+    const inb=s.direction==='inbound';
+    const num=inb?(s.from_number||'—'):(s.to_number||'—');
+    const who=(s.matched_guest_name?'<b>'+opsEsc(s.matched_guest_name)+'</b><br>':'')+'<span class="muted" style="font-size:12px">'+opsEsc(num)+'</span>';
+    return '<tr>'+
+      '<td class="muted" style="white-space:nowrap;vertical-align:top">'+msgFmtDate(s.created_at)+'</td>'+
+      '<td style="vertical-align:top">'+smsDirChip(inb)+'</td>'+
+      '<td style="vertical-align:top">'+who+'</td>'+
+      '<td style="vertical-align:top;font-size:13px;max-width:360px;white-space:pre-wrap">'+opsEsc(s.body||'')+'</td>'+
+      '<td style="vertical-align:top">'+smsStatChip(s.status)+'</td>'+
+    '</tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Fecha</th><th>Dirección</th><th>Número</th><th>Mensaje</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody>';
 }
 </script>
