@@ -3787,6 +3787,68 @@ async function deletePropExpense(id){if(!confirm('¿Eliminar este gasto?'))retur
   const {error}=await sb.from('ops_property_expenses').delete().eq('id',id);if(error){console.error(error);toast('No se pudo eliminar');return;}
   renderRecExpenses();toast('Gasto eliminado');}
 function recDefaultMonth(){const rm=document.getElementById('recMonth');if(rm&&!rm.value){rm.value=new Date(Date.now()-4*3600*1000).toISOString().slice(0,7);}}
+// Las estadías en el mismo formato del reporte de dueños de Hostfully: una fila
+// por reserva con todas sus columnas y los totales abajo. Las canceladas y las
+// duplicadas salen tachadas y NO suman.
+const REC_COLS=[
+  {k:'source_label',t:'Source',txt:1},{k:'guest',t:'Guest',txt:1},
+  {k:'check_in',t:'Check In',txt:1},{k:'check_out',t:'Check Out',txt:1},
+  {k:'nights',t:'Nights',ent:1},
+  {k:'rent',t:'Rent'},{k:'cleaning',t:'Cleaning Fee'},{k:'extra_guest',t:'Extra Guest Fee'},
+  {k:'pet_fee',t:'Pet Fee'},{k:'gross_total',t:'Gross Total'},{k:'tourism_tax',t:'Tourism Tax'},
+  {k:'guest_paid',t:'Guest Paid'},{k:'channel_fee',t:'Channel Commission'},
+  {k:'processor_fee',t:'Paypal Fee'},{k:'base',t:'Net Earnings'},
+  {k:'commission',t:'Due Stay Here'},{k:'net',t:'Owner Payout',verde:1},
+  {k:'tax_remitted',t:'Tax a remitir'}
+];
+let recReportData=null;
+function _recN(v){return (Number(v)||0).toFixed(2);}
+function recCelda(s,c){
+  let v=c.txt?_recEsc(s[c.k]||''):(c.ent?String(Number(s[c.k])||0):_recN(s[c.k]));
+  const aviso=s.cancelada?' &#10005; cancelada':(s.duplicado?' &#9888; duplicada':'');
+  if(c.k==='guest'&&aviso)v='<s>'+v+'</s><span style="color:var(--danger)">'+aviso+'</span>';
+  if(c.k==='net'&&s.airbnb&&!s.cancelada)
+    v='<span title="Airbnb le paga al dueño directo; marca la propiedad en Dueños si esa cuenta es de Stay Here.">'+v+'</span>';
+  if(c.k==='channel_fee'&&s.canal_estimado)
+    v='<span title="Booking la factura aparte: el reporte de Hostfully la trae en 0 y la app la estima al '+_recEsc(s.channel_pct)+'%." style="border-bottom:1px dotted var(--ink-soft)">'+v+'</span>';
+  return '<td style="padding:3px 6px;text-align:'+(c.txt?'left':'right')+';white-space:nowrap'+
+    (c.verde?';background:rgba(16,185,129,.10)':'')+'">'+v+'</td>';
+}
+function recTablaEstadias(p){
+  const filas=p.stays||[];
+  if(!filas.length)return '<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>';
+  const tot={};REC_COLS.forEach(function(c){tot[c.k]=0;});
+  const th=REC_COLS.map(function(c){
+    return '<th style="padding:4px 6px;text-align:'+(c.txt?'left':'right')+';white-space:nowrap;'+
+      'font-size:10.5px;font-weight:700;border-bottom:1.5px solid var(--line)'+
+      (c.verde?';background:rgba(16,185,129,.14)':'')+'">'+_recEsc(c.t)+'</th>';}).join('');
+  const tr=filas.map(function(s){
+    if(!(s.cancelada||s.duplicado))REC_COLS.forEach(function(c){if(!c.txt)tot[c.k]+=Number(s[c.k])||0;});
+    return '<tr style="border-bottom:1px solid var(--line)'+((s.cancelada||s.duplicado||s.airbnb)?';opacity:.6':'')+'">'+
+      REC_COLS.map(function(c){return recCelda(s,c);}).join('')+'</tr>';
+  }).join('');
+  const tf=REC_COLS.map(function(c){
+    const v=c.txt?'':(c.ent?String(Math.round(tot[c.k])):_recN(tot[c.k]));
+    return '<td style="padding:5px 6px;text-align:right;white-space:nowrap;font-weight:800;'+
+      'border-top:2px solid var(--line)'+(c.verde?';background:rgba(16,185,129,.22)':'')+'">'+v+'</td>';}).join('');
+  return '<div style="overflow-x:auto;margin:4px 0 2px">'+
+    '<table style="width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums">'+
+    '<thead><tr>'+th+'</tr></thead><tbody>'+tr+'<tr>'+tf+'</tr></tbody></table></div>';
+}
+// Copiar en el mismo formato para pegarlo en Excel (con la propiedad delante).
+function recCopiarTabla(){
+  if(!recReportData||!recReportData.owners){toast('Genera el reporte primero');return;}
+  const filas=[['Property Internal Name'].concat(REC_COLS.map(function(c){return c.t;})).join('\t')];
+  recReportData.owners.forEach(function(o){(o.properties||[]).forEach(function(p){
+    (p.stays||[]).forEach(function(s){
+      filas.push([p.property_name].concat(REC_COLS.map(function(c){
+        return c.txt?String(s[c.k]||''):(c.ent?String(Number(s[c.k])||0):_recN(s[c.k]));
+      })).join('\t'));
+    });
+  });});
+  navigator.clipboard.writeText(filas.join('\n')).then(
+    function(){toast('Tabla copiada: pégala en Excel');},function(){toast('No se pudo copiar');});
+}
 async function renderRecReport(){
   const out=document.getElementById('recReportOut');if(!out)return;
   recDefaultMonth();
@@ -3795,30 +3857,18 @@ async function renderRecReport(){
   let data;
   try{const r=await sb.functions.invoke('ops-owner-report',{body:{month:month}});if(r.error)throw r.error;if(!r.data||!r.data.ok)throw new Error((r.data&&r.data.error)||'error');data=r.data;}
   catch(e){out.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo generar el reporte. Intenta de nuevo.</p>';return;}
+  recReportData=data;
   const owners=data.owners||[];const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   if(!owners.length){out.innerHTML='<p class="muted" style="text-align:center;padding:20px">Sin datos para '+esc(month)+'. Asigna propiedades a dueños (con su % de comisión) en la pestaña Dueños.</p>';return;}
   const grand=owners.reduce((s,o)=>s+Number(o.total_payout||0),0);
-  out.innerHTML='<div class="muted" style="font-size:12px;margin-bottom:8px">Mes '+esc(month)+' · '+owners.length+' dueño(s) · Pago total '+money(grand)+'</div>'+
+  out.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">'+
+      '<span class="muted" style="font-size:12px">Mes '+esc(month)+' · '+owners.length+' dueño(s) · Pago total '+money(grand)+'</span>'+
+      '<button class="btn sm" onclick="recCopiarTabla()" title="Copia todas las estadías con sus columnas, listas para pegar en Excel">📋 Copiar tabla</button></div>'+
     owners.map(function(o){
       return '<div style="border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><b style="font-size:16px">'+esc(o.name)+'</b><span style="font-weight:800;color:var(--sea);font-size:16px">'+money(o.total_payout)+'</span></div>'+
         o.properties.map(function(p){
-          const staysRows=(p.stays||[]).map(function(s){
-            // Duplicada = Hostfully dejó dos reservas de la misma estadía. No se
-            // paga (si no, al dueño se le paga dos veces la misma noche).
-            var fuera=s.cancelada||s.duplicado;
-            // Se muestra la comisión del canal cuando la hay, para que se vea de
-            // dónde sale la base del reparto (Booking la factura aparte y el
-            // reporte de Hostfully la trae en 0, así que la estima la app).
-            var canal=Number(s.channel_fee||0)?' <span class="muted">− canal '+money(s.channel_fee)+
-              (s.canal_estimado?' ('+esc(s.channel_pct)+'% de Booking, facturado aparte)':'')+'</span>':'';
-            var right=fuera?'<span style="color:var(--danger);font-size:11px">no se paga · '+money(s.net)+'</span>'
-              :(s.airbnb?'<span class="muted" style="font-size:11px">Airbnb · le paga al dueño directo</span>'
-              :(money(s.rent)+canal+' <span class="muted">−'+money(s.commission)+'</span> = <b>'+money(s.net)+'</b>'));
-            var refb=s.refund?' <span style="color:var(--danger);font-size:11px">↩︎ reembolso '+money(s.refund)+'</span>':'';
-            var avb=s.cancelada?' <span style="color:var(--danger);font-size:11px">✕ cancelada</span>'
-              :(s.duplicado?' <span style="color:var(--danger);font-size:11px">⚠︎ posible duplicado de Hostfully</span>':'');
-            return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0'+(s.airbnb||fuera?';opacity:.65':'')+'"><span>'+(fuera?'<s>'+esc(s.guest||'—')+'</s>':esc(s.guest||'—'))+' <span class="muted">'+esc(s.check_in)+'</span>'+refb+avb+'</span><span>'+right+'</span></div>';}).join('');
+          const staysRows=recTablaEstadias(p);
           const expRows=(p.expenses||[]).map(function(e){const ing=Number(e.amount||0)<0;const col=!e.billable?'var(--ink-soft)':(ing?'var(--sea)':'var(--danger)');
             return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:'+col+'"><span>'+(ing?'↑ ':'')+esc(e.description)+' <span class="muted">'+esc(e.date)+(e.billable?'':' (no fact.)')+'</span></span><span>'+(e.billable?(ing?'+':'−'):'')+money(Math.abs(Number(e.amount||0)))+'</span></div>';}).join('');
           const cancRows=(p.cancellations||[]).map(function(c){
