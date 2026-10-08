@@ -3884,6 +3884,56 @@ function recDatosProp(o,p,mes){
     enc:REC_COLS.map(function(c){return c.t;}),filas:filas,totales:totales,
     gastos:gastos,canc:canc,resumen:resumen};
 }
+// El logo se carga una sola vez y se guarda como data URI, que es lo que pide
+// jsPDF. Si no carga (sin conexión, archivo movido) el reporte sale igual, solo
+// que con el nombre en texto.
+let _recLogo;
+function recLogo(){
+  if(_recLogo!==undefined)return _recLogo;
+  _recLogo=new Promise(function(ok){
+    const img=new Image();
+    img.onload=function(){
+      try{
+        const c=document.createElement('canvas');c.width=img.width;c.height=img.height;
+        c.getContext('2d').drawImage(img,0,0);
+        ok({url:c.toDataURL('image/jpeg',0.9),w:img.width,h:img.height});
+      }catch(e){ok(null);}
+    };
+    img.onerror=function(){ok(null);};
+    img.src='logo-reporte.jpg';
+  });
+  return _recLogo;
+}
+const REC_MARCA={nombre:'Stay Here PR LLC',pie:'Stay Here PR LLC  ·  stayherepr.com  ·  San Juan, Puerto Rico'};
+// Encabezado del PDF: logo, nombre de la compañía, de qué es el reporte y de
+// quién. Devuelve la Y donde puede empezar el contenido.
+async function recEncabezadoPdf(doc,titulo,sub,extra){
+  const logo=await recLogo();
+  const W=doc.internal.pageSize.getWidth();
+  if(logo)doc.addImage(logo.url,'JPEG',40,24,46,46);
+  const x=logo?98:40;
+  doc.setFont('helvetica','bold');doc.setFontSize(15);doc.setTextColor(18,38,31);
+  doc.text(REC_MARCA.nombre,x,42);
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(14,124,123);
+  doc.text(titulo,x,57);
+  doc.setFontSize(9);doc.setTextColor(110,110,110);
+  doc.text(sub,x,70);
+  if(extra){doc.setFontSize(9);doc.text(extra,W-40,70,{align:'right'});}
+  doc.setDrawColor(14,124,123);doc.setLineWidth(1.2);doc.line(40,80,W-40,80);
+  doc.setTextColor(0);doc.setLineWidth(0.2);
+  return 94;
+}
+function recPiePdf(doc){
+  const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight();
+  const n=doc.getNumberOfPages();
+  for(let i=1;i<=n;i++){
+    doc.setPage(i);
+    doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(140);
+    doc.text(REC_MARCA.pie,40,H-20);
+    doc.text('Página '+i+' de '+n,W-40,H-20,{align:'right'});
+  }
+  doc.setTextColor(0);
+}
 function _recArchivo(d,ext){
   return ('Reporte '+d.prop+' '+d.mes).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,' ').trim()+'.'+ext;
 }
@@ -3901,7 +3951,8 @@ async function recExcelProp(oi,pi){
   try{ await recLib('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'); }
   catch(e){ toast('No se pudo cargar el generador de Excel'); return; }
   const X=window.XLSX;
-  const aoa=[[d.prop],['Dueño: '+d.owner+'  ·  Mes: '+d.mes+'  ·  Su parte: '+d.pct+'%'],[],d.enc]
+  const aoa=[[REC_MARCA.nombre],['Reporte de dueño'],[d.prop],
+    ['Dueño: '+d.owner+'  ·  Mes: '+d.mes+'  ·  Su parte: '+d.pct+'%'],[],d.enc]
     .concat(d.filas,[d.totales],[[]]);
   if(d.gastos.length){
     aoa.push(['Gastos e ingresos'],['Fecha','Descripción','¿Se le cobra?','Monto']);
@@ -3913,6 +3964,7 @@ async function recExcelProp(oi,pi){
     d.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
   }
   d.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
+  aoa.push([],[REC_MARCA.pie]);
   const ws=X.utils.aoa_to_sheet(aoa);
   ws['!cols']=d.enc.map(function(t,i){return {wch:i<2?22:(i<4?11:Math.max(9,t.length+1))};});
   const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,d.prop.slice(0,28)||'Reporte');
@@ -3920,29 +3972,21 @@ async function recExcelProp(oi,pi){
   toast('Excel descargado');
 }
 // ---- PDF ----
-async function recPdfProp(oi,pi){
-  const d=recBuscarProp(oi,pi);if(!d)return;
-  try{
-    await recLib('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
-    await recLib('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
-  }catch(e){ toast('No se pudo cargar el generador de PDF'); return; }
-  const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
-  // En el PDF se esconden las columnas que van todas en cero (huésped extra,
-  // mascota…): con 18 columnas apretadas no se lee nada.
+// El cuerpo del PDF de una propiedad: la tabla de estadías, los gastos, las
+// cancelaciones y el pago. Lo usan el reporte individual y el consolidado.
+function recTablaPdf(doc,d,y0){
+  // Se esconden las columnas que van todas en cero (huésped extra, mascota…):
+  // con 18 columnas apretadas no se lee nada.
   const usar=d.enc.map(function(t,i){
     if(i<5)return true;
     return d.filas.some(function(f){return Number(f[i])!==0;})||Number(d.totales[i])!==0;
   });
   const sel=function(arr){return arr.filter(function(_,i){return usar[i];});};
-  doc.setFontSize(14);doc.text(d.prop,40,40);
-  doc.setFontSize(9);doc.setTextColor(110);
-  doc.text('Dueño: '+d.owner+'   ·   Mes: '+d.mes+'   ·   Su parte: '+d.pct+'%',40,56);
-  doc.setTextColor(0);
   const iOwner=sel(d.enc).indexOf('Owner Payout');
   doc.autoTable({
-    startY:70,head:[sel(d.enc)],body:d.filas.map(sel),foot:[sel(d.totales)],
+    startY:y0,head:[sel(d.enc)],body:d.filas.map(sel),foot:[sel(d.totales)],
     styles:{fontSize:6.8,cellPadding:2.5,overflow:'linebreak'},
-    headStyles:{fillColor:[24,70,96],fontSize:6.5},
+    headStyles:{fillColor:[14,124,123],fontSize:6.5},
     footStyles:{fillColor:[236,240,241],textColor:20,fontStyle:'bold'},
     columnStyles:(function(){const cs={};sel(d.enc).forEach(function(t,i){
       if(i>=5)cs[i]={halign:'right'};
@@ -3968,8 +4012,113 @@ async function recPdfProp(oi,pi){
     columnStyles:{1:{halign:'right',fontStyle:'bold'}},
     didParseCell:function(h){if(String(h.row.raw[0]).indexOf('PAGO AL DUEÑO')===0){
       h.cell.styles.fontStyle='bold';h.cell.styles.fillColor=[223,245,233];}}});
+}
+async function recPdfProp(oi,pi){
+  const d=recBuscarProp(oi,pi);if(!d)return;
+  try{
+    await recLib('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+    await recLib('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+  }catch(e){ toast('No se pudo cargar el generador de PDF'); return; }
+  const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
+  const y0=await recEncabezadoPdf(doc,'Reporte de dueño  ·  '+d.prop,
+    'Dueño: '+d.owner+'   ·   Su parte: '+d.pct+'%','Mes '+d.mes);
+  recTablaPdf(doc,d,y0);
+  recPiePdf(doc);
   doc.save(_recArchivo(d,'pdf'));
   toast('PDF descargado');
+}
+// ---- Consolidado: un solo archivo con todas las propiedades del dueño ----
+function recDatosDueno(oi){
+  const o=((recReportData||{}).owners||[])[oi];
+  if(!o){toast('Genera el reporte otra vez');return null;}
+  const mi=document.getElementById('recMonth');
+  const mes=(recReportData||{}).month||(mi&&mi.value)||'';
+  const props=(o.properties||[]).map(function(p){return recDatosProp(o,p,mes);});
+  // Resumen: una línea por propiedad con lo que de verdad se le paga.
+  const resumen=(o.properties||[]).map(function(p){
+    const vivas=(p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;});
+    return [p.property_name,vivas.length,
+      Number((Number(p.stays_rent)||0).toFixed(2)),
+      Number((Number(p.stays_commission)||0).toFixed(2)),
+      Number((Number(p.stays_net)||0).toFixed(2)),
+      Number((-(Number(p.billable_expense)||0)).toFixed(2)),
+      Number((-(Number(p.cancel_fee_owner)||0)).toFixed(2)),
+      Number((Number(p.payout)||0).toFixed(2))];
+  });
+  const tot=['TOTAL',0,0,0,0,0,0,0];
+  resumen.forEach(function(r){for(let i=1;i<8;i++)tot[i]=Number((tot[i]+r[i]).toFixed(2));});
+  return {owner:o.name,mes:mes,props:props,
+    encRes:['Propiedad','Estadías','Renta','Comisión Stay Here','Pago de estadías','Gastos e ingresos','Fee de cancelaciones','PAGO'],
+    resumen:resumen,totales:tot,pago:Number((Number(o.total_payout)||0).toFixed(2))};
+}
+function _recArchivoD(d,ext){
+  return ('Reporte '+d.owner+' '+d.mes).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,' ').trim()+'.'+ext;
+}
+async function recExcelDueno(oi){
+  const d=recDatosDueno(oi);if(!d)return;
+  try{ await recLib('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'); }
+  catch(e){ toast('No se pudo cargar el generador de Excel'); return; }
+  const X=window.XLSX,wb=X.utils.book_new();
+  const res=[[REC_MARCA.nombre],['Reporte de dueño — consolidado'],[d.owner],['Mes: '+d.mes],[],d.encRes]
+    .concat(d.resumen,[d.totales],[[],[REC_MARCA.pie]]);
+  const wsR=X.utils.aoa_to_sheet(res);
+  wsR['!cols']=[{wch:34},{wch:9},{wch:12},{wch:18},{wch:16},{wch:17},{wch:19},{wch:12}];
+  X.utils.book_append_sheet(wb,wsR,'Resumen');
+  // Una hoja por propiedad, con el mismo detalle del reporte individual.
+  const usados={};
+  d.props.forEach(function(dp){
+    let nom=(dp.prop||'Propiedad').replace(/[\\/?*\[\]:]/g,' ').slice(0,28).trim()||'Propiedad';
+    usados[nom]=(usados[nom]||0)+1; if(usados[nom]>1)nom=nom.slice(0,25)+' '+usados[nom];
+    const aoa=[[dp.prop],['Dueño: '+dp.owner+'  ·  Mes: '+dp.mes+'  ·  Su parte: '+dp.pct+'%'],[],dp.enc]
+      .concat(dp.filas,[dp.totales],[[]]);
+    if(dp.gastos.length){
+      aoa.push(['Gastos e ingresos'],['Fecha','Descripción','¿Se le cobra?','Monto']);
+      dp.gastos.forEach(function(g){aoa.push(g);});aoa.push([]);
+    }
+    if(dp.canc.length){
+      aoa.push(['Cancelaciones'],['Entrada','Huésped','Canal','Pagó','Devuelto','Se quedó','Fee al dueño']);
+      dp.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
+    }
+    dp.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
+    const ws=X.utils.aoa_to_sheet(aoa);
+    ws['!cols']=dp.enc.map(function(t,i){return {wch:i<2?22:(i<4?11:Math.max(9,t.length+1))};});
+    X.utils.book_append_sheet(wb,ws,nom);
+  });
+  X.writeFile(wb,_recArchivoD(d,'xlsx'));
+  toast('Excel consolidado descargado');
+}
+async function recPdfDueno(oi){
+  const d=recDatosDueno(oi);if(!d)return;
+  try{
+    await recLib('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+    await recLib('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+  }catch(e){ toast('No se pudo cargar el generador de PDF'); return; }
+  const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
+  const y0=await recEncabezadoPdf(doc,'Reporte de dueño  ·  consolidado',
+    d.owner+'   ·   '+d.props.length+' propiedades','Mes '+d.mes);
+  doc.autoTable({
+    startY:y0,head:[d.encRes],
+    body:d.resumen.map(function(r){return r.map(function(v,i){return i?Number(v).toFixed(2):v;}).map(function(v,i){return i===1?String(Math.round(Number(v))):v;});}),
+    foot:[d.totales.map(function(v,i){return i?Number(v).toFixed(2):v;}).map(function(v,i){return i===1?String(Math.round(Number(v))):v;})],
+    styles:{fontSize:8.5,cellPadding:4},headStyles:{fillColor:[14,124,123]},
+    footStyles:{fillColor:[223,245,233],textColor:20,fontStyle:'bold'},
+    columnStyles:{0:{cellWidth:200},1:{halign:'right'},2:{halign:'right'},3:{halign:'right'},
+      4:{halign:'right'},5:{halign:'right'},6:{halign:'right'},7:{halign:'right',fontStyle:'bold'}}
+  });
+  let y=doc.lastAutoTable.finalY+14;
+  doc.setFont('helvetica','bold');doc.setFontSize(11);
+  doc.text('Pago total al dueño:  '+d.pago.toFixed(2),40,y);
+  doc.setFont('helvetica','normal');
+  // El detalle de cada propiedad, una por página.
+  for(const dp of d.props){
+    doc.addPage();
+    const yy=await recEncabezadoPdf(doc,'Reporte de dueño  ·  '+dp.prop,
+      'Dueño: '+dp.owner+'   ·   Su parte: '+dp.pct+'%','Mes '+dp.mes);
+    recTablaPdf(doc,dp,yy);
+  }
+  recPiePdf(doc);
+  doc.save(_recArchivoD(d,'pdf'));
+  toast('PDF consolidado descargado');
 }
 // Copiar en el mismo formato para pegarlo en Excel (con la propiedad delante).
 function recCopiarTabla(){
@@ -4002,7 +4151,15 @@ async function renderRecReport(){
       '<button class="btn sm" onclick="recCopiarTabla()" title="Copia todas las estadías con sus columnas, listas para pegar en Excel">📋 Copiar tabla</button></div>'+
     owners.map(function(o,oi){
       return '<div style="border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><b style="font-size:16px">'+esc(o.name)+'</b><span style="font-weight:800;color:var(--sea);font-size:16px">'+money(o.total_payout)+'</span></div>'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'+
+          '<b style="font-size:16px">'+esc(o.name)+'</b>'+
+          '<span style="display:flex;align-items:center;gap:8px">'+
+            ((o.properties||[]).length>1
+              ? '<button class="btn sm" onclick="recExcelDueno('+oi+')" title="Un solo Excel con el resumen de sus '+((o.properties||[]).length)+' propiedades y una hoja por cada una">⬇︎ Consolidado Excel</button>'+
+                '<button class="btn sm" onclick="recPdfDueno('+oi+')" title="Un solo PDF con el resumen de sus '+((o.properties||[]).length)+' propiedades y el detalle de cada una">⬇︎ Consolidado PDF</button>'
+              : '')+
+            '<span style="font-weight:800;color:var(--sea);font-size:16px">'+money(o.total_payout)+'</span>'+
+          '</span></div>'+
         o.properties.map(function(p,pi){
           const staysRows=recTablaEstadias(p);
           const expRows=(p.expenses||[]).map(function(e){const ing=Number(e.amount||0)<0;const col=!e.billable?'var(--ink-soft)':(ing?'var(--sea)':'var(--danger)');
