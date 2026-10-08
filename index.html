@@ -3799,7 +3799,7 @@ const REC_COLS=[
   {k:'guest_paid',t:'Guest Paid'},{k:'channel_fee',t:'Channel Commission'},
   {k:'processor_fee',t:'Paypal Fee'},{k:'base',t:'Net Earnings'},
   {k:'commission',t:'Due Stay Here'},{k:'net',t:'Owner Payout',verde:1},
-  {k:'tax_remitted',t:'Tax a remitir'}
+  {k:'tax_remitted',t:'Tax to Be Remitted'}
 ];
 let recReportData=null;
 function _recN(v){return (Number(v)||0).toFixed(2);}
@@ -3850,12 +3850,21 @@ function recLib(url,listo){
 }
 // Todo lo que lleva el reporte de UNA propiedad, en un solo sitio, para que el
 // Excel y el PDF salgan con los mismos números que la pantalla.
+const REC_MESES=['January','February','March','April','May','June','July',
+  'August','September','October','November','December'];
+// "2026-09" → "September 2026", que es como lo lee el dueño.
+function recMesIngles(m){
+  const t=String(m||'').split('-');
+  return (REC_MESES[Number(t[1])-1]||'')+' '+(t[0]||'');
+}
+// El reporte que recibe el dueño va en INGLÉS: los dueños son de habla inglesa.
+// La app por dentro sigue en español.
 function recDatosProp(o,p,mes){
   const vivas=(p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;});
   const tot={};REC_COLS.forEach(function(c){tot[c.k]=c.txt?'':0;});
   vivas.forEach(function(s){REC_COLS.forEach(function(c){if(!c.txt)tot[c.k]+=Number(s[c.k])||0;});});
   const filas=(p.stays||[]).map(function(s){
-    const nota=s.cancelada?' (cancelada, no se paga)':(s.duplicado?' (duplicada, no se paga)':'');
+    const nota=s.cancelada?' (cancelled — not paid)':(s.duplicado?' (duplicate — not paid)':'');
     return REC_COLS.map(function(c){
       if(c.k==='guest')return String(s.guest||'')+nota;
       return c.txt?String(s[c.k]||''):Number((Number(s[c.k])||0).toFixed(2));
@@ -3865,8 +3874,8 @@ function recDatosProp(o,p,mes){
   totales[0]='TOTAL';
   const gastos=(p.expenses||[]).map(function(e){
     const ing=Number(e.amount||0)<0;
-    return [e.date,(ing?'Ingreso: ':'')+String(e.description||''),
-      e.billable?'Se le cobra al dueño':'No se le cobra',
+    return [e.date,(ing?'Income: ':'')+String(e.description||''),
+      e.billable?'Billable to owner':'Not billable',
       Number((ing?-1:1)*Math.abs(Number(e.amount||0)).toFixed(2))];
   });
   const canc=(p.cancellations||[]).map(function(c){
@@ -3875,11 +3884,11 @@ function recDatosProp(o,p,mes){
       Number((Number(c.kept)||0).toFixed(2)),Number((Number(c.fee_dueno)||0).toFixed(2))];
   });
   const resumen=[
-    ['Pago de las estadías',Number((Number(p.stays_net)||0).toFixed(2))],
-    ['Gastos e ingresos que se le cobran',Number((-(Number(p.billable_expense)||0)).toFixed(2))]
+    ['Stay payout',Number((Number(p.stays_net)||0).toFixed(2))],
+    ['Billable expenses & income',Number((-(Number(p.billable_expense)||0)).toFixed(2))]
   ];
-  if(Number(p.cancel_fee_owner))resumen.push(['Fee de cobro de cancelaciones',Number((-(Number(p.cancel_fee_owner))).toFixed(2))]);
-  resumen.push(['PAGO AL DUEÑO',Number((Number(p.payout)||0).toFixed(2))]);
+  if(Number(p.cancel_fee_owner))resumen.push(['Cancellation processing fees',Number((-(Number(p.cancel_fee_owner))).toFixed(2))]);
+  resumen.push(['OWNER PAYOUT',Number((Number(p.payout)||0).toFixed(2))]);
   return {owner:o.name,prop:p.property_name,mes:mes,pct:p.commission_pct,
     enc:REC_COLS.map(function(c){return c.t;}),filas:filas,totales:totales,
     gastos:gastos,canc:canc,resumen:resumen};
@@ -3904,7 +3913,8 @@ function recLogo(){
   });
   return _recLogo;
 }
-const REC_MARCA={nombre:'Stay Here PR LLC',pie:'Stay Here PR LLC  ·  stayherepr.com  ·  San Juan, Puerto Rico'};
+const REC_MARCA={nombre:'Stay Here PR LLC',
+  pie:'Stay Here PR LLC  ·  stayherepr.com  ·  San Juan, Puerto Rico'};
 // Encabezado del PDF: logo, nombre de la compañía, de qué es el reporte y de
 // quién. Devuelve la Y donde puede empezar el contenido.
 async function recEncabezadoPdf(doc,titulo,sub,extra){
@@ -3930,12 +3940,12 @@ function recPiePdf(doc){
     doc.setPage(i);
     doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(140);
     doc.text(REC_MARCA.pie,40,H-20);
-    doc.text('Página '+i+' de '+n,W-40,H-20,{align:'right'});
+    doc.text('Page '+i+' of '+n,W-40,H-20,{align:'right'});
   }
   doc.setTextColor(0);
 }
 function _recArchivo(d,ext){
-  return ('Reporte '+d.prop+' '+d.mes).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,' ').trim()+'.'+ext;
+  return ('Owner Statement - '+d.prop+' - '+d.mes).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,' ').trim()+'.'+ext;
 }
 function recBuscarProp(oi,pi){
   const o=((recReportData||{}).owners||[])[oi];const p=o&&(o.properties||[])[pi];
@@ -3951,23 +3961,23 @@ async function recExcelProp(oi,pi){
   try{ await recLib('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'); }
   catch(e){ toast('No se pudo cargar el generador de Excel'); return; }
   const X=window.XLSX;
-  const aoa=[[REC_MARCA.nombre],['Reporte de dueño'],[d.prop],
-    ['Dueño: '+d.owner+'  ·  Mes: '+d.mes+'  ·  Su parte: '+d.pct+'%'],[],d.enc]
+  const aoa=[[REC_MARCA.nombre],['Owner Statement'],[d.prop],
+    ['Owner: '+d.owner+'  ·  '+recMesIngles(d.mes)+'  ·  Owner share: '+d.pct+'%'],[],d.enc]
     .concat(d.filas,[d.totales],[[]]);
   if(d.gastos.length){
-    aoa.push(['Gastos e ingresos'],['Fecha','Descripción','¿Se le cobra?','Monto']);
+    aoa.push(['Expenses & income'],['Date','Description','Billable?','Amount']);
     d.gastos.forEach(function(g){aoa.push(g);});
     aoa.push([]);
   }
   if(d.canc.length){
-    aoa.push(['Cancelaciones'],['Entrada','Huésped','Canal','Pagó','Devuelto','Se quedó','Fee al dueño']);
+    aoa.push(['Cancellations'],['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee']);
     d.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
   }
   d.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
   aoa.push([],[REC_MARCA.pie]);
   const ws=X.utils.aoa_to_sheet(aoa);
   ws['!cols']=d.enc.map(function(t,i){return {wch:i<2?22:(i<4?11:Math.max(9,t.length+1))};});
-  const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,d.prop.slice(0,28)||'Reporte');
+  const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,d.prop.slice(0,28)||'Statement');
   X.writeFile(wb,_recArchivo(d,'xlsx'));
   toast('Excel descargado');
 }
@@ -3993,7 +4003,7 @@ function recTablaPdf(doc,d,y0){
       if(i===iOwner)cs[i]={halign:'right',fillColor:[223,245,233],fontStyle:'bold'};
     });return cs;})(),
     didParseCell:function(h){
-      if(h.section==='body'&&/\(cancelada|\(duplicada/.test(String(d.filas[h.row.index][1]||'')))
+      if(h.section==='body'&&/\(cancelled|\(duplicate/.test(String(d.filas[h.row.index][1]||'')))
         h.cell.styles.textColor=[150,150,150];
     }
   });
@@ -4005,12 +4015,12 @@ function recTablaPdf(doc,d,y0){
       headStyles:{fillColor:[90,100,110],fontSize:6.8},margin:{left:40}});
     y=doc.lastAutoTable.finalY+16;
   };
-  bloque('Gastos e ingresos',['Fecha','Descripción','¿Se le cobra?','Monto'],d.gastos);
-  bloque('Cancelaciones',['Entrada','Huésped','Canal','Pagó','Devuelto','Se quedó','Fee al dueño'],d.canc);
+  bloque('Expenses & income',['Date','Description','Billable?','Amount'],d.gastos);
+  bloque('Cancellations',['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee'],d.canc);
   doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],r[1].toFixed(2)];}),
     styles:{fontSize:9,cellPadding:4},margin:{left:40},tableWidth:300,
     columnStyles:{1:{halign:'right',fontStyle:'bold'}},
-    didParseCell:function(h){if(String(h.row.raw[0]).indexOf('PAGO AL DUEÑO')===0){
+    didParseCell:function(h){if(String(h.row.raw[0]).indexOf('OWNER PAYOUT')===0){
       h.cell.styles.fontStyle='bold';h.cell.styles.fillColor=[223,245,233];}}});
 }
 async function recPdfProp(oi,pi){
@@ -4020,8 +4030,8 @@ async function recPdfProp(oi,pi){
     await recLib('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
   }catch(e){ toast('No se pudo cargar el generador de PDF'); return; }
   const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
-  const y0=await recEncabezadoPdf(doc,'Reporte de dueño  ·  '+d.prop,
-    'Dueño: '+d.owner+'   ·   Su parte: '+d.pct+'%','Mes '+d.mes);
+  const y0=await recEncabezadoPdf(doc,'Owner Statement  ·  '+d.prop,
+    'Owner: '+d.owner+'   ·   Owner share: '+d.pct+'%',recMesIngles(d.mes));
   recTablaPdf(doc,d,y0);
   recPiePdf(doc);
   doc.save(_recArchivo(d,'pdf'));
@@ -4048,35 +4058,35 @@ function recDatosDueno(oi){
   const tot=['TOTAL',0,0,0,0,0,0,0];
   resumen.forEach(function(r){for(let i=1;i<8;i++)tot[i]=Number((tot[i]+r[i]).toFixed(2));});
   return {owner:o.name,mes:mes,props:props,
-    encRes:['Propiedad','Estadías','Renta','Comisión Stay Here','Pago de estadías','Gastos e ingresos','Fee de cancelaciones','PAGO'],
+    encRes:['Property','Stays','Rent','Stay Here Commission','Stay Payout','Expenses & Income','Cancellation Fees','PAYOUT'],
     resumen:resumen,totales:tot,pago:Number((Number(o.total_payout)||0).toFixed(2))};
 }
 function _recArchivoD(d,ext){
-  return ('Reporte '+d.owner+' '+d.mes).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,' ').trim()+'.'+ext;
+  return ('Owner Statement - '+d.owner+' - '+d.mes).replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,' ').trim()+'.'+ext;
 }
 async function recExcelDueno(oi){
   const d=recDatosDueno(oi);if(!d)return;
   try{ await recLib('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'); }
   catch(e){ toast('No se pudo cargar el generador de Excel'); return; }
   const X=window.XLSX,wb=X.utils.book_new();
-  const res=[[REC_MARCA.nombre],['Reporte de dueño — consolidado'],[d.owner],['Mes: '+d.mes],[],d.encRes]
+  const res=[[REC_MARCA.nombre],['Owner Statement — consolidated'],[d.owner],[recMesIngles(d.mes)],[],d.encRes]
     .concat(d.resumen,[d.totales],[[],[REC_MARCA.pie]]);
   const wsR=X.utils.aoa_to_sheet(res);
   wsR['!cols']=[{wch:34},{wch:9},{wch:12},{wch:18},{wch:16},{wch:17},{wch:19},{wch:12}];
-  X.utils.book_append_sheet(wb,wsR,'Resumen');
+  X.utils.book_append_sheet(wb,wsR,'Summary');
   // Una hoja por propiedad, con el mismo detalle del reporte individual.
   const usados={};
   d.props.forEach(function(dp){
-    let nom=(dp.prop||'Propiedad').replace(/[\\/?*\[\]:]/g,' ').slice(0,28).trim()||'Propiedad';
+    let nom=(dp.prop||'Property').replace(/[\\/?*\[\]:]/g,' ').slice(0,28).trim()||'Property';
     usados[nom]=(usados[nom]||0)+1; if(usados[nom]>1)nom=nom.slice(0,25)+' '+usados[nom];
-    const aoa=[[dp.prop],['Dueño: '+dp.owner+'  ·  Mes: '+dp.mes+'  ·  Su parte: '+dp.pct+'%'],[],dp.enc]
+    const aoa=[[dp.prop],['Owner: '+dp.owner+'  ·  '+recMesIngles(dp.mes)+'  ·  Owner share: '+dp.pct+'%'],[],dp.enc]
       .concat(dp.filas,[dp.totales],[[]]);
     if(dp.gastos.length){
-      aoa.push(['Gastos e ingresos'],['Fecha','Descripción','¿Se le cobra?','Monto']);
+      aoa.push(['Expenses & income'],['Date','Description','Billable?','Amount']);
       dp.gastos.forEach(function(g){aoa.push(g);});aoa.push([]);
     }
     if(dp.canc.length){
-      aoa.push(['Cancelaciones'],['Entrada','Huésped','Canal','Pagó','Devuelto','Se quedó','Fee al dueño']);
+      aoa.push(['Cancellations'],['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee']);
       dp.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
     }
     dp.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
@@ -4094,8 +4104,8 @@ async function recPdfDueno(oi){
     await recLib('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
   }catch(e){ toast('No se pudo cargar el generador de PDF'); return; }
   const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
-  const y0=await recEncabezadoPdf(doc,'Reporte de dueño  ·  consolidado',
-    d.owner+'   ·   '+d.props.length+' propiedades','Mes '+d.mes);
+  const y0=await recEncabezadoPdf(doc,'Owner Statement  ·  consolidated',
+    d.owner+'   ·   '+d.props.length+' properties',recMesIngles(d.mes));
   doc.autoTable({
     startY:y0,head:[d.encRes],
     body:d.resumen.map(function(r){return r.map(function(v,i){return i?Number(v).toFixed(2):v;}).map(function(v,i){return i===1?String(Math.round(Number(v))):v;});}),
@@ -4107,13 +4117,13 @@ async function recPdfDueno(oi){
   });
   let y=doc.lastAutoTable.finalY+14;
   doc.setFont('helvetica','bold');doc.setFontSize(11);
-  doc.text('Pago total al dueño:  '+d.pago.toFixed(2),40,y);
+  doc.text('Total owner payout:  '+d.pago.toFixed(2),40,y);
   doc.setFont('helvetica','normal');
   // El detalle de cada propiedad, una por página.
   for(const dp of d.props){
     doc.addPage();
-    const yy=await recEncabezadoPdf(doc,'Reporte de dueño  ·  '+dp.prop,
-      'Dueño: '+dp.owner+'   ·   Su parte: '+dp.pct+'%','Mes '+dp.mes);
+    const yy=await recEncabezadoPdf(doc,'Owner Statement  ·  '+dp.prop,
+      'Owner: '+dp.owner+'   ·   Owner share: '+dp.pct+'%',recMesIngles(dp.mes));
     recTablaPdf(doc,dp,yy);
   }
   recPiePdf(doc);
