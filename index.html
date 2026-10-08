@@ -833,6 +833,7 @@
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;padding-bottom:10px"><input type="checkbox" id="expBillable" checked> Facturable</label>
       <button class="btn sm" onclick="addPropExpense()">➕ Añadir</button>
     </div>
+    <div id="recExpOrden" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px"></div>
     <div style="overflow:auto"><table id="recExpTable"></table></div>
   </div>
   <div id="tabRecreport" class="card hide" style="padding:18px">
@@ -3522,7 +3523,7 @@ async function contSetAccount(key,val){
 }
 
 /* ---------- RECONCILIACIÓN DE DUEÑOS (back office, solo can_reconcile) ---------- */
-let recOwners=[],recOpsProps=[],recExpenses=[],recPropOwner={};
+let recOwners=[],recOpsProps=[],recExpenses=[],recPropOwner={},recExpOrden='fecha',recExpFiltro='';
 const _recEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const _recAttr=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 const _recInp='padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;width:100%';
@@ -3589,8 +3590,30 @@ async function renderRecExpenses(){
   const tEl=document.getElementById('recExpTotal');
   if(tEl)tEl.textContent=recExpenses.length+' entrada(s) · gastos '+money(sum(gas))+' (facturable '+money(sum(gas.filter(function(e){return e.billable;})))+')'+
     (ing.length?' · ingresos al dueño '+money(sum(ing))+' (facturable '+money(sum(ing.filter(function(e){return e.billable;})))+')':'');
-  el.innerHTML='<tr><th>Tipo</th><th>Propiedad</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Facturable</th><th></th></tr>'+
-    (recExpenses.length?recExpenses.map(function(e){
+  // Controles: ordenar por fecha o por propiedad (con subtotales), y ver una sola
+  // propiedad. Ordenado por propiedad es como se corrobora contra el estado del dueño.
+  const cEl=document.getElementById('recExpOrden');
+  if(cEl){
+    const usados=[...new Set(recExpenses.map(function(e){return e.property_id;}))]
+      .map(function(id){return {id:id,name:pname[id]||'— sin propiedad —'};})
+      .sort(function(a,b){return a.name<b.name?-1:1;});
+    cEl.innerHTML='<span class="muted" style="font-size:12px">Ordenar:</span>'+
+      ['fecha','propiedad'].map(function(k){
+        return '<button class="btn sm'+(recExpOrden===k?'':' ghost')+'" style="font-size:12px;padding:4px 10px" onclick="recExpSort(\''+k+'\')">'+
+          (k==='fecha'?'📅 Por fecha':'🏠 Por propiedad')+'</button>';}).join('')+
+      '<span class="muted" style="font-size:12px;margin-left:6px">Ver:</span>'+
+      '<select onchange="recExpVer(this.value)" style="'+_recInp+';width:auto;max-width:240px">'+
+        '<option value="">todas las propiedades</option>'+
+        usados.map(function(p){return '<option value="'+_recAttr(p.id||'')+'"'+(recExpFiltro===p.id?' selected':'')+'>'+_recEsc(p.name)+'</option>';}).join('')+
+      '</select>';
+  }
+  let ver=recExpFiltro?recExpenses.filter(function(e){return e.property_id===recExpFiltro;}):recExpenses.slice();
+  if(recExpOrden==='propiedad')ver.sort(function(a,b){
+    const na=(pname[a.property_id]||'zzz'),nb=(pname[b.property_id]||'zzz');
+    if(na!==nb)return na<nb?-1:1;
+    return String(a.date)<String(b.date)?-1:1;
+  });
+  const fila=function(e){
       const opts=recOpsProps.map(function(p){return '<option value="'+p.id+'" '+(p.id===e.property_id?'selected':'')+'>'+_recEsc(p.name)+'</option>';}).join('');
       const esIng=Number(e.amount||0)<0;
       return '<tr><td><select onchange="updatePropExpense(\''+e.id+'\',\'kind\',this)" style="'+_recInp+';color:'+(esIng?'var(--sea)':'var(--danger)')+';font-weight:600">'+
@@ -3602,8 +3625,33 @@ async function renderRecExpenses(){
         '<td><input type="number" step="0.01" min="0" value="'+Math.abs(Number(e.amount||0))+'" onchange="updatePropExpense(\''+e.id+'\',\'amount\',this)" style="'+_recInp+';width:100px;font-weight:600;color:'+(esIng?'var(--sea)':'inherit')+'"></td>'+
         '<td style="text-align:center"><input type="checkbox" '+(e.billable?'checked':'')+' onchange="updatePropExpense(\''+e.id+'\',\'billable\',this)"></td>'+
         '<td style="text-align:right"><button class="btn sm dgr" onclick="deletePropExpense(\''+e.id+'\')">Eliminar</button></td></tr>';
-    }).join(''):'<tr><td colspan="7" class="muted" style="padding:16px;text-align:center">Aún no hay entradas.</td></tr>');
+  };
+  let cuerpo='';
+  if(recExpOrden==='propiedad'){
+    let actual=null,gP=0,iP=0;
+    const cierre=function(){
+      if(actual===null)return '';
+      const t='<tr style="background:var(--sunk)"><td colspan="4" style="text-align:right;font-size:12px" class="muted">Subtotal '+
+        _recEsc(pname[actual]||'— sin propiedad —')+'</td>'+
+        '<td style="font-weight:700">'+money(gP)+(iP?' <span style="color:var(--sea)">−'+money(iP)+'</span>':'')+'</td>'+
+        '<td colspan="2" class="muted" style="font-size:12px">neto '+money(gP-iP)+'</td></tr>';
+      gP=0;iP=0;return t;
+    };
+    ver.forEach(function(e){
+      if(e.property_id!==actual){ cuerpo+=cierre(); actual=e.property_id;
+        cuerpo+='<tr style="background:var(--accent-soft)"><td colspan="7" style="font-weight:700;font-size:13px">🏠 '+
+          _recEsc(pname[e.property_id]||'— sin propiedad —')+'</td></tr>'; }
+      const v=Number(e.amount||0); if(v<0)iP+=Math.abs(v); else gP+=v;
+      cuerpo+=fila(e);
+    });
+    cuerpo+=cierre();
+  } else cuerpo=ver.map(fila).join('');
+  el.innerHTML='<tr><th>Tipo</th><th>Propiedad</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Facturable</th><th></th></tr>'+
+    (ver.length?cuerpo:'<tr><td colspan="7" class="muted" style="padding:16px;text-align:center">'+
+      (recExpenses.length?'Esa propiedad no tiene entradas.':'Aún no hay entradas.')+'</td></tr>');
 }
+function recExpSort(k){recExpOrden=k;renderRecExpenses();}
+function recExpVer(v){recExpFiltro=v||'';renderRecExpenses();}
 async function addPropExpense(){
   const prop=document.getElementById('expProp').value;const date=document.getElementById('expDate').value||todayISO();
   const desc=(document.getElementById('expDesc').value||'').trim();const amt=parseFloat(document.getElementById('expAmt').value)||0;
