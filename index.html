@@ -3724,12 +3724,20 @@ async function renderRecReport(){
           const staysRows=(p.stays||[]).map(function(s){var right=s.airbnb?'<span class="muted" style="font-size:11px">Airbnb · le paga al dueño directo</span>':(money(s.rent)+' <span class="muted">−'+money(s.commission)+'</span> = <b>'+money(s.net)+'</b>');var refb=s.refund?' <span style="color:var(--danger);font-size:11px">↩︎ reembolso '+money(s.refund)+'</span>':'';return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0'+(s.airbnb?';opacity:.65':'')+'"><span>'+esc(s.guest||'—')+' <span class="muted">'+esc(s.check_in)+'</span>'+refb+'</span><span>'+right+'</span></div>';}).join('');
           const expRows=(p.expenses||[]).map(function(e){const ing=Number(e.amount||0)<0;const col=!e.billable?'var(--ink-soft)':(ing?'var(--sea)':'var(--danger)');
             return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:'+col+'"><span>'+(ing?'↑ ':'')+esc(e.description)+' <span class="muted">'+esc(e.date)+(e.billable?'':' (no fact.)')+'</span></span><span>'+(e.billable?(ing?'+':'−'):'')+money(Math.abs(Number(e.amount||0)))+'</span></div>';}).join('');
-          const cancRows=(p.cancellations||[]).map(function(c){return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:var(--ink-soft)"><span>✕ '+esc(c.guest||'—')+' <span class="muted">'+esc(c.check_in)+'→'+esc(c.check_out)+'</span></span><span class="muted" style="font-size:11px">'+esc(c.source||'')+(c.status?' · '+esc(c.status):'')+'</span></div>';}).join('');
+          const cancRows=(p.cancellations||[]).map(function(c){
+            const fee=Number(c.fee_cobro||0),fd=Number(c.fee_dueno||0),kept=Number(c.kept||0);
+            return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:var(--ink-soft)">'+
+              '<span>✕ '+esc(c.guest||'—')+' <span class="muted">'+esc(c.check_in)+'→'+esc(c.check_out)+'</span>'+
+              (kept?' <span class="muted">· se quedó '+money(kept)+' (entra como renta)</span>':'')+'</span>'+
+              '<span class="muted" style="font-size:11px">'+esc(c.source||'')+
+              (fee?' · fee de cobro '+money(fee)+' → dueño <b style="color:var(--danger)">'+money(fd)+'</b>'
+                  :' · sin fee nuestro (lo cobró el canal)')+'</span></div>';}).join('');
           return '<div style="border-top:1px solid var(--line);padding:8px 0">'+
             '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13.5px">'+esc(p.property_name)+'</b><span class="muted" style="font-size:11px">dueño '+esc(p.commission_pct)+'% · com '+esc(Math.round((100-Number(p.commission_pct||0))*100)/100)+'% · '+((p.stays||[]).length)+' est.</span></div>'+
             (staysRows||'<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>')+
             (Number(p.refunds_total)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Reembolsos del mes (informativo)</span><span>'+money(p.refunds_total)+'</span></div>':'')+
             (expRows?'<div style="margin-top:3px">'+expRows+'</div>':'')+
+            (Number(p.cancel_fee_owner)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Fee de cobro de cancelaciones, parte del dueño ('+esc(100-Number(p.commission_pct||0))+'% lo absorbe Stay Here)</span><span>−'+money(p.cancel_fee_owner)+'</span></div>':'')+
             (cancRows?'<div style="margin-top:5px"><div class="muted" style="font-size:11px;font-weight:700;margin-bottom:1px">Cancelaciones</div>'+cancRows+'</div>':'')+
             '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px"><span class="muted">Pago propiedad</span><b>'+money(p.payout)+'</b></div>'+
           '</div>';
