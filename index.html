@@ -2760,6 +2760,7 @@ async function contAnalizar(){
     return;
   }
   let payouts=[];
+  contCobroFees=[];
   for(const u of archivos){
     let text;
     try{
@@ -2785,6 +2786,7 @@ async function contAnalizar(){
   if(unicos.length<payouts.length)console.log('payouts repetidos por archivos duplicados:',payouts.length-unicos.length);
   payouts=unicos;
   await contGuardarPayouts(month,payouts);
+  await contGuardarCobroFees();
   await contReload();
   const listos=payouts.filter(p=>p.status==='listo').length;
   const faltaCls=payouts.filter(p=>p.status==='sin_clase').length;
@@ -2849,6 +2851,18 @@ function contArmarAirbnb(rows,month){
 }
 
 /* --- PayPal: cada "General Withdrawal" barre lo acumulado desde el anterior --- */
+// Fee REAL de cada cobro (PayPal/Stripe) ligado a su reserva. No entra en el
+// depósito: el desglose de Hostfully ya lo tiene descontado. Se guarda para
+// saber cuánto fee se quedó la plataforma cuando una reserva se cancela, que en
+// Booking/Vrbo/directo lo paga Stay Here (somos el merchant del cobro).
+let contCobroFees=[];
+function contApuntaFee(source,txn,fecha,pagador,fin,bruto,fee){
+  if(!txn||Math.abs(fee)<0.005)return;
+  contCobroFees.push({txn_id:String(txn),source:source,charge_date:fecha||null,
+    payer_name:pagador||null,guest_key:fin?fin.guest_key:null,
+    property_id:fin?fin.property_id:null,check_in:fin?fin.check_in:null,
+    gross:_c2(bruto),fee:_c2(Math.abs(fee))});
+}
 function contArmarPaypal(rows,month){
   const out=[];let buf=[];
   const orden=rows.slice().sort(function(a,b){
@@ -2910,6 +2924,7 @@ function contArmarPaypal(rows,month){
         // Hostfully ya descuenta el fee de PayPal al calcular las partes, así
         // que el desglose cuadra contra el NETO, no contra el bruto.
         const sc=contSobrecobro(f,gb);
+        contApuntaFee('paypal',contGet(m,['Transaction ID']),_cDate(contGet(m,['Date'])),g,f,gb,mf);
         p.lines=p.lines.concat(contSplitReserva(f,_c2(gb+mf-(sc?sc.amount:0)),''));
         if(sc)p.lines.push(sc);
       }
@@ -3032,6 +3047,11 @@ function contArmarStripe(rows,month,label){
       }
       // El desglose de Hostfully cuadra contra el BRUTO; el fee va aparte.
       const sc=contSobrecobro(f,bruto);
+      // Algunos reportes de Stripe no traen el id de la transacción; en ese caso
+      // la llave se arma con el payout + la reserva, que tampoco se repite.
+      contApuntaFee('stripe',contGet(r,['balance_transaction_id','charge_id','id'])||
+        ('po:'+id+'|'+(f.guest_key||'')+'|'+_c2(bruto)),
+        _cDate(contGet(r,['created_utc','created'])||fecha),guest,f,bruto,fee);
       p.lines=p.lines.concat(contSplitReserva(f,_c2(bruto-(sc?sc.amount:0)),''));
       if(sc)p.lines.push(sc);
       if(Math.abs(fee)>=0.005)p.lines.push({kind:'fee',amount:-Math.abs(fee),property_id:f.property_id,
@@ -3081,6 +3101,14 @@ async function contGuardarPayouts(month,payouts){
     }
     p.status=estado;
   }
+}
+
+// El id de la transacción es la llave, así que subir el mismo reporte otra vez
+// no duplica ni infla nada.
+async function contGuardarCobroFees(){
+  if(!contCobroFees.length)return;
+  const {error}=await sb.from('cont_cobro_fees').upsert(contCobroFees,{onConflict:'txn_id'});
+  if(error)console.error('fees de cobro',error);
 }
 
 /* ---------- lista de payouts ---------- */
