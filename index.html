@@ -2608,7 +2608,7 @@ function contAutoLinea(label,amount,month,fecha,texto){
     if(!cls)return null;                        // esa propiedad aún no tiene clase
     const pn=(contProps.find(x=>x.id===led.property_id)||{}).name||'';
     return {kind:'prepago',amount:_c2(amount),property_id:led.property_id,qbo_class_id:cls,
-      guest_name:label,
+      guest_name:label,__ci:led.check_in,
       description:label+' — prepago de reserva futura ('+pn+', check-in '+led.check_in+
         '). Entra como pasivo hasta que se quede.'};
   }
@@ -2933,7 +2933,17 @@ function contArmarPaypal(rows,month){
           continue;
         }
         const f=contBuscarFin(g,null,gb);
-        if(!f){ contAgrega(p,g||asunto||t,_c2(gb+mf),'no aparece en el reporte de dueños',month,null,asunto); continue; }
+        if(!f){
+          const ok=contAgrega(p,g||asunto||t,_c2(gb+mf),'no aparece en el reporte de dueños',month,null,asunto);
+          // Un prepago de una reserva futura también paga su fee, y ese fee se
+          // pierde si la reserva se cancela: la plataforma no lo devuelve y la
+          // reserva desaparece del reporte de dueños. Hay que apuntarlo igual.
+          const l=ok?p.lines[p.lines.length-1]:null;
+          if(l&&l.kind==='prepago'&&l.property_id)
+            contApuntaFee('paypal',contGet(m,['Transaction ID']),_cDate(contGet(m,['Date'])),g,
+              {guest_key:_cKey(g),property_id:l.property_id,check_in:l.__ci},gb,mf);
+          continue;
+        }
         if(gb<0){ // reembolso al huésped
           p.lines.push({kind:'prepago',amount:gb,property_id:f.property_id,
             qbo_class_id:contClassOf(f.property_id),guest_name:f.guest_name,
@@ -3020,6 +3030,13 @@ function contArmarStripe(rows,month,label){
       }
       // cat === 'charge'
       const f=guest?contBuscarFin(guest,null,bruto):null;
+      const _apuntaPrepago=function(){
+        const l=p.lines[p.lines.length-1];
+        if(l&&l.kind==='prepago'&&l.property_id&&guest)
+          contApuntaFee('stripe',contGet(r,['balance_transaction_id','charge_id','id'])||('po:'+id+'|'+_cKey(guest)+'|'+_c2(bruto)),
+            _cDate(contGet(r,['created_utc','created'])||fecha),guest,
+            {guest_key:_cKey(guest),property_id:l.property_id,check_in:l.__ci},bruto,fee);
+      };
       if(!f){
         // ¿Es un extra que vende Stay Here (early check-in, huésped extra,
         // noche adicional)? Esos no son reservas y no están en Hostfully.
@@ -3054,7 +3071,10 @@ function contArmarStripe(rows,month,label){
             guest_name:null,description:'Fee de Stripe — '+desc});
           continue;
         }
-        if(guest){ contAgrega(p,guest,neto,'no aparece en el reporte de dueños',month); continue; }
+        if(guest){
+          if(contAgrega(p,guest,neto,'no aparece en el reporte de dueños',month))_apuntaPrepago();
+          continue;
+        }
         const razon=cat==='other_adjustment'
           ? 'ajuste de Stripe sin nombre (suele ser la retención que entra o sale)'
           : 'Stripe no trae nombre en ese cargo';
