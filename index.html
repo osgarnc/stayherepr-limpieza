@@ -2209,12 +2209,28 @@ async function contLoadProps(){
   contComision={};(po.data||[]).forEach(x=>{if(x.commission_pct!=null)contComision[x.property_id]=Number(x.commission_pct);});
   return contProps;
 }
+// Números y ordinales del nombre: es lo que distingue "Salo 1rst floor" de
+// "Salo 2nd floor" o "Apt 1614" de otro apartamento. _cKey los borra, así que
+// hay que sacarlos del nombre crudo.
+function _cOrd(s){
+  const t=String(s==null?'':s).toLowerCase()
+    .replace(/\b(1rst|1st|first|primer[oa]?)\b/g,'1')
+    .replace(/\b(2nd|second|segund[oa]?)\b/g,'2')
+    .replace(/\b(3rd|third|tercer[oa]?)\b/g,'3')
+    .replace(/\b(4th|fourth|cuart[oa]?)\b/g,'4');
+  return [...new Set(t.match(/\d+/g)||[])];
+}
 // Liga el nombre que trae un reporte con una propiedad de la app.
 function contPropMatch(name){
   const k=_cKey(name);if(!k)return null;
+  const kn=_cOrd(name);
   let best=null,bestScore=0;
   for(const p of contProps){
     const pk=_cKey(p.name);if(!pk)continue;
+    // Si los dos nombres traen número y no coincide ninguno, no son la misma
+    // propiedad (antes "Salo CV 2nd floor" caía en "Salo 1rst floor").
+    const pn=_cOrd(p.name);
+    if(kn.length&&pn.length&&!pn.some(n=>kn.includes(n)))continue;
     let score=0;
     if(pk===k)score=100;
     else if(k.indexOf(pk)>-1||pk.indexOf(k)>-1)score=80;
@@ -3721,7 +3737,15 @@ async function renderRecReport(){
       return '<div style="border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><b style="font-size:16px">'+esc(o.name)+'</b><span style="font-weight:800;color:var(--sea);font-size:16px">'+money(o.total_payout)+'</span></div>'+
         o.properties.map(function(p){
-          const staysRows=(p.stays||[]).map(function(s){var right=s.airbnb?'<span class="muted" style="font-size:11px">Airbnb · le paga al dueño directo</span>':(money(s.rent)+' <span class="muted">−'+money(s.commission)+'</span> = <b>'+money(s.net)+'</b>');var refb=s.refund?' <span style="color:var(--danger);font-size:11px">↩︎ reembolso '+money(s.refund)+'</span>':'';return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0'+(s.airbnb?';opacity:.65':'')+'"><span>'+esc(s.guest||'—')+' <span class="muted">'+esc(s.check_in)+'</span>'+refb+'</span><span>'+right+'</span></div>';}).join('');
+          const staysRows=(p.stays||[]).map(function(s){
+            // Duplicada = Hostfully dejó dos reservas de la misma estadía. No se
+            // paga (si no, al dueño se le paga dos veces la misma noche).
+            var right=s.duplicado?'<span style="color:var(--danger);font-size:11px">no se paga · '+money(s.net)+'</span>'
+              :(s.airbnb?'<span class="muted" style="font-size:11px">Airbnb · le paga al dueño directo</span>'
+              :(money(s.rent)+' <span class="muted">−'+money(s.commission)+'</span> = <b>'+money(s.net)+'</b>'));
+            var refb=s.refund?' <span style="color:var(--danger);font-size:11px">↩︎ reembolso '+money(s.refund)+'</span>':'';
+            var dupb=s.duplicado?' <span style="color:var(--danger);font-size:11px">⚠︎ posible duplicado de Hostfully</span>':'';
+            return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0'+(s.airbnb||s.duplicado?';opacity:.65':'')+'"><span>'+(s.duplicado?'<s>'+esc(s.guest||'—')+'</s>':esc(s.guest||'—'))+' <span class="muted">'+esc(s.check_in)+'</span>'+refb+dupb+'</span><span>'+right+'</span></div>';}).join('');
           const expRows=(p.expenses||[]).map(function(e){const ing=Number(e.amount||0)<0;const col=!e.billable?'var(--ink-soft)':(ing?'var(--sea)':'var(--danger)');
             return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:'+col+'"><span>'+(ing?'↑ ':'')+esc(e.description)+' <span class="muted">'+esc(e.date)+(e.billable?'':' (no fact.)')+'</span></span><span>'+(e.billable?(ing?'+':'−'):'')+money(Math.abs(Number(e.amount||0)))+'</span></div>';}).join('');
           const cancRows=(p.cancellations||[]).map(function(c){
@@ -3735,6 +3759,7 @@ async function renderRecReport(){
           return '<div style="border-top:1px solid var(--line);padding:8px 0">'+
             '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13.5px">'+esc(p.property_name)+'</b><span class="muted" style="font-size:11px">dueño '+esc(p.commission_pct)+'% · com '+esc(Math.round((100-Number(p.commission_pct||0))*100)/100)+'% · '+((p.stays||[]).length)+' est.</span></div>'+
             (staysRows||'<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>')+
+            ((p.duplicadas||[]).length?'<div style="margin-top:3px;font-size:11.5px;color:var(--danger)">⚠︎ '+((p.duplicadas||[]).length)+' reserva(s) duplicada(s) en Hostfully: no se pagan. Si alguna es real, revísala en Hostfully.</div>':'')+
             (Number(p.refunds_total)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Reembolsos del mes (informativo)</span><span>'+money(p.refunds_total)+'</span></div>':'')+
             (expRows?'<div style="margin-top:3px">'+expRows+'</div>':'')+
             (Number(p.cancel_fee_owner)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Fee de cobro de cancelaciones, parte del dueño ('+esc(100-Number(p.commission_pct||0))+'% lo absorbe Stay Here)</span><span>−'+money(p.cancel_fee_owner)+'</span></div>':'')+
