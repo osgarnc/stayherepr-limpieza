@@ -2640,11 +2640,30 @@ function contPendiente(label,amount,reason,fecha,pistaProp){
     reason:reason+' · en Hostfully es '+(p?p.name:'—')+', check-in '+r.check_in+
            (r.source?' ('+r.source+')':'')+'. Falta su desglose en el reporte de dueños.'};
 }
-function contBuscarFin(guest,fecha){
+// Cuando el mismo huésped tiene dos filas en el reporte (la reserva del canal y
+// la que acabó pagando directo, o una cancelada y otra buena), el MONTO decide:
+// el cobro cuadra con el "Guest Paid" de una sola de las dos. Si no cuadra con
+// ninguna (pagos a plazos, sobrecobros) devuelve null y sigue la lógica normal.
+function contFinPorMonto(k,monto){
+  if(monto==null||Math.abs(monto)<0.005)return null;
+  const t=String(k||'').split(' ').filter(Boolean);
+  const pri=t[0],ult=t[t.length-1];
+  const mismos=contFin.filter(function(f){
+    if(f.guest_key===k)return true;
+    const ft=String(f.guest_key||'').split(' ').filter(Boolean);
+    return ft.length>=2&&t.length>=2&&ft[0]===pri&&ft[ft.length-1]===ult;
+  });
+  if(mismos.length<2)return null;             // sin ambigüedad no hay nada que decidir
+  const calzan=mismos.filter(f=>Math.abs(Number(f.guest_paid||0)-monto)<0.015);
+  return calzan.length===1?calzan[0]:null;
+}
+function contBuscarFin(guest,fecha,monto){
   let k=_cKey(guest);if(!k)return null;
   // El que paga no siempre es el huésped (paga la pareja, la empresa, un
   // familiar). Los alias los va creando el usuario desde la lista de pendientes.
   if(contAlias[k])k=contAlias[k];
+  const porMonto=contFinPorMonto(k,monto);
+  if(porMonto)return porMonto;
   let cands=contFin.filter(f=>f.guest_key===k);
   // Nombre al revés: PayPal manda "Jeffrey Wienecke" y Hostfully lo guarda como
   // "Wienecke Jeffrey". Si las PALABRAS son las mismas en otro orden, es la
@@ -2913,7 +2932,7 @@ function contArmarPaypal(rows,month){
             description:(f?f.guest_name:'PayPal')+' — fee de Hostfully'});
           continue;
         }
-        const f=contBuscarFin(g,null);
+        const f=contBuscarFin(g,null,gb);
         if(!f){ contAgrega(p,g||asunto||t,_c2(gb+mf),'no aparece en el reporte de dueños',month,null,asunto); continue; }
         if(gb<0){ // reembolso al huésped
           p.lines.push({kind:'prepago',amount:gb,property_id:f.property_id,
@@ -3000,7 +3019,7 @@ function contArmarStripe(rows,month,label){
         continue;
       }
       // cat === 'charge'
-      const f=guest?contBuscarFin(guest,null):null;
+      const f=guest?contBuscarFin(guest,null,bruto):null;
       if(!f){
         // ¿Es un extra que vende Stay Here (early check-in, huésped extra,
         // noche adicional)? Esos no son reservas y no están en Hostfully.
@@ -3785,8 +3804,7 @@ async function renderRecReport(){
               (kept?' <span class="muted">· se quedó '+money(kept)+' (entra como renta)</span>':'')+'</span>'+
               '<span class="muted" style="font-size:11px">'+esc(c.source||'')+
               (fee?' · fee de cobro '+money(fee)+' → dueño <b style="color:var(--danger)">'+money(fd)+'</b>'
-                  :(c.cobrado?' · sin fee de cobro'
-                            :' · no entró dinero por esta reserva'))+'</span></div>';}).join('');
+                  :' · sin fee de cobro nuestro')+'</span></div>';}).join('');
           return '<div style="border-top:1px solid var(--line);padding:8px 0">'+
             '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13.5px">'+esc(p.property_name)+'</b><span class="muted" style="font-size:11px">dueño '+esc(p.commission_pct)+'% · com '+esc(Math.round((100-Number(p.commission_pct||0))*100)/100)+'% · '+((p.stays||[]).length)+' est.</span></div>'+
             (staysRows||'<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>')+
