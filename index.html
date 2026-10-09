@@ -6652,8 +6652,8 @@ function lockRenderStaff(){
     '<td>'+opsEsc(s.name)+'</td>'+
     '<td style="text-align:center;font-weight:800;font-size:15px;letter-spacing:2px">'+opsEsc(s.pin)+'</td>'+
     '<td style="text-align:center;white-space:nowrap">'+
-      '<button class="btn ghost sm" title="Editar" onclick="lockEditUniversalStaff('+JSON.stringify(s.id)+','+JSON.stringify(opsEsc(s.name))+')">✏️</button> '+
-      '<button class="btn ghost sm" title="Quitar de TODAS las cerraduras" onclick="lockRemoveUniversalStaff('+JSON.stringify(s.id)+','+JSON.stringify(opsEsc(s.name))+')">🗑️</button>'+
+      '<button class="btn ghost sm" title="Editar" onclick="lockEditUniversalStaff('+opsEsc(JSON.stringify(s.id))+','+opsEsc(JSON.stringify(s.name))+')">✏️</button> '+
+      '<button class="btn ghost sm" title="Quitar de TODAS las cerraduras" onclick="lockRemoveUniversalStaff('+opsEsc(JSON.stringify(s.id))+','+opsEsc(JSON.stringify(s.name))+')">🗑️</button>'+
     '</td></tr>').join('');
   tb.innerHTML='<thead><tr><th>Staff</th><th style="text-align:center">PIN</th><th style="text-align:center">Acción</th></tr></thead><tbody>'+
     (rows||'<tr><td class="muted" colspan="3" style="padding:10px">Aún no hay staff. Agrega uno arriba.</td></tr>')+'</tbody>';
@@ -6671,18 +6671,46 @@ async function lockAddStaff(){
     await cerradurasLoad();
   }catch(e){ msg.textContent=''; toast('No se pudo: '+(e.message||e)); }
 }
-async function lockEditUniversalStaff(id,name){
-  const nn=prompt('Nombre del staff:',name); if(nn===null) return;
-  const np=prompt('Nuevo PIN (4-8 díg.) — deja vacío para no cambiarlo:',''); if(np===null) return;
+// Editar/quitar staff universal: se usa un MODAL propio (openModal) en vez de prompt()/confirm(),
+// que no funcionan en el webview de la app (devuelven null/false → "no hacía nada").
+function lockEditUniversalStaff(id,name){
+  const inStyle='width:100%;margin-top:4px;padding:9px;border:1px solid var(--line,#d8dee4);border-radius:9px;font-size:15px';
+  openModal('Editar staff',
+    '<div style="display:flex;flex-direction:column;gap:12px">'+
+      '<label style="font-size:13px;font-weight:600">Nombre'+
+        '<input id="seName" type="text" style="'+inStyle+'"></label>'+
+      '<label style="font-size:13px;font-weight:600">Nuevo PIN <span class="muted" style="font-weight:400">(4-8 díg.; vacío = no cambiar)</span>'+
+        '<input id="sePin" type="text" inputmode="numeric" maxlength="8" placeholder="sin cambios" style="'+inStyle+';letter-spacing:2px"></label>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">'+
+        '<button class="btn ghost sm" onclick="this.closest(\'.overlay\').remove()">Cancelar</button>'+
+        '<button class="btn sm" onclick="lockEditUniversalStaffSave('+opsEsc(JSON.stringify(id))+')">Guardar</button></div>'+
+    '</div>');
+  const el=document.getElementById('seName'); if(el){ el.value=name; try{el.focus();}catch(_e){} }
+}
+async function lockEditUniversalStaffSave(id){
+  const nn=(document.getElementById('seName').value||'').trim();
+  const np=(document.getElementById('sePin').value||'').trim();
+  if(!nn){ toast('El nombre no puede quedar vacío'); return; }
+  if(np&&!/^[0-9]{4,8}$/.test(np)){ toast('El PIN debe ser de 4 a 8 dígitos'); return; }
   try{
-    await lockAdmin('staff_edit',{id,name:nn.trim()||undefined,pin:(np.trim()||undefined)});
+    await lockAdmin('staff_edit',{id,name:nn,pin:(np||undefined)});
+    const ov=document.querySelector('.overlay'); if(ov) ov.remove();
     toast('✅ Actualizado en todas las cerraduras'); await cerradurasLoad();
   }catch(e){ toast('No se pudo: '+(e.message||e)); }
 }
-async function lockRemoveUniversalStaff(id,name){
-  if(!confirm('¿Quitar «'+name+'» de TODAS las cerraduras? Su PIN dejará de funcionar en todas las propiedades.')) return;
-  try{ const r=await lockAdmin('staff_remove',{id}); toast('🗑️ «'+name+'» quitado ('+((r.sync&&r.sync.removed)||0)+' cerradura[s])'); await cerradurasLoad(); }
-  catch(e){ toast('No se pudo: '+(e.message||e)); }
+function lockRemoveUniversalStaff(id,name){
+  openModal('Quitar staff',
+    '<p style="margin:0 0 14px">¿Quitar <b>«'+opsEsc(name)+'»</b> de <b>TODAS</b> las cerraduras? Su PIN dejará de funcionar en todas las propiedades.</p>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end">'+
+      '<button class="btn ghost sm" onclick="this.closest(\'.overlay\').remove()">Cancelar</button>'+
+      '<button class="btn sm" style="background:var(--coral,#d9534f);color:#fff;border-color:var(--coral,#d9534f)" onclick="lockRemoveUniversalStaffDo('+opsEsc(JSON.stringify(id))+','+opsEsc(JSON.stringify(name))+')">Sí, quitar</button></div>');
+}
+async function lockRemoveUniversalStaffDo(id,name){
+  try{
+    const r=await lockAdmin('staff_remove',{id});
+    const ov=document.querySelector('.overlay'); if(ov) ov.remove();
+    toast('🗑️ «'+name+'» quitado ('+((r.sync&&r.sync.removed)||0)+' cerradura[s])'); await cerradurasLoad();
+  }catch(e){ toast('No se pudo: '+(e.message||e)); }
 }
 // ⚙️ Render de la configuración por propiedad: todas las propiedades + su toggle.
 const PROVIDER_LBL={kwikset:'Kwikset',revolo:'Revolo',yale:'Yale'};
