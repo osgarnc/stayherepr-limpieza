@@ -6810,8 +6810,8 @@ function lockRenderCodes(){
     const isStaff=c.kind==='staff';
     const kind=isStaff?'<span class="muted">🧹 staff</span>':'huésped';
     const act=isStaff?'<span class="muted" style="font-size:11px" title="Los códigos de staff se gestionan en 🧹 (universal)">universal</span>':
-      ('<button class="btn ghost sm" title="Editar fechas de acceso (entrar antes/después)" onclick="lockEditCodeWindow('+JSON.stringify(c.id)+')">📅</button>'+
-       (c.manual_window?' <button class="btn ghost sm" title="Volver a automático (recalcula desde la reserva)" onclick="lockClearCodeWindow('+JSON.stringify(c.id)+')">↺</button>':''));
+      ('<button class="btn ghost sm" title="Editar fechas de acceso (entrar antes/después)" onclick="lockEditCodeWindow('+opsEsc(JSON.stringify(c.id))+')">📅</button>'+
+       (c.manual_window?' <button class="btn ghost sm" title="Volver a automático (recalcula desde la reserva)" onclick="lockClearCodeWindow('+opsEsc(JSON.stringify(c.id))+')">↺</button>':''));
     const g=window._lockGraceMin||0;
     const endMs=Date.parse(c.ends_at);
     const endEff=(g>0&&!isNaN(endMs))?new Date(endMs+g*60000).toISOString():c.ends_at; // fin real (con gracia)
@@ -6831,20 +6831,50 @@ function lockRenderCodes(){
 // 📅 Editar la ventana (fechas) de un código de huésped a mano.
 function _fmtAstInput(iso){ if(!iso) return ''; const d=new Date(Date.parse(iso)-4*3600*1000); const p=n=>String(n).padStart(2,'0'); return d.getUTCFullYear()+'-'+p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate())+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes()); }
 function _parseAstInput(s){ const m=/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/.exec((s||'').trim()); return m?(m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':00-04:00'):null; }
-async function lockEditCodeWindow(id){
+// Editar/limpiar ventana de fechas: modal propio (openModal) en vez de prompt()/confirm(),
+// que no funcionan en el webview de la app.
+function lockEditCodeWindow(id){
   const c=(window._lockCodesById||{})[id]||{};
-  const ns=prompt('ENTRADA — hora de Puerto Rico (formato: YYYY-MM-DD HH:MM, 24h):', _fmtAstInput(c.starts_at)); if(ns===null) return;
-  const ne=prompt('SALIDA — hora de Puerto Rico (formato: YYYY-MM-DD HH:MM, 24h):', _fmtAstInput(c.ends_at)); if(ne===null) return;
+  const inStyle='width:100%;margin-top:4px;padding:9px;border:1px solid var(--line,#d8dee4);border-radius:9px;font-size:15px';
+  openModal('Editar fechas de acceso',
+    '<div style="display:flex;flex-direction:column;gap:12px">'+
+      '<p class="muted" style="margin:0;font-size:12.5px">Hora de Puerto Rico · formato <b>YYYY-MM-DD HH:MM</b> (24h). Ej. 2026-08-16 13:00</p>'+
+      '<label style="font-size:13px;font-weight:600">Entrada'+
+        '<input id="cwStart" type="text" placeholder="YYYY-MM-DD HH:MM" style="'+inStyle+'"></label>'+
+      '<label style="font-size:13px;font-weight:600">Salida'+
+        '<input id="cwEnd" type="text" placeholder="YYYY-MM-DD HH:MM" style="'+inStyle+'"></label>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">'+
+        '<button class="btn ghost sm" onclick="this.closest(\'.overlay\').remove()">Cancelar</button>'+
+        '<button class="btn sm" onclick="lockEditCodeWindowSave('+opsEsc(JSON.stringify(id))+')">Guardar</button></div>'+
+    '</div>');
+  const s=document.getElementById('cwStart'); if(s) s.value=_fmtAstInput(c.starts_at);
+  const e=document.getElementById('cwEnd'); if(e) e.value=_fmtAstInput(c.ends_at);
+}
+async function lockEditCodeWindowSave(id){
+  const ns=(document.getElementById('cwStart').value||'').trim();
+  const ne=(document.getElementById('cwEnd').value||'').trim();
   const si=_parseAstInput(ns), ei=_parseAstInput(ne);
   if(!si||!ei){ toast('Formato inválido. Usa YYYY-MM-DD HH:MM (ej. 2026-08-16 13:00)'); return; }
   if(Date.parse(si)>=Date.parse(ei)){ toast('La entrada debe ser antes que la salida'); return; }
-  try{ const r=await lockAdmin('set_code_window',{id,starts_at:si,ends_at:ei}); if(r.ok===false) throw new Error(r.error||'error'); toast('📅 Fechas actualizadas en la cerradura'); await cerradurasLoad(); }
-  catch(e){ toast('No se pudo: '+(e.message||e)); }
+  try{
+    const r=await lockAdmin('set_code_window',{id,starts_at:si,ends_at:ei}); if(r.ok===false) throw new Error(r.error||'error');
+    const ov=document.querySelector('.overlay'); if(ov) ov.remove();
+    toast('📅 Fechas actualizadas en la cerradura'); await cerradurasLoad();
+  }catch(e){ toast('No se pudo: '+(e.message||e)); }
 }
-async function lockClearCodeWindow(id){
-  if(!confirm('¿Volver este código a AUTOMÁTICO? Recalcula las fechas desde la reserva (incluyendo early/late/noche extra).')) return;
-  try{ await lockAdmin('clear_code_window',{id}); toast('↺ Volvió a automático'); await cerradurasLoad(); }
-  catch(e){ toast('No se pudo: '+(e.message||e)); }
+function lockClearCodeWindow(id){
+  openModal('Volver a automático',
+    '<p style="margin:0 0 14px">¿Volver este código a <b>AUTOMÁTICO</b>? Recalcula las fechas desde la reserva (incluyendo early/late/noche extra).</p>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end">'+
+      '<button class="btn ghost sm" onclick="this.closest(\'.overlay\').remove()">Cancelar</button>'+
+      '<button class="btn sm" onclick="lockClearCodeWindowDo('+opsEsc(JSON.stringify(id))+')">Sí, automático</button></div>');
+}
+async function lockClearCodeWindowDo(id){
+  try{
+    await lockAdmin('clear_code_window',{id});
+    const ov=document.querySelector('.overlay'); if(ov) ov.remove();
+    toast('↺ Volvió a automático'); await cerradurasLoad();
+  }catch(e){ toast('No se pudo: '+(e.message||e)); }
 }
 async function lockConnect(){
   const email=document.getElementById('lockEmail').value.trim();
