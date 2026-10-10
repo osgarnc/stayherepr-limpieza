@@ -6041,7 +6041,7 @@ async function msgLoadMode(){
 // Una sub-pestaña por propiedad con el store configurado. RLS: is_owner().
 const STORE_LOC={vitrina:'🗄️ Vitrina',nevera:'🧊 Nevera',canasta:'🧺 Canasta'};
 window._st={props:[],cfg:{},shelves:[],products:[],sessions:[],stock:{},moves:[],view:'cat',cur:null};
-const STORE_BASE='https://stayherepr-limpieza.vercel.app'; // mismo dominio de los enlaces /pay
+const STORE_BASE='https://pay.stayherepr.com'; // dominio propio (mismo de los enlaces /pay). Los QR YA IMPRESOS con el viejo stayherepr-limpieza.vercel.app siguen funcionando: ese dominio sigue vivo y el qr_token no cambia; esto solo afecta los QR que se (re)generen desde aquí.
 function storeUrl(c){ return STORE_BASE+'/store?p='+encodeURIComponent(c.qr_token); }
 let _qrLib=null;
 function storeQrLib(){ if(_qrLib) return _qrLib; _qrLib=new Promise((ok,ko)=>{ const sc=document.createElement('script'); sc.src='https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js'; sc.onload=()=>ok(window.qrcode); sc.onerror=()=>{_qrLib=null;ko(new Error('No cargó la librería de QR'));}; document.head.appendChild(sc); }); return _qrLib; }
