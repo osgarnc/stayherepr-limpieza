@@ -6720,22 +6720,34 @@ function lockRenderConfig(){
   const tb=document.getElementById('lockConfigTable'); if(!tb)return;
   const props=window._lockPropsArr||[];
   const devs=window._lockDevices||[];
-  // Cerradura activa por propiedad (para saber cuáles tienen toggle real).
-  const devByProp={}; devs.forEach(d=>{ if(d.active!==false&&d.property_id) devByProp[d.property_id]=d; });
+  // UNA FILA POR CERRADURA. Hay propiedades con dos (lockbox + puerta/cuarto) y
+  // antes se indexaba por propiedad: la segunda quedaba invisible y sin toggle,
+  // así que apagabas una y la otra seguía provisionando sola.
+  const devsByProp={};
+  devs.forEach(d=>{ if(d.property_id) (devsByProp[d.property_id]=devsByProp[d.property_id]||[]).push(d); });
   const rows=props.map(p=>{
-    const d=devByProp[p.id];
-    if(!d){
+    const list=devsByProp[p.id]||[];
+    if(!list.length){
       return '<tr><td>'+opsEsc(p.name)+'</td><td class="muted" style="font-size:12.5px">—</td>'+
         '<td class="muted" style="font-size:12.5px;text-align:center">sin cerradura</td></tr>';
     }
-    const on=d.auto_enabled!==false;
-    const prov=PROVIDER_LBL[(d.provider||'kwikset')]||d.provider||'';
-    const toggle='<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">'+
-      '<input type="checkbox" '+(on?'checked':'')+' onchange="lockToggleAuto(\''+d.device_id+'\',this.checked,'+JSON.stringify(opsEsc(p.name))+')">'+
-      '<b style="color:'+(on?'#166534':'#b91c1c')+'">'+(on?'Automática ON':'En pausa')+'</b></label>';
-    return '<tr><td>'+opsEsc(p.name)+'</td>'+
-      '<td class="muted" style="font-size:12.5px">🔒 '+opsEsc(d.name||d.device_id)+' <span class="muted">('+opsEsc(prov)+')</span></td>'+
-      '<td style="text-align:center">'+toggle+'</td></tr>';
+    return list.map((d,i)=>{
+      const prov=PROVIDER_LBL[(d.provider||'kwikset')]||d.provider||'';
+      // El nombre de la propiedad se escribe solo en la primera fila del grupo.
+      const celdas='<td>'+(i===0?opsEsc(p.name):'')+'</td>'+
+        '<td class="muted" style="font-size:12.5px">🔒 '+opsEsc(d.name||d.device_id)+' <span class="muted">('+opsEsc(prov)+')</span></td>';
+      if(d.active===false){
+        return '<tr>'+celdas+'<td class="muted" style="font-size:12.5px;text-align:center">inactiva</td></tr>';
+      }
+      const on=d.auto_enabled!==false;
+      // opsEsc(JSON.stringify(...)) y NO al revés: JSON.stringify mete comillas
+      // crudas que cortaban el atributo onchange y el click no hacía nada.
+      const etiqueta=opsEsc(JSON.stringify(p.name+' › '+(d.name||d.device_id)));
+      const toggle='<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">'+
+        '<input type="checkbox" '+(on?'checked':'')+' onchange="lockToggleAuto('+opsEsc(JSON.stringify(d.device_id))+',this.checked,'+etiqueta+')">'+
+        '<b style="color:'+(on?'#166534':'#b91c1c')+'">'+(on?'Automática ON':'En pausa')+'</b></label>';
+      return '<tr>'+celdas+'<td style="text-align:center">'+toggle+'</td></tr>';
+    }).join('');
   }).join('');
   tb.innerHTML='<thead><tr><th>Propiedad</th><th>Cerradura</th><th style="text-align:center">Provisión + envío automático</th></tr></thead><tbody>'+
     (rows||'<tr><td class="muted" colspan="3" style="padding:12px">No hay propiedades.</td></tr>')+'</tbody>';
