@@ -6715,7 +6715,7 @@ async function lockRemoveUniversalStaffDo(id,name){
   }catch(e){ toast('No se pudo: '+(e.message||e)); }
 }
 // ⚙️ Render de la configuración por propiedad: todas las propiedades + su toggle.
-const PROVIDER_LBL={kwikset:'Kwikset',revolo:'Revolo',yale:'Yale'};
+const PROVIDER_LBL={kwikset:'Kwikset',revolo:'Revolo',yale:'Yale',ttlock:'TTLock',eufy:'Eufy',manual:'Llave física',nestpool:'Nest x Yale'};
 function lockRenderConfig(){
   const tb=document.getElementById('lockConfigTable'); if(!tb)return;
   const props=window._lockPropsArr||[];
