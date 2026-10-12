@@ -4213,7 +4213,19 @@ async function renderRecReport(){
             (staysRows||'<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>')+
             ((p.stays||[]).filter(function(s){return s.cancelada;}).length?'<div style="margin-top:3px;font-size:11.5px;color:var(--ink-soft)">✕ '+((p.stays||[]).filter(function(s){return s.cancelada;}).length)+' reserva(s) cancelada(s). Hostfully las trae en el reporte con su pago, pero de esas no entró dinero: no se pagan.</div>':'')+
             ((p.duplicadas||[]).length?'<div style="margin-top:3px;font-size:11.5px;color:var(--danger)">⚠︎ '+((p.duplicadas||[]).length)+' reserva(s) duplicada(s) en Hostfully: no se pagan. Si alguna es real, revísala en Hostfully.</div>':'')+
-            (Number(p.refunds_total)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Reembolsos del mes (informativo)</span><span>'+money(p.refunds_total)+'</span></div>':'')+
+            // Hostfully mete aquí tanto los reembolsos de verdad como los
+            // ajustes de precio, y pueden ser de meses atrás: se dice qué es,
+            // de quién y de cuándo, porque "reembolsos del mes" confunde.
+            ((Number(p.refunds_total)>0)?'<div style="margin-top:4px;font-size:12px;color:var(--ink-soft)">'+
+              '<div style="display:flex;justify-content:space-between"><span class="muted">Ajustes y reembolsos de Hostfully (informativo, no afecta el pago)</span><span>'+money(p.refunds_total)+'</span></div>'+
+              (p.stays||[]).filter(function(s){return (s.refunds||[]).length;}).map(function(s){
+                return (s.refunds||[]).map(function(a){
+                  return '<div style="display:flex;justify-content:space-between;font-size:11.5px;padding-left:10px">'+
+                    '<span>'+esc(s.guest)+' <span class="muted">'+esc(a.kind||a.type||'ajuste')+
+                    (a.date?' · '+esc(a.date):'')+(a.note?' · '+esc(a.note):'')+'</span></span>'+
+                    '<span>'+money(Math.abs(Number(a.amount||0)))+'</span></div>';
+                }).join('');
+              }).join('')+'</div>':'')+
             (expRows?'<div style="margin-top:3px">'+expRows+'</div>':'')+
             (Number(p.cancel_fee_owner)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Fee de cobro de cancelaciones, parte del dueño ('+esc(100-Number(p.commission_pct||0))+'% lo absorbe Stay Here)</span><span>−'+money(p.cancel_fee_owner)+'</span></div>':'')+
             (cancRows?'<div style="margin-top:5px"><div class="muted" style="font-size:11px;font-weight:700;margin-bottom:1px">Cancelaciones</div>'+cancRows+'</div>':'')+
