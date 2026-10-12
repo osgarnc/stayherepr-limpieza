@@ -2219,7 +2219,9 @@ function _cOrd(s){
     .replace(/\b(2nd|second|segund[oa]?)\b/g,'2')
     .replace(/\b(3rd|third|tercer[oa]?)\b/g,'3')
     .replace(/\b(4th|fourth|cuart[oa]?)\b/g,'4');
-  return [...new Set(t.match(/\d+/g)||[])];
+  // Solo números sueltos: el "1" de "1BR" o el "2" de "2BD" es el número de
+  // cuartos, no el del apartamento, y no sirve para distinguir propiedades.
+  return [...new Set(t.match(/(?<![a-z0-9])\d+(?![a-z0-9])/g)||[])];
 }
 // Liga el nombre que trae un reporte con una propiedad de la app.
 function contPropMatch(name){
