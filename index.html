@@ -4228,7 +4228,20 @@ async function renderRecReport(){
   const owners=data.owners||[];const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   if(!owners.length){out.innerHTML='<p class="muted" style="text-align:center;padding:20px">Sin datos para '+esc(month)+'. Asigna propiedades a dueños (con su % de comisión) en la pestaña Dueños.</p>';return;}
   const grand=owners.reduce((s,o)=>s+Number(o.total_payout||0),0);
-  out.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">'+
+  // Cuadre de Booking: si alguna estadía no trae la comisión del reporte de
+  // Booking, es que falta subirlo y nos arriesgamos a comernos esa comisión.
+  const bkc=data.booking||null;
+  const avisoBk=(bkc&&bkc.reservas)
+    ? (bkc.sin_reporte&&bkc.sin_reporte.length
+        ? '<div style="border:1.5px solid var(--danger);background:var(--danger-soft,#FBE9E2);border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:13px">'+
+          '<b style="color:var(--danger)">⚠︎ Falta el reporte de Booking de este mes.</b> '+
+          bkc.sin_reporte.length+' de '+bkc.reservas+' estadías de Booking no traen la comisión de su reporte, así que va estimada. '+
+          'Súbelo en Contabilidad para no comernos la diferencia: '+
+          bkc.sin_reporte.map(function(x){return esc(x.guest)+' ('+esc(x.check_in)+')';}).join(' · ')+'</div>'
+        : '<div style="border:1.5px solid var(--sea);background:var(--accent-soft,#E7F1F0);border-radius:12px;padding:8px 12px;margin-bottom:10px;font-size:12.5px">'+
+          '✅ Booking cuadra: las '+bkc.reservas+' estadías traen la comisión de su propio reporte, '+money(bkc.comision)+' en total.</div>')
+    : '';
+  out.innerHTML=avisoBk+'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">'+
       '<span class="muted" style="font-size:12px">Mes '+esc(month)+' · '+owners.length+' dueño(s) · Pago total '+money(grand)+'</span>'+
       '<button class="btn sm" onclick="recCopiarTabla()" title="Copia todas las estadías con sus columnas, listas para pegar en Excel">📋 Copiar tabla</button></div>'+
     owners.map(function(o,oi){
