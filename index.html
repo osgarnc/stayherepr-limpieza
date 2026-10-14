@@ -2824,8 +2824,23 @@ async function contAnalizar(){
     if(out)out.innerHTML='<p class="muted" style="padding:10px">Todavía no has subido el reporte de dueños de Hostfully. Sin él no hay desglose que cuadrar.</p>';
     return;
   }
-  const {data:ups}=await sb.from('cont_uploads').select('*').eq('month',month);
-  const archivos=(ups||[]).filter(u=>u.kind!=='hostfully');
+  // Se leen también los archivos del mes anterior y del siguiente: un payout
+  // puede tener fecha de un mes y haberse subido en otro (el de Stripe del 28 de
+  // septiembre salió efectivo el 2 de octubre). Cada payout entra igual en el mes
+  // que le toca por su fecha, y los repetidos se descartan más abajo.
+  const _mAnt=function(m,d){const t=m.split('-');const x=new Date(Date.UTC(+t[0],+t[1]-1+d,1));
+    return x.getUTCFullYear()+'-'+String(x.getUTCMonth()+1).padStart(2,'0');};
+  const {data:ups}=await sb.from('cont_uploads').select('*')
+    .in('month',[_mAnt(month,-1),month,_mAnt(month,1)]);
+  // El mismo archivo suele estar subido varias veces (una por mes o por etiqueta)
+  // y cada subida tiene su propia ruta, así que se compara por nombre y tamaño.
+  const _vistos={};
+  const archivos=(ups||[]).filter(function(u){
+    if(u.kind==='hostfully')return false;
+    const k=[u.kind,u.filename,u.row_count].join('|');
+    if(_vistos[k])return false;
+    _vistos[k]=1;return true;
+  });
   if(!archivos.length){
     if(out)out.innerHTML='<p class="muted" style="padding:10px">Sube al menos un reporte de Airbnb, PayPal o Stripe.</p>';
     return;
@@ -3039,7 +3054,15 @@ function contArmarStripe(rows,month,label){
       const guest=contGet(r,['customer_name']);
       const pname=contGet(r,['payment_metadata[Property Internal Name]']);
       const desc=contGet(r,['description']);
-      if(cat==='risk_reserved_funds'){
+      // Stripe mueve la retención con dos categorías distintas: la retiene como
+      // "risk_reserved_funds" y la devuelve como "other_adjustment" con el texto
+      // "Contribution from reserved balance", sin nombre. Las dos son lo mismo.
+      const esRetencion=cat==='risk_reserved_funds'||
+        (cat==='other_adjustment'&&(/reserved balance|reserva/i.test(desc||'')||
+          // Algunos reportes traen el ajuste sin texto ninguno. Si en el mismo
+          // payout hay una retención por el mismo monto al revés, es su pareja.
+          p.lines.some(l=>l.kind==='reserva'&&Math.abs(l.amount+neto)<0.005)));
+      if(esRetencion){
         const f=guest?contBuscarFin(guest,null):null;
         let pid=(f&&f.property_id)||((contPropMatch(pname)||{}).id)||null;
         // Stripe suelta la retención en una fila SIN nombre ni propiedad. Su
@@ -3049,7 +3072,8 @@ function contArmarStripe(rows,month,label){
           if(par)pid=par.property_id;
         }
         p.lines.push({kind:'reserva',amount:neto,property_id:pid,qbo_class_id:contClassOf(pid),
-          guest_name:guest||null,description:(guest?guest+' — ':'')+'liberación de retención de Stripe'+
+          guest_name:guest||null,
+          description:(guest?guest+' — ':'')+(neto<0?'retención de Stripe':'liberación de retención de Stripe')+
             (!guest&&pid?' (contraparte del mismo monto)':'')});
         continue;
       }
@@ -3198,8 +3222,16 @@ async function contGuardarPayouts(month,payouts){
 // no duplica ni infla nada.
 async function contGuardarCobroFees(){
   if(!contCobroFees.length)return;
-  const {error}=await sb.from('cont_cobro_fees').upsert(contCobroFees,{onConflict:'txn_id'});
-  if(error)console.error('fees de cobro',error);
+  // Si un cargo viene en dos archivos, el upsert no admite el mismo id dos veces
+  // en la misma tanda: se queda con uno.
+  const unicos={};
+  contCobroFees.forEach(function(f){unicos[f.txn_id]=f;});
+  const filas=Object.values(unicos);
+  for(let i=0;i<filas.length;i+=200){
+    const {error}=await sb.from('cont_cobro_fees')
+      .upsert(filas.slice(i,i+200),{onConflict:'txn_id'});
+    if(error){console.error('fees de cobro',error);break;}
+  }
 }
 
 /* ---------- lista de payouts ---------- */
