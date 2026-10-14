@@ -823,7 +823,8 @@
   </div>
   <div id="tabRecexpenses" class="card hide" style="padding:18px">
     <div class="sectitle"><h2>💸 Gastos e ingresos</h2><span class="muted" id="recExpTotal"></span></div>
-    <p class="muted" style="font-size:13.5px;margin-top:-4px">Gastos e ingresos por propiedad. Un <b>gasto</b> se le resta al dueño; un <b>ingreso</b> se le suma (ejemplo: le vendiste algo viejo y le devuelves ese dinero). Marca <b>facturable</b> para que entre en su reporte. <span style="color:var(--ink-soft)">La primera fila de la tabla es para entrar: se queda con la última propiedad, fecha y tipo, y con Enter guardas. Lo de abajo se edita en la misma fila.</span></p>
+    <p class="muted" style="font-size:13.5px;margin-top:-4px">Gastos e ingresos por propiedad. Un <b>gasto</b> se le resta al dueño; un <b>ingreso</b> se le suma (ejemplo: le vendiste algo viejo y le devuelves ese dinero). Marca <b>facturable</b> para que entre en su reporte. <span style="color:var(--ink-soft)">Arriba se entra, abajo se edita en la misma línea.</span></p>
+    <div id="recExpEntrada" style="margin-bottom:14px"></div>
     <div id="recExpOrden" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px"></div>
     <div style="overflow:auto"><table id="recExpTable"></table></div>
   </div>
@@ -3681,7 +3682,7 @@ async function contSetAccount(key,val){
 }
 
 /* ---------- RECONCILIACIÓN DE DUEÑOS (back office, solo can_reconcile) ---------- */
-let recOwners=[],recOpsProps=[],recExpenses=[],recPropOwner={},recExpOrden='fecha',recExpFiltro='',recExpUlt={prop:'',date:'',kind:'gasto',billable:true};
+let recOwners=[],recOpsProps=[],recExpenses=[],recPropOwner={},recExpOrden='fecha',recExpFiltro='',recExpMes='',recExpUlt={prop:'',date:'',kind:'gasto',billable:true};
 const _recEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const _recAttr=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 const _recInp='padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;width:100%';
@@ -3776,15 +3777,24 @@ async function renderRecExpenses(){
   const {data,error}=await sb.from('ops_property_expenses').select('*').order('date',{ascending:false});
   if(error){el.innerHTML='<tr><td class="muted" style="padding:16px">No se pudo cargar.</td></tr>';return;}
   recExpenses=data||[];const pname={};recOpsProps.forEach(function(p){pname[p.id]=p.name;});
-  const gas=recExpenses.filter(function(e){return Number(e.amount||0)>=0;}),ing=recExpenses.filter(function(e){return Number(e.amount||0)<0;});
+  // Los totales son de lo que se está viendo, no de todo: con un filtro puesto,
+  // el número de arriba tiene que ser el de la pantalla.
+  const _vis=recExpenses.filter(function(e){
+    if(recExpFiltro&&e.property_id!==recExpFiltro)return false;
+    if(recExpMes&&String(e.date||'').slice(0,7)!==recExpMes)return false;
+    return true;
+  });
+  const gas=_vis.filter(function(e){return Number(e.amount||0)>=0;}),ing=_vis.filter(function(e){return Number(e.amount||0)<0;});
   const sum=function(l){return l.reduce(function(a,e){return a+Math.abs(Number(e.amount||0));},0);};
   const tEl=document.getElementById('recExpTotal');
-  if(tEl)tEl.textContent=recExpenses.length+' entrada(s) · gastos '+money(sum(gas))+' (facturable '+money(sum(gas.filter(function(e){return e.billable;})))+')'+
+  if(tEl)tEl.textContent=_vis.length+(recExpFiltro||recExpMes?' de '+recExpenses.length:'')+' entrada(s) · gastos '+money(sum(gas))+' (facturable '+money(sum(gas.filter(function(e){return e.billable;})))+')'+
     (ing.length?' · ingresos al dueño '+money(sum(ing))+' (facturable '+money(sum(ing.filter(function(e){return e.billable;})))+')':'');
   // Controles: ordenar por fecha o por propiedad (con subtotales), y ver una sola
   // propiedad. Ordenado por propiedad es como se corrobora contra el estado del dueño.
   const cEl=document.getElementById('recExpOrden');
   if(cEl){
+    const meses=[...new Set(recExpenses.map(function(e){return String(e.date||'').slice(0,7);}))]
+      .filter(Boolean).sort().reverse();
     const usados=[...new Set(recExpenses.map(function(e){return e.property_id;}))]
       .map(function(id){return {id:id,name:pname[id]||'— sin propiedad —'};})
       .sort(function(a,b){return a.name<b.name?-1:1;});
@@ -3796,13 +3806,18 @@ async function renderRecExpenses(){
       '<select onchange="recExpVer(this.value)" style="'+_recInp+';width:auto;max-width:240px">'+
         '<option value="">todas las propiedades</option>'+
         usados.map(function(p){return '<option value="'+_recAttr(p.id||'')+'"'+(recExpFiltro===p.id?' selected':'')+'>'+_recEsc(p.name)+'</option>';}).join('')+
-      '</select>';
+      '</select>'+
+      '<select onchange="recExpVerMes(this.value)" style="'+_recInp+';width:auto">'+
+        '<option value="">todos los meses</option>'+
+        meses.map(function(m){return '<option value="'+m+'"'+(recExpMes===m?' selected':'')+'>'+_recEsc(recMesNombre(m))+'</option>';}).join('')+
+      '</select>'+
+      ((recExpFiltro||recExpMes)?'<button class="btn sm ghost" style="font-size:12px;padding:4px 10px" onclick="recExpLimpiar()">✕ quitar filtros</button>':'');
   }
   // Fila de entrada: EXACTAMENTE las mismas columnas que las de abajo, para que
   // entrar un gasto sea como escribir en la tabla. Se queda con la última
   // propiedad, fecha y tipo usados, que es lo que no cambia entre entradas.
   const u=recExpUlt;
-  const entrada='<tr style="background:var(--sunk)">'+
+  const entrada='<tr>'+
     '<td><select id="expKind" style="'+_recInp+';font-weight:600">'+
       '<option value="gasto"'+(u.kind==='ingreso'?'':' selected')+'>Gasto</option>'+
       '<option value="ingreso"'+(u.kind==='ingreso'?' selected':'')+'>Ingreso</option></select></td>'+
@@ -3813,7 +3828,11 @@ async function renderRecExpenses(){
     '<td><input id="expAmt" type="number" step="0.01" min="0" placeholder="0.00" onkeydown="if(event.key===\'Enter\')addPropExpense()" style="'+_recInp+';width:100px;font-weight:600"></td>'+
     '<td style="text-align:center"><input type="checkbox" id="expBillable"'+(u.billable===false?'':' checked')+'></td>'+
     '<td style="text-align:right"><button class="btn sm" onclick="addPropExpense()">➕ Añadir</button></td></tr>';
-  let ver=recExpFiltro?recExpenses.filter(function(e){return e.property_id===recExpFiltro;}):recExpenses.slice();
+  let ver=recExpenses.filter(function(e){
+    if(recExpFiltro&&e.property_id!==recExpFiltro)return false;
+    if(recExpMes&&String(e.date||'').slice(0,7)!==recExpMes)return false;
+    return true;
+  });
   if(recExpOrden==='propiedad')ver.sort(function(a,b){
     const na=(pname[a.property_id]||'zzz'),nb=(pname[b.property_id]||'zzz');
     if(na!==nb)return na<nb?-1:1;
@@ -3852,12 +3871,28 @@ async function renderRecExpenses(){
     });
     cuerpo+=cierre();
   } else cuerpo=ver.map(fila).join('');
-  el.innerHTML='<tr><th>Tipo</th><th>Propiedad</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Facturable</th><th></th></tr>'+entrada+
+  const CAB='<tr><th>Tipo</th><th>Propiedad</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Facturable</th><th></th></tr>';
+  // La caja de entrar va aparte de la lista: mezcladas confunden.
+  const eEl=document.getElementById('recExpEntrada');
+  if(eEl)eEl.innerHTML='<div style="border:1.5px dashed var(--line);border-radius:12px;padding:10px 12px;background:var(--sunk)">'+
+    '<div style="font-weight:800;font-size:13px;margin-bottom:6px">➕ Entrar un gasto o ingreso'+
+      '<span class="muted" style="font-weight:400;font-size:11.5px"> · se queda con la última propiedad, fecha y tipo; con Enter guardas</span></div>'+
+    '<div style="overflow:auto"><table style="width:100%">'+CAB+entrada+'</table></div></div>';
+  el.innerHTML=CAB+
     (ver.length?cuerpo:'<tr><td colspan="7" class="muted" style="padding:16px;text-align:center">'+
-      (recExpenses.length?'Esa propiedad no tiene entradas.':'Aún no hay entradas.')+'</td></tr>');
+      (recExpenses.length?'No hay entradas con esos filtros.':'Aún no hay entradas.')+'</td></tr>');
 }
 function recExpSort(k){recExpOrden=k;renderRecExpenses();}
 function recExpVer(v){recExpFiltro=v||'';renderRecExpenses();}
+function recExpVerMes(v){recExpMes=v||'';renderRecExpenses();}
+function recExpLimpiar(){recExpFiltro='';recExpMes='';renderRecExpenses();}
+// "2026-09" → "septiembre 2026"
+const REC_MESES_ES=['enero','febrero','marzo','abril','mayo','junio','julio',
+  'agosto','septiembre','octubre','noviembre','diciembre'];
+function recMesNombre(m){
+  const t=String(m||'').split('-');
+  return (REC_MESES_ES[Number(t[1])-1]||m)+' '+(t[0]||'');
+}
 async function addPropExpense(){
   const prop=document.getElementById('expProp').value;const date=document.getElementById('expDate').value||todayISO();
   const desc=(document.getElementById('expDesc').value||'').trim();const amt=parseFloat(document.getElementById('expAmt').value)||0;
