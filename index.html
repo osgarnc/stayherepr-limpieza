@@ -3909,9 +3909,7 @@ let recReportData=null;
 function _recN(v){return (Number(v)||0).toFixed(2);}
 function recCelda(s,c){
   let v=c.txt?_recEsc(s[c.k]||''):(c.ent?String(Number(s[c.k])||0):_recN(s[c.k]));
-  const aviso=s.cancelada?' &#10005; cancelada':(s.duplicado?' &#9888; duplicada':'');
-  if(c.k==='guest'&&aviso)v='<s>'+v+'</s><span style="color:var(--danger)">'+aviso+'</span>';
-  if(c.k==='net'&&s.airbnb&&!s.cancelada)
+  if(c.k==='net'&&s.airbnb)
     v='<span title="Airbnb le paga al dueño directo; marca la propiedad en Dueños si esa cuenta es de Stay Here.">'+v+'</span>';
   if(c.k==='channel_fee'&&s.canal_estimado)
     v='<span title="Booking la factura aparte: el reporte de Hostfully la trae en 0 y la app la estima al '+_recEsc(s.channel_pct)+'%." style="border-bottom:1px dotted var(--ink-soft)">'+v+'</span>';
@@ -3919,16 +3917,18 @@ function recCelda(s,c){
     (c.verde?';background:rgba(16,185,129,.10)':'')+'">'+v+'</td>';
 }
 function recTablaEstadias(p){
-  const filas=p.stays||[];
-  if(!filas.length)return '<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>';
+  // Las canceladas y las duplicadas NO van en la tabla: no se pagan y puestas
+  // entre las demás parecen que suman. Salen abajo, en su propia sección.
+  const filas=(p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;});
+  if(!filas.length)return '<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías que pagar este mes</div>';
   const tot={};REC_COLS.forEach(function(c){tot[c.k]=0;});
   const th=REC_COLS.map(function(c){
     return '<th style="padding:4px 6px;text-align:'+(c.txt?'left':'right')+';white-space:nowrap;'+
       'font-size:10.5px;font-weight:700;border-bottom:1.5px solid var(--line)'+
       (c.verde?';background:rgba(16,185,129,.14)':'')+'">'+_recEsc(c.t)+'</th>';}).join('');
   const tr=filas.map(function(s){
-    if(!(s.cancelada||s.duplicado))REC_COLS.forEach(function(c){if(!c.txt)tot[c.k]+=Number(s[c.k])||0;});
-    return '<tr style="border-bottom:1px solid var(--line)'+((s.cancelada||s.duplicado||s.airbnb)?';opacity:.6':'')+'">'+
+    REC_COLS.forEach(function(c){if(!c.txt)tot[c.k]+=Number(s[c.k])||0;});
+    return '<tr style="border-bottom:1px solid var(--line)'+(s.airbnb?';opacity:.6':'')+'">'+
       REC_COLS.map(function(c){return recCelda(s,c);}).join('')+'</tr>';
   }).join('');
   const tf=REC_COLS.map(function(c){
@@ -3963,17 +3963,28 @@ function recMesIngles(m){
 }
 // El reporte que recibe el dueño va en INGLÉS: los dueños son de habla inglesa.
 // La app por dentro sigue en español.
+// Una cancelación ya sale en su propio bloque con lo que pagó y lo que se le
+// devolvió; no hace falta repetirla arriba.
+function _recEnCanc(p,s){
+  const pil=function(x){return String(x||'').trim().split(/\s+/)[0].toLowerCase();};
+  return (p.cancellations||[]).some(function(c){
+    return pil(c.guest)===pil(s.guest)&&String(c.check_in)===String(s.check_in);
+  });
+}
 function recDatosProp(o,p,mes){
   const vivas=(p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;});
   const tot={};REC_COLS.forEach(function(c){tot[c.k]=c.txt?'':0;});
   vivas.forEach(function(s){REC_COLS.forEach(function(c){if(!c.txt)tot[c.k]+=Number(s[c.k])||0;});});
-  const filas=(p.stays||[]).map(function(s){
-    const nota=s.cancelada?' (cancelled — not paid)':(s.duplicado?' (duplicate — not paid)':'');
+  // En el archivo del dueño tampoco van entre las que se pagan: abajo tiene su
+  // propia sección.
+  const filas=vivas.map(function(s){
     return REC_COLS.map(function(c){
-      if(c.k==='guest')return String(s.guest||'')+nota;
       return c.txt?String(s[c.k]||''):Number((Number(s[c.k])||0).toFixed(2));
     });
   });
+  const fuera=(p.stays||[]).filter(function(s){return (s.cancelada||s.duplicado)&&!_recEnCanc(p,s);})
+    .map(function(s){return [String(s.check_in||''),String(s.guest||''),
+      s.cancelada?'Cancelled':'Duplicate',Number((Number(s.net)||0).toFixed(2))];});
   const totales=REC_COLS.map(function(c){return c.txt?'':Number((tot[c.k]||0).toFixed(2));});
   totales[0]='TOTAL';
   const gastos=(p.expenses||[]).map(function(e){
@@ -3995,7 +4006,7 @@ function recDatosProp(o,p,mes){
   resumen.push(['OWNER PAYOUT',Number((Number(p.payout)||0).toFixed(2))]);
   return {owner:o.name,prop:p.property_name,mes:mes,pct:p.commission_pct,
     enc:REC_COLS.map(function(c){return c.t;}),filas:filas,totales:totales,
-    gastos:gastos,canc:canc,resumen:resumen};
+    fuera:fuera,gastos:gastos,canc:canc,resumen:resumen};
 }
 // El logo se carga una sola vez y se guarda como data URI, que es lo que pide
 // jsPDF. Si no carga (sin conexión, archivo movido) el reporte sale igual, solo
@@ -4068,6 +4079,12 @@ async function recExcelProp(oi,pi){
   const aoa=[[REC_MARCA.nombre],['Owner Statement'],[d.prop],
     ['Owner: '+d.owner+'  ·  '+recMesIngles(d.mes)+'  ·  Owner share: '+d.pct+'%'],[],d.enc]
     .concat(d.filas,[d.totales],[[]]);
+  if(d.fuera&&d.fuera.length){
+    aoa.push(['Not paid — cancelled or duplicate reservations'],
+      ['Check In','Guest','Why','Would have been']);
+    d.fuera.forEach(function(x){aoa.push(x);});
+    aoa.push([]);
+  }
   if(d.gastos.length){
     aoa.push(['Expenses & income'],['Date','Description','Billable?','Amount']);
     d.gastos.forEach(function(g){aoa.push(g);});
@@ -4106,10 +4123,6 @@ function recTablaPdf(doc,d,y0){
       if(i>=5)cs[i]={halign:'right'};
       if(i===iOwner)cs[i]={halign:'right',fillColor:[223,245,233],fontStyle:'bold'};
     });return cs;})(),
-    didParseCell:function(h){
-      if(h.section==='body'&&/\(cancelled|\(duplicate/.test(String(d.filas[h.row.index][1]||'')))
-        h.cell.styles.textColor=[150,150,150];
-    }
   });
   let y=doc.lastAutoTable.finalY+16;
   const bloque=function(titulo,enc,filas){
@@ -4119,6 +4132,8 @@ function recTablaPdf(doc,d,y0){
       headStyles:{fillColor:[90,100,110],fontSize:6.8},margin:{left:40}});
     y=doc.lastAutoTable.finalY+16;
   };
+  bloque('Not paid — cancelled or duplicate reservations',
+    ['Check In','Guest','Why','Would have been'],d.fuera||[]);
   bloque('Expenses & income',['Date','Description','Billable?','Amount'],d.gastos);
   bloque('Cancellations',['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee'],d.canc);
   doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],r[1].toFixed(2)];}),
@@ -4185,6 +4200,11 @@ async function recExcelDueno(oi){
     usados[nom]=(usados[nom]||0)+1; if(usados[nom]>1)nom=nom.slice(0,25)+' '+usados[nom];
     const aoa=[[dp.prop],['Owner: '+dp.owner+'  ·  '+recMesIngles(dp.mes)+'  ·  Owner share: '+dp.pct+'%'],[],dp.enc]
       .concat(dp.filas,[dp.totales],[[]]);
+    if(dp.fuera&&dp.fuera.length){
+      aoa.push(['Not paid — cancelled or duplicate reservations'],
+        ['Check In','Guest','Why','Would have been']);
+      dp.fuera.forEach(function(x){aoa.push(x);});aoa.push([]);
+    }
     if(dp.gastos.length){
       aoa.push(['Expenses & income'],['Date','Description','Billable?','Amount']);
       dp.gastos.forEach(function(g){aoa.push(g);});aoa.push([]);
@@ -4293,8 +4313,14 @@ async function renderRecReport(){
             return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:'+col+'"><span>'+(ing?'↑ ':'')+esc(e.description)+' <span class="muted">'+esc(e.date)+(e.billable?'':' (no fact.)')+'</span></span><span>'+(e.billable?(ing?'+':'−'):'')+money(Math.abs(Number(e.amount||0)))+'</span></div>';}).join('');
           const cancRows=(p.cancellations||[]).map(function(c){
             const fee=Number(c.fee_cobro||0),fd=Number(c.fee_dueno||0),kept=Number(c.kept||0);
+            // Lo que se le habría pagado al dueño si la estadía hubiera ocurrido.
+            const est=(p.stays||[]).find(function(s){
+              return (s.cancelada||s.duplicado)&&String(s.check_in)===String(c.check_in)&&
+                String(s.guest||'').trim().split(/\s+/)[0].toLowerCase()===String(c.guest||'').trim().split(/\s+/)[0].toLowerCase();
+            });
             return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:var(--ink-soft)">'+
               '<span>✕ '+esc(c.guest||'—')+' <span class="muted">'+esc(c.check_in)+'→'+esc(c.check_out)+'</span>'+
+              (est?' <span class="muted">· no se paga '+money(est.net)+'</span>':'')+
               (kept?' <span class="muted">· se quedó '+money(kept)+' (entra como renta)</span>':'')+'</span>'+
               '<span class="muted" style="font-size:11px">'+esc(c.source||'')+
               (fee?' · fee de cobro '+money(fee)+' → dueño <b style="color:var(--danger)">'+money(fd)+'</b>'
@@ -4308,7 +4334,16 @@ async function renderRecReport(){
                 '<button class="btn sm" onclick="recPdfProp('+oi+','+pi+')" title="Descargar el reporte de esta propiedad en PDF">⬇︎ PDF</button>'+
               '</span></div>'+
             (staysRows||'<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>')+
-            ((p.stays||[]).filter(function(s){return s.cancelada;}).length?'<div style="margin-top:3px;font-size:11.5px;color:var(--ink-soft)">✕ '+((p.stays||[]).filter(function(s){return s.cancelada;}).length)+' reserva(s) cancelada(s). Hostfully las trae en el reporte con su pago, pero de esas no entró dinero: no se pagan.</div>':'')+
+            (function(){
+              const fuera=(p.stays||[]).filter(function(s){return (s.cancelada||s.duplicado)&&!_recEnCanc(p,s);});
+              if(!fuera.length)return '';
+              return '<div style="margin-top:5px;font-size:11.5px;color:var(--ink-soft);border-top:1px dashed var(--line);padding-top:5px">'+
+                '<b>Fuera del pago</b> — '+fuera.length+' reserva(s) que Hostfully trae en el reporte pero de las que no entró dinero:<br>'+
+                fuera.map(function(s){
+                  return '<span style="white-space:nowrap">✕ '+esc(s.guest)+' '+esc(s.check_in)+
+                    (s.duplicado?' (duplicada)':' (cancelada)')+' · hubiera sido '+money(s.net)+'</span>';
+                }).join(' &nbsp;·&nbsp; ')+'</div>';
+            })()+
             ((p.duplicadas||[]).length?'<div style="margin-top:3px;font-size:11.5px;color:var(--danger)">⚠︎ '+((p.duplicadas||[]).length)+' reserva(s) duplicada(s) en Hostfully: no se pagan. Si alguna es real, revísala en Hostfully.</div>':'')+
             // Hostfully mete aquí tanto los reembolsos de verdad como los
             // ajustes de precio, y pueden ser de meses atrás: se dice qué es,
