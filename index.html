@@ -3993,6 +3993,9 @@ function recDatosProp(o,p,mes){
       e.billable?'Billable to owner':'Not billable',
       Number((ing?-1:1)*Math.abs(Number(e.amount||0)).toFixed(2))];
   });
+  const gastosTot=[['','Subtotal billable','',
+    Number(((p.expenses||[]).filter(function(e){return e.billable;})
+      .reduce(function(t,e){return t+Number(e.amount||0);},0)).toFixed(2))]];
   const canc=(p.cancellations||[]).map(function(c){
     return [String(c.check_in||''),String(c.guest||''),String(c.source||''),
       Number((Number(c.paid)||0).toFixed(2)),Number((Number(c.refunded)||0).toFixed(2)),
@@ -4006,7 +4009,7 @@ function recDatosProp(o,p,mes){
   resumen.push(['OWNER PAYOUT',Number((Number(p.payout)||0).toFixed(2))]);
   return {owner:o.name,prop:p.property_name,mes:mes,pct:p.commission_pct,
     enc:REC_COLS.map(function(c){return c.t;}),filas:filas,totales:totales,
-    fuera:fuera,gastos:gastos,canc:canc,resumen:resumen};
+    fuera:fuera,gastos:gastos,gastosTot:gastosTot,canc:canc,resumen:resumen};
 }
 // El logo se carga una sola vez y se guarda como data URI, que es lo que pide
 // jsPDF. Si no carga (sin conexión, archivo movido) el reporte sale igual, solo
@@ -4088,6 +4091,7 @@ async function recExcelProp(oi,pi){
   if(d.gastos.length){
     aoa.push(['Expenses & income'],['Date','Description','Billable?','Amount']);
     d.gastos.forEach(function(g){aoa.push(g);});
+    (d.gastosTot||[]).forEach(function(g){aoa.push(g);});
     aoa.push([]);
   }
   if(d.canc.length){
@@ -4125,16 +4129,19 @@ function recTablaPdf(doc,d,y0){
     });return cs;})(),
   });
   let y=doc.lastAutoTable.finalY+16;
-  const bloque=function(titulo,enc,filas){
+  const bloque=function(titulo,enc,filas,total){
     if(!filas.length)return;
     doc.setFontSize(10);doc.text(titulo,40,y);
-    doc.autoTable({startY:y+6,head:[enc],body:filas,styles:{fontSize:7,cellPadding:3},
-      headStyles:{fillColor:[90,100,110],fontSize:6.8},margin:{left:40}});
+    doc.autoTable({startY:y+6,head:[enc],body:filas,foot:total&&total.length?total:undefined,
+      styles:{fontSize:7,cellPadding:3},headStyles:{fillColor:[90,100,110],fontSize:6.8},
+      footStyles:{fillColor:[236,240,241],textColor:20,fontStyle:'bold',fontSize:7},
+      margin:{left:40}});
     y=doc.lastAutoTable.finalY+16;
   };
   bloque('Not paid — cancelled or duplicate reservations',
     ['Check In','Guest','Why','Would have been'],d.fuera||[]);
-  bloque('Expenses & income',['Date','Description','Billable?','Amount'],d.gastos);
+  bloque('Expenses & income',['Date','Description','Billable?','Amount'],d.gastos,
+    (d.gastosTot||[]).map(function(g){return g.map(function(v,i){return i===3?Number(v).toFixed(2):String(v);});}));
   bloque('Cancellations',['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee'],d.canc);
   doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],r[1].toFixed(2)];}),
     styles:{fontSize:9,cellPadding:4},margin:{left:40},tableWidth:300,
@@ -4207,7 +4214,9 @@ async function recExcelDueno(oi){
     }
     if(dp.gastos.length){
       aoa.push(['Expenses & income'],['Date','Description','Billable?','Amount']);
-      dp.gastos.forEach(function(g){aoa.push(g);});aoa.push([]);
+      dp.gastos.forEach(function(g){aoa.push(g);});
+      (dp.gastosTot||[]).forEach(function(g){aoa.push(g);});
+      aoa.push([]);
     }
     if(dp.canc.length){
       aoa.push(['Cancellations'],['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee']);
@@ -4311,6 +4320,18 @@ async function renderRecReport(){
           const staysRows=recTablaEstadias(p);
           const expRows=(p.expenses||[]).map(function(e){const ing=Number(e.amount||0)<0;const col=!e.billable?'var(--ink-soft)':(ing?'var(--sea)':'var(--danger)');
             return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:'+col+'"><span>'+(ing?'↑ ':'')+esc(e.description)+' <span class="muted">'+esc(e.date)+(e.billable?'':' (no fact.)')+'</span></span><span>'+(e.billable?(ing?'+':'−'):'')+money(Math.abs(Number(e.amount||0)))+'</span></div>';}).join('');
+          // Subtotal de gastos: lo que se le cobra al dueño (lo que mueve su pago)
+          // y, aparte, lo que no se le cobra, que va solo de información.
+          const _gf=(p.expenses||[]).filter(function(e){return e.billable;})
+            .reduce(function(t,e){return t+Number(e.amount||0);},0);
+          const _gn=(p.expenses||[]).filter(function(e){return !e.billable;})
+            .reduce(function(t,e){return t+Number(e.amount||0);},0);
+          const expTot=(p.expenses||[]).length
+            ? '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0 2px;margin-top:2px;border-top:1px solid var(--line);font-weight:700">'+
+                '<span>Subtotal que se le cobra</span><span>'+(_gf<0?'+':'−')+money(Math.abs(_gf))+'</span></div>'+
+              (_gn?'<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:1px 0" class="muted">'+
+                '<span>No se le cobra (informativo)</span><span>'+money(Math.abs(_gn))+'</span></div>':'')
+            : '';
           const cancRows=(p.cancellations||[]).map(function(c){
             const fee=Number(c.fee_cobro||0),fd=Number(c.fee_dueno||0),kept=Number(c.kept||0);
             // Lo que se le habría pagado al dueño si la estadía hubiera ocurrido.
@@ -4358,7 +4379,7 @@ async function renderRecReport(){
                     '<span>'+money(Math.abs(Number(a.amount||0)))+'</span></div>';
                 }).join('');
               }).join('')+'</div>':'')+
-            (expRows?'<div style="margin-top:3px">'+expRows+'</div>':'')+
+            (expRows?'<div style="margin-top:3px">'+expRows+expTot+'</div>':'')+
             (Number(p.cancel_fee_owner)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Fee de cobro de cancelaciones, parte del dueño ('+esc(100-Number(p.commission_pct||0))+'% lo absorbe Stay Here)</span><span>−'+money(p.cancel_fee_owner)+'</span></div>':'')+
             (cancRows?'<div style="margin-top:5px"><div class="muted" style="font-size:11px;font-weight:700;margin-bottom:1px">Cancelaciones</div>'+cancRows+'</div>':'')+
             '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px"><span class="muted">Pago propiedad</span><b>'+money(p.payout)+'</b></div>'+
