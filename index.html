@@ -3955,7 +3955,7 @@ function recTablaEstadias(p){
   // Las canceladas y las duplicadas NO van en la tabla: no se pagan y puestas
   // entre las demás parecen que suman. Salen abajo, en su propia sección.
   const filas=(p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;});
-  if(!filas.length)return '<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías que pagar este mes</div>';
+  if(!filas.length)return '<div class="muted" style="font-size:12px;padding:3px 0">No stays to pay this month</div>';
   const tot={};REC_COLS.forEach(function(c){tot[c.k]=0;});
   const th=REC_COLS.map(function(c){
     return '<th style="padding:4px 6px;text-align:'+(c.txt?'left':'right')+';white-space:nowrap;'+
@@ -4028,7 +4028,7 @@ function recDatosProp(o,p,mes){
       e.billable?'Billable to owner':'Not billable',
       Number((ing?-1:1)*Math.abs(Number(e.amount||0)).toFixed(2))];
   });
-  const gastosTot=[['','Subtotal billable','',
+  const gastosTot=[['','Total Expense','',
     Number(((p.expenses||[]).filter(function(e){return e.billable;})
       .reduce(function(t,e){return t+Number(e.amount||0);},0)).toFixed(2))]];
   const canc=(p.cancellations||[]).map(function(c){
@@ -4038,10 +4038,10 @@ function recDatosProp(o,p,mes){
   });
   const resumen=[
     ['Stay payout',Number((Number(p.stays_net)||0).toFixed(2))],
-    ['Billable expenses & income',Number((-(Number(p.billable_expense)||0)).toFixed(2))]
+    ['Total Expense',Number((-(Number(p.billable_expense)||0)).toFixed(2))]
   ];
   if(Number(p.cancel_fee_owner))resumen.push(['Cancellation processing fees',Number((-(Number(p.cancel_fee_owner))).toFixed(2))]);
-  resumen.push(['OWNER PAYOUT',Number((Number(p.payout)||0).toFixed(2))]);
+  resumen.push(['Owners PayOut',Number((Number(p.payout)||0).toFixed(2))]);
   return {owner:o.name,prop:p.property_name,mes:mes,pct:p.commission_pct,
     enc:REC_COLS.map(function(c){return c.t;}),filas:filas,totales:totales,
     fuera:fuera,gastos:gastos,gastosTot:gastosTot,canc:canc,resumen:resumen};
@@ -4115,7 +4115,7 @@ async function recExcelProp(oi,pi){
   catch(e){ toast('No se pudo cargar el generador de Excel'); return; }
   const X=window.XLSX;
   const aoa=[[REC_MARCA.nombre],['Owner Statement'],[d.prop],
-    ['Owner: '+d.owner+'  ·  '+recMesIngles(d.mes)+'  ·  Owner share: '+d.pct+'%'],[],d.enc]
+    [d.owner+'  ·  '+recMesIngles(d.mes)+'  ·  Owner '+d.pct+'%  ·  StayHere '+_recN(100-Number(d.pct||0)).replace(/\.00$/,'')+'%'],[],d.enc]
     .concat(d.filas,[d.totales],[[]]);
   if(d.fuera&&d.fuera.length){
     aoa.push(['Not paid — cancelled or duplicate reservations'],
@@ -4181,7 +4181,7 @@ function recTablaPdf(doc,d,y0){
   doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],r[1].toFixed(2)];}),
     styles:{fontSize:9,cellPadding:4},margin:{left:40},tableWidth:300,
     columnStyles:{1:{halign:'right',fontStyle:'bold'}},
-    didParseCell:function(h){if(String(h.row.raw[0]).indexOf('OWNER PAYOUT')===0){
+    didParseCell:function(h){if(String(h.row.raw[0]).indexOf('Owners PayOut')===0){
       h.cell.styles.fontStyle='bold';h.cell.styles.fillColor=[223,245,233];}}});
 }
 async function recPdfProp(oi,pi){
@@ -4192,7 +4192,8 @@ async function recPdfProp(oi,pi){
   }catch(e){ toast('No se pudo cargar el generador de PDF'); return; }
   const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
   const y0=await recEncabezadoPdf(doc,'Owner Statement  ·  '+d.prop,
-    'Owner: '+d.owner+'   ·   Owner share: '+d.pct+'%',recMesIngles(d.mes));
+    d.owner+'   ·   Owner '+d.pct+'%  ·  StayHere '+_recN(100-Number(d.pct||0)).replace(/\.00$/,'')+'%',
+    recMesIngles(d.mes));
   recTablaPdf(doc,d,y0);
   recPiePdf(doc);
   doc.save(_recArchivo(d,'pdf'));
@@ -4219,7 +4220,7 @@ function recDatosDueno(oi){
   const tot=['TOTAL',0,0,0,0,0,0,0];
   resumen.forEach(function(r){for(let i=1;i<8;i++)tot[i]=Number((tot[i]+r[i]).toFixed(2));});
   return {owner:o.name,mes:mes,props:props,
-    encRes:['Property','Stays','Rent','Stay Here Commission','Stay Payout','Expenses & Income','Cancellation Fees','PAYOUT'],
+    encRes:['Property','Stays','Rent','StayHere Commission','Stay Payout','Total Expense','Cancellation Fees','Owners PayOut'],
     resumen:resumen,totales:tot,pago:Number((Number(o.total_payout)||0).toFixed(2))};
 }
 function _recArchivoD(d,ext){
@@ -4240,7 +4241,7 @@ async function recExcelDueno(oi){
   d.props.forEach(function(dp){
     let nom=(dp.prop||'Property').replace(/[\\/?*\[\]:]/g,' ').slice(0,28).trim()||'Property';
     usados[nom]=(usados[nom]||0)+1; if(usados[nom]>1)nom=nom.slice(0,25)+' '+usados[nom];
-    const aoa=[[dp.prop],['Owner: '+dp.owner+'  ·  '+recMesIngles(dp.mes)+'  ·  Owner share: '+dp.pct+'%'],[],dp.enc]
+    const aoa=[[dp.prop],[dp.owner+'  ·  '+recMesIngles(dp.mes)+'  ·  Owner '+dp.pct+'%  ·  StayHere '+_recN(100-Number(dp.pct||0)).replace(/\.00$/,'')+'%'],[],dp.enc]
       .concat(dp.filas,[dp.totales],[[]]);
     if(dp.fuera&&dp.fuera.length){
       aoa.push(['Not paid — cancelled or duplicate reservations'],
@@ -4285,13 +4286,14 @@ async function recPdfDueno(oi){
   });
   let y=doc.lastAutoTable.finalY+14;
   doc.setFont('helvetica','bold');doc.setFontSize(11);
-  doc.text('Total owner payout:  '+d.pago.toFixed(2),40,y);
+  doc.text('Total Owners PayOut:  '+d.pago.toFixed(2),40,y);
   doc.setFont('helvetica','normal');
   // El detalle de cada propiedad, una por página.
   for(const dp of d.props){
     doc.addPage();
     const yy=await recEncabezadoPdf(doc,'Owner Statement  ·  '+dp.prop,
-      'Owner: '+dp.owner+'   ·   Owner share: '+dp.pct+'%',recMesIngles(dp.mes));
+      dp.owner+'   ·   Owner '+dp.pct+'%  ·  StayHere '+_recN(100-Number(dp.pct||0)).replace(/\.00$/,'')+'%',
+      recMesIngles(dp.mes));
     recTablaPdf(doc,dp,yy);
   }
   recPiePdf(doc);
@@ -4316,13 +4318,13 @@ async function renderRecReport(){
   const out=document.getElementById('recReportOut');if(!out)return;
   recDefaultMonth();
   const mi=document.getElementById('recMonth');const month=(mi&&mi.value)||new Date(Date.now()-4*3600*1000).toISOString().slice(0,7);
-  out.innerHTML='<p class="muted" style="text-align:center;padding:20px">Generando en vivo desde Hostfully… (puede tardar unos segundos)</p>';
+  out.innerHTML='<p class="muted" style="text-align:center;padding:20px">Building live from Hostfully… (this can take a few seconds)</p>';
   let data;
   try{const r=await sb.functions.invoke('ops-owner-report',{body:{month:month}});if(r.error)throw r.error;if(!r.data||!r.data.ok)throw new Error((r.data&&r.data.error)||'error');data=r.data;}
-  catch(e){out.innerHTML='<p class="muted" style="text-align:center;padding:20px">No se pudo generar el reporte. Intenta de nuevo.</p>';return;}
+  catch(e){out.innerHTML='<p class="muted" style="text-align:center;padding:20px">Could not build the report. Try again.</p>';return;}
   recReportData=data;
   const owners=data.owners||[];const esc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  if(!owners.length){out.innerHTML='<p class="muted" style="text-align:center;padding:20px">Sin datos para '+esc(month)+'. Asigna propiedades a dueños (con su % de comisión) en la pestaña Dueños.</p>';return;}
+  if(!owners.length){out.innerHTML='<p class="muted" style="text-align:center;padding:20px">No data for '+esc(recMesIngles(month))+'. Assign properties to owners (with their %) in the Dueños tab.</p>';return;}
   const grand=owners.reduce((s,o)=>s+Number(o.total_payout||0),0);
   // Cuadre de Booking: si alguna estadía no trae la comisión del reporte de
   // Booking, es que falta subirlo y nos arriesgamos a comernos esa comisión.
@@ -4330,31 +4332,31 @@ async function renderRecReport(){
   const avisoBk=(bkc&&bkc.reservas)
     ? (bkc.sin_reporte&&bkc.sin_reporte.length
         ? '<div style="border:1.5px solid var(--danger);background:var(--danger-soft,#FBE9E2);border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:13px">'+
-          '<b style="color:var(--danger)">⚠︎ Falta el reporte de Booking de este mes.</b> '+
-          bkc.sin_reporte.length+' de '+bkc.reservas+' estadías de Booking no traen la comisión de su reporte, así que va estimada. '+
-          'Súbelo en Contabilidad para no comernos la diferencia: '+
+          '<b style="color:var(--danger)">⚠︎ This month&rsquo;s Booking.com report is missing.</b> '+
+          bkc.sin_reporte.length+' of '+bkc.reservas+' Booking stays do not carry the commission from their own report, so it is estimated. '+
+          'Upload it in Contabilidad so we do not absorb the difference: '+
           bkc.sin_reporte.map(function(x){return esc(x.guest)+' ('+esc(x.check_in)+')';}).join(' · ')+'</div>'
         : '<div style="border:1.5px solid var(--sea);background:var(--accent-soft,#E7F1F0);border-radius:12px;padding:8px 12px;margin-bottom:10px;font-size:12.5px">'+
-          '✅ Booking cuadra: las '+bkc.reservas+' estadías traen la comisión de su propio reporte, '+money(bkc.comision)+' en total.</div>')
+          '✅ Booking ties out: all '+bkc.reservas+' stays carry the commission from Booking&rsquo;s own report, '+money(bkc.comision)+' in total.</div>')
     : '';
   out.innerHTML=avisoBk+'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">'+
-      '<span class="muted" style="font-size:12px">Mes '+esc(month)+' · '+owners.length+' dueño(s) · Pago total '+money(grand)+'</span>'+
-      '<button class="btn sm" onclick="recCopiarTabla()" title="Copia todas las estadías con sus columnas, listas para pegar en Excel">📋 Copiar tabla</button></div>'+
+      '<span class="muted" style="font-size:12px">'+esc(recMesIngles(month))+' · '+owners.length+' owner(s) · Total payout '+money(grand)+'</span>'+
+      '<button class="btn sm" onclick="recCopiarTabla()" title="Copies every stay with its columns, ready to paste into Excel">📋 Copy table</button></div>'+
     owners.map(function(o,oi){
       return '<div style="border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'+
           '<b style="font-size:16px">'+esc(o.name)+'</b>'+
           '<span style="display:flex;align-items:center;gap:8px">'+
             ((o.properties||[]).length>1
-              ? '<button class="btn sm" onclick="recExcelDueno('+oi+')" title="Un solo Excel con el resumen de sus '+((o.properties||[]).length)+' propiedades y una hoja por cada una">⬇︎ Consolidado Excel</button>'+
-                '<button class="btn sm" onclick="recPdfDueno('+oi+')" title="Un solo PDF con el resumen de sus '+((o.properties||[]).length)+' propiedades y el detalle de cada una">⬇︎ Consolidado PDF</button>'
+              ? '<button class="btn sm" onclick="recExcelDueno('+oi+')" title="One Excel with the summary of their '+((o.properties||[]).length)+' properties and a sheet for each">⬇︎ Consolidated Excel</button>'+
+                '<button class="btn sm" onclick="recPdfDueno('+oi+')" title="One PDF with the summary of their '+((o.properties||[]).length)+' properties and the detail of each">⬇︎ Consolidated PDF</button>'
               : '')+
             '<span style="font-weight:800;color:var(--sea);font-size:16px">'+money(o.total_payout)+'</span>'+
           '</span></div>'+
         o.properties.map(function(p,pi){
           const staysRows=recTablaEstadias(p);
           const expRows=(p.expenses||[]).map(function(e){const ing=Number(e.amount||0)<0;const col=!e.billable?'var(--ink-soft)':(ing?'var(--sea)':'var(--danger)');
-            return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:'+col+'"><span>'+(ing?'↑ ':'')+esc(e.description)+' <span class="muted">'+esc(e.date)+(e.billable?'':' (no fact.)')+'</span></span><span>'+(e.billable?(ing?'+':'−'):'')+money(Math.abs(Number(e.amount||0)))+'</span></div>';}).join('');
+            return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:'+col+'"><span>'+(ing?'↑ ':'')+esc(e.description)+' <span class="muted">'+esc(e.date)+(e.billable?'':' (not billable)')+'</span></span><span>'+(e.billable?(ing?'+':'−'):'')+money(Math.abs(Number(e.amount||0)))+'</span></div>';}).join('');
           // Subtotal de gastos: lo que se le cobra al dueño (lo que mueve su pago)
           // y, aparte, lo que no se le cobra, que va solo de información.
           const _gf=(p.expenses||[]).filter(function(e){return e.billable;})
@@ -4366,9 +4368,9 @@ async function renderRecReport(){
           const _gcol=_gf<0?'var(--sea)':'var(--danger)';
           const expTot=(p.expenses||[]).length
             ? '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:4px 0 2px;margin-top:2px;border-top:1px solid var(--line);font-weight:800;color:'+_gcol+'">'+
-                '<span>Subtotal que se le cobra</span><span>'+(_gf<0?'+':'−')+money(Math.abs(_gf))+'</span></div>'+
+                '<span>Total Expense</span><span>'+(_gf<0?'+':'−')+money(Math.abs(_gf))+'</span></div>'+
               (_gn?'<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:1px 0" class="muted">'+
-                '<span>No se le cobra (informativo)</span><span>'+money(Math.abs(_gn))+'</span></div>':'')
+                '<span>Not billable (for reference)</span><span>'+money(Math.abs(_gn))+'</span></div>':'')
             : '';
           const cancRows=(p.cancellations||[]).map(function(c){
             const fee=Number(c.fee_cobro||0),fd=Number(c.fee_dueno||0),kept=Number(c.kept||0);
@@ -4379,36 +4381,36 @@ async function renderRecReport(){
             });
             return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:var(--ink-soft)">'+
               '<span>✕ '+esc(c.guest||'—')+' <span class="muted">'+esc(c.check_in)+'→'+esc(c.check_out)+'</span>'+
-              (est?' <span class="muted">· no se paga '+money(est.net)+'</span>':'')+
-              (kept?' <span class="muted">· se quedó '+money(kept)+' (entra como renta)</span>':'')+'</span>'+
+              (est?' <span class="muted">· not paid '+money(est.net)+'</span>':'')+
+              (kept?' <span class="muted">· kept '+money(kept)+' (counts as rent)</span>':'')+'</span>'+
               '<span class="muted" style="font-size:11px">'+esc(c.source||'')+
-              (fee?' · fee de cobro '+money(fee)+' → dueño <b style="color:var(--danger)">'+money(fd)+'</b>'
-                  :' · sin fee de cobro nuestro')+'</span></div>';}).join('');
+              (fee?' · processing fee '+money(fee)+' → owner <b style="color:var(--danger)">'+money(fd)+'</b>'
+                  :' · no processing fee of ours')+'</span></div>';}).join('');
           return '<div style="border-top:1px solid var(--line);padding:8px 0">'+
             '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'+
               '<b style="font-size:13.5px">'+esc(p.property_name)+'</b>'+
               '<span style="display:flex;align-items:center;gap:6px">'+
-                '<span class="muted" style="font-size:11px">dueño '+esc(p.commission_pct)+'% · com '+esc(Math.round((100-Number(p.commission_pct||0))*100)/100)+'% · '+((p.stays||[]).length)+' est.</span>'+
-                '<button class="btn sm" onclick="recExcelProp('+oi+','+pi+')" title="Descargar el reporte de esta propiedad en Excel">⬇︎ Excel</button>'+
-                '<button class="btn sm" onclick="recPdfProp('+oi+','+pi+')" title="Descargar el reporte de esta propiedad en PDF">⬇︎ PDF</button>'+
+                '<span class="muted" style="font-size:11px">Owner '+esc(p.commission_pct)+'% · StayHere '+esc(Math.round((100-Number(p.commission_pct||0))*100)/100)+'% · '+((p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;}).length)+' stays</span>'+
+                '<button class="btn sm" onclick="recExcelProp('+oi+','+pi+')" title="Download this property&rsquo;s statement in Excel">⬇︎ Excel</button>'+
+                '<button class="btn sm" onclick="recPdfProp('+oi+','+pi+')" title="Download this property&rsquo;s statement in PDF">⬇︎ PDF</button>'+
               '</span></div>'+
             (staysRows||'<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>')+
             (function(){
               const fuera=(p.stays||[]).filter(function(s){return (s.cancelada||s.duplicado)&&!_recEnCanc(p,s);});
               if(!fuera.length)return '';
               return '<div style="margin-top:5px;font-size:11.5px;color:var(--ink-soft);border-top:1px dashed var(--line);padding-top:5px">'+
-                '<b>Fuera del pago</b> — '+fuera.length+' reserva(s) que Hostfully trae en el reporte pero de las que no entró dinero:<br>'+
+                '<b>Not paid</b> — '+fuera.length+' reservation(s) Hostfully lists but for which no money came in:<br>'+
                 fuera.map(function(s){
                   return '<span style="white-space:nowrap">✕ '+esc(s.guest)+' '+esc(s.check_in)+
-                    (s.duplicado?' (duplicada)':' (cancelada)')+' · hubiera sido '+money(s.net)+'</span>';
+                    (s.duplicado?' (duplicate)':' (cancelled)')+' · would have been '+money(s.net)+'</span>';
                 }).join(' &nbsp;·&nbsp; ')+'</div>';
             })()+
-            ((p.duplicadas||[]).length?'<div style="margin-top:3px;font-size:11.5px;color:var(--danger)">⚠︎ '+((p.duplicadas||[]).length)+' reserva(s) duplicada(s) en Hostfully: no se pagan. Si alguna es real, revísala en Hostfully.</div>':'')+
+            ((p.duplicadas||[]).length?'<div style="margin-top:3px;font-size:11.5px;color:var(--danger)">⚠︎ '+((p.duplicadas||[]).length)+' duplicate reservation(s) in Hostfully: not paid. If one is real, check it in Hostfully.</div>':'')+
             // Hostfully mete aquí tanto los reembolsos de verdad como los
             // ajustes de precio, y pueden ser de meses atrás: se dice qué es,
             // de quién y de cuándo, porque "reembolsos del mes" confunde.
             ((Number(p.refunds_total)>0)?'<div style="margin-top:4px;font-size:12px;color:var(--ink-soft)">'+
-              '<div style="display:flex;justify-content:space-between"><span class="muted">Ajustes y reembolsos de Hostfully (informativo, no afecta el pago)</span><span>'+money(p.refunds_total)+'</span></div>'+
+              '<div style="display:flex;justify-content:space-between"><span class="muted">Hostfully adjustments &amp; refunds (for reference, does not change the payout)</span><span>'+money(p.refunds_total)+'</span></div>'+
               (p.stays||[]).filter(function(s){return (s.refunds||[]).length;}).map(function(s){
                 return (s.refunds||[]).map(function(a){
                   return '<div style="display:flex;justify-content:space-between;font-size:11.5px;padding-left:10px">'+
@@ -4418,9 +4420,9 @@ async function renderRecReport(){
                 }).join('');
               }).join('')+'</div>':'')+
             (expRows?'<div style="margin-top:3px">'+expRows+expTot+'</div>':'')+
-            (Number(p.cancel_fee_owner)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Fee de cobro de cancelaciones, parte del dueño ('+esc(100-Number(p.commission_pct||0))+'% lo absorbe Stay Here)</span><span>−'+money(p.cancel_fee_owner)+'</span></div>':'')+
-            (cancRows?'<div style="margin-top:5px"><div class="muted" style="font-size:11px;font-weight:700;margin-bottom:1px">Cancelaciones</div>'+cancRows+'</div>':'')+
-            '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px"><span class="muted">Pago propiedad</span><b>'+money(p.payout)+'</b></div>'+
+            (Number(p.cancel_fee_owner)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Cancellation processing fees, owner share (StayHere absorbs '+esc(100-Number(p.commission_pct||0))+'%)</span><span>−'+money(p.cancel_fee_owner)+'</span></div>':'')+
+            (cancRows?'<div style="margin-top:5px"><div class="muted" style="font-size:11px;font-weight:700;margin-bottom:1px">Cancellations</div>'+cancRows+'</div>':'')+
+            '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px"><span style="font-weight:700">Owners PayOut</span><b>'+money(p.payout)+'</b></div>'+
           '</div>';
         }).join('')+
       '</div>';
