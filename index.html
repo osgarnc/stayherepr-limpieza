@@ -4134,7 +4134,7 @@ function recTablaPdf(doc,d,y0){
     doc.setFontSize(10);doc.text(titulo,40,y);
     doc.autoTable({startY:y+6,head:[enc],body:filas,foot:total&&total.length?total:undefined,
       styles:{fontSize:7,cellPadding:3},headStyles:{fillColor:[90,100,110],fontSize:6.8},
-      footStyles:{fillColor:[236,240,241],textColor:20,fontStyle:'bold',fontSize:7},
+      footStyles:{fillColor:[251,233,226],textColor:[181,66,31],fontStyle:'bold',fontSize:7.5},
       margin:{left:40}});
     y=doc.lastAutoTable.finalY+16;
   };
@@ -4326,8 +4326,11 @@ async function renderRecReport(){
             .reduce(function(t,e){return t+Number(e.amount||0);},0);
           const _gn=(p.expenses||[]).filter(function(e){return !e.billable;})
             .reduce(function(t,e){return t+Number(e.amount||0);},0);
+          // En rojo, que es lo que se le resta del pago. Si el neto sale a favor
+          // del dueño (vendimos algo suyo), va en verde: ahí se le suma.
+          const _gcol=_gf<0?'var(--sea)':'var(--danger)';
           const expTot=(p.expenses||[]).length
-            ? '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0 2px;margin-top:2px;border-top:1px solid var(--line);font-weight:700">'+
+            ? '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:4px 0 2px;margin-top:2px;border-top:1px solid var(--line);font-weight:800;color:'+_gcol+'">'+
                 '<span>Subtotal que se le cobra</span><span>'+(_gf<0?'+':'−')+money(Math.abs(_gf))+'</span></div>'+
               (_gn?'<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:1px 0" class="muted">'+
                 '<span>No se le cobra (informativo)</span><span>'+money(Math.abs(_gn))+'</span></div>':'')
