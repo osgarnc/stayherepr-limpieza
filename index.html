@@ -4406,6 +4406,32 @@ async function renderRecReport(){
                 }).join(' &nbsp;·&nbsp; ')+'</div>';
             })()+
             ((p.duplicadas||[]).length?'<div style="margin-top:3px;font-size:11.5px;color:var(--danger)">⚠︎ '+((p.duplicadas||[]).length)+' duplicate reservation(s) in Hostfully: not paid. If one is real, check it in Hostfully.</div>':'')+
+            // Noches extra que vendió el bot. Van APARTE y NO cambian el pago:
+            // el reparto sale del número de Hostfully, igual que siempre. Aquí
+            // se ve lo que de verdad se cobró, para poder cuadrarlo.
+            (function(){
+              const ne=p.extra_nights||[];
+              if(!ne.length)return '';
+              return '<div style="margin-top:5px;font-size:11.5px;color:var(--ink-soft);border-top:1px dashed var(--line);padding-top:5px">'+
+                '<b>Extra nights sold by Stay Here</b> <span class="muted">(for reference, does not change the payout)</span>'+
+                '<table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-top:3px"><tr class="muted">'+
+                  '<th style="text-align:left;font-weight:600">Guest</th>'+
+                  '<th style="text-align:right;font-weight:600">Charged</th>'+
+                  '<th style="text-align:right;font-weight:600">Room tax</th>'+
+                  '<th style="text-align:right;font-weight:600">Stripe fee</th>'+
+                  '<th style="text-align:right;font-weight:600">Hostfully rent</th>'+
+                  '<th style="text-align:right;font-weight:600">Over-shared</th></tr>'+
+                ne.map(function(n){
+                  return '<tr><td>'+esc(n.guest)+' <span class="muted">'+esc(n.check_in)+'</span></td>'+
+                    '<td style="text-align:right">'+money(n.charged)+'</td>'+
+                    '<td style="text-align:right">'+money(n.room_tax)+'</td>'+
+                    '<td style="text-align:right">'+money(n.processor_fee)+'</td>'+
+                    '<td style="text-align:right">'+money(n.hostfully_rent)+'</td>'+
+                    '<td style="text-align:right;color:var(--danger)">'+money(n.owner_share)+'</td></tr>';
+                }).join('')+'</table>'+
+                '<div class="muted" style="margin-top:2px">Hostfully re-prices the extended night above what the guest was charged, so that difference plus the Stripe fee was shared with the owner.</div>'+
+                '</div>';
+            })()+
             // Hostfully mete aquí tanto los reembolsos de verdad como los
             // ajustes de precio, y pueden ser de meses atrás: se dice qué es,
             // de quién y de cuándo, porque "reembolsos del mes" confunde.
