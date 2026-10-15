@@ -4077,11 +4077,11 @@ function recDatosProp(o,p,mes){
       Number((Number(c.kept)||0).toFixed(2)),Number((Number(c.fee_dueno)||0).toFixed(2))];
   });
   const resumen=[
-    ['Stay payout',Number((Number(p.stays_net)||0).toFixed(2))],
+    ['Owners Payout',Number((Number(p.stays_net)||0).toFixed(2))],
     ['Total Expense',Number((-(Number(p.billable_expense)||0)).toFixed(2))]
   ];
   if(Number(p.cancel_fee_owner))resumen.push(['Cancellation processing fees',Number((-(Number(p.cancel_fee_owner))).toFixed(2))]);
-  resumen.push(['Owners PayOut',Number((Number(p.payout)||0).toFixed(2))]);
+  resumen.push(['Owners Deposit',Number((Number(p.payout)||0).toFixed(2))]);
   return {owner:o.name,prop:p.property_name,mes:mes,pct:p.commission_pct,
     enc:REC_COLS.map(function(c){return c.t;}),filas:filas,totales:totales,
     fuera:fuera,gastos:gastos,gastosTot:gastosTot,canc:canc,resumen:resumen};
@@ -4175,7 +4175,7 @@ async function recExcelProp(oi,pi){
   }
   let filaPago=-1;
   d.resumen.forEach(function(r){
-    if(String(r[0]).indexOf('Owners PayOut')===0)filaPago=aoa.length;
+    if(String(r[0]).indexOf('Owners Deposit')===0)filaPago=aoa.length;
     aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);
   });
   aoa.push([],[REC_MARCA.pie]);
@@ -4242,7 +4242,7 @@ function recTablaPdf(doc,d,y0){
   doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],_recCont(r[1])];}),
     styles:{fontSize:9,cellPadding:4},margin:{left:40},tableWidth:300,
     columnStyles:{1:{halign:'right',fontStyle:'bold'}},
-    didParseCell:function(h){if(String(h.row.raw[0]).indexOf('Owners PayOut')===0){
+    didParseCell:function(h){if(String(h.row.raw[0]).indexOf('Owners Deposit')===0){
       h.cell.styles.fontStyle='bold';
       // Ya viene en contabilidad: si está entre paréntesis, es negativo.
       const neg=String(h.row.raw[1]).charAt(0)==='(';
@@ -4286,7 +4286,7 @@ function recDatosDueno(oi){
   const tot=['TOTAL',0,0,0,0,0,0,0];
   resumen.forEach(function(r){for(let i=1;i<8;i++)tot[i]=Number((tot[i]+r[i]).toFixed(2));});
   return {owner:o.name,mes:mes,props:props,
-    encRes:['Property','Stays','Rent','StayHere Commission','Stay Payout','Total Expense','Cancellation Fees','Owners PayOut'],
+    encRes:['Property','Stays','Rent','StayHere Commission','Owners Payout','Total Expense','Cancellation Fees','Owners Deposit'],
     resumen:resumen,totales:tot,pago:Number((Number(o.total_payout)||0).toFixed(2))};
 }
 function _recArchivoD(d,ext){
@@ -4363,7 +4363,7 @@ async function recPdfDueno(oi){
   let y=doc.lastAutoTable.finalY+14;
   doc.setFont('helvetica','bold');doc.setFontSize(11);
   if(Number(d.pago)<0)doc.setTextColor(176,42,21);
-  doc.text('Total Owners PayOut:  '+pagoTexto(d.pago),40,y);
+  doc.text('Total Owners Deposit:  '+pagoTexto(d.pago),40,y);
   doc.setTextColor(20,20,20);
   doc.setFont('helvetica','normal');
   // El detalle de cada propiedad, una por página.
@@ -4530,7 +4530,7 @@ async function renderRecReport(){
             (expRows?'<div style="margin-top:3px">'+expRows+expTot+'</div>':'')+
             (Number(p.cancel_fee_owner)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Cancellation processing fees, owner share (StayHere absorbs '+esc(100-Number(p.commission_pct||0))+'%)</span><span>−'+money(p.cancel_fee_owner)+'</span></div>':'')+
             (cancRows?'<div style="margin-top:5px"><div class="muted" style="font-size:11px;font-weight:700;margin-bottom:1px">Cancellations</div>'+cancRows+'</div>':'')+
-            '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px"><span style="font-weight:700">Owners PayOut</span><b>'+moneyPago(p.payout)+'</b></div>'+
+            '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px"><span style="font-weight:700">Owners Deposit</span><b>'+moneyPago(p.payout)+'</b></div>'+
           '</div>';
         }).join('')+
       '</div>';
