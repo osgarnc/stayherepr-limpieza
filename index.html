@@ -2955,12 +2955,12 @@ function contArmarAirbnb(rows,month){
 // saber cuánto fee se quedó la plataforma cuando una reserva se cancela, que en
 // Booking/Vrbo/directo lo paga Stay Here (somos el merchant del cobro).
 let contCobroFees=[];
-function contApuntaFee(source,txn,fecha,pagador,fin,bruto,fee){
+function contApuntaFee(source,txn,fecha,pagador,fin,bruto,fee,kind){
   if(!txn||Math.abs(fee)<0.005)return;
   contCobroFees.push({txn_id:String(txn),source:source,charge_date:fecha||null,
     payer_name:pagador||null,guest_key:fin?fin.guest_key:null,
     property_id:fin?fin.property_id:null,check_in:fin?fin.check_in:null,
-    gross:_c2(bruto),fee:_c2(Math.abs(fee))});
+    gross:_c2(bruto),fee:_c2(Math.abs(fee)),kind:kind||null});
 }
 function contArmarPaypal(rows,month){
   const out=[];let buf=[];
@@ -3150,6 +3150,13 @@ function contArmarStripe(rows,month,label){
           if(Math.abs(fee)>=0.005)p.lines.push({kind:'fee',amount:-Math.abs(fee),
             property_id:svc.propId,qbo_class_id:contClassOf(svc.propId),
             guest_name:null,description:'Fee de Stripe — '+desc});
+          // Stripe manda estos cobros SIN nombre de huésped, pero la noche extra
+          // es renta de la propiedad: el reporte de dueños necesita su fee para
+          // bajárselo a la base. Se guarda con la propiedad y el tipo.
+          contApuntaFee('stripe',contGet(r,['balance_transaction_id','charge_id','id'])||
+            ('po:'+id+'|'+desc+'|'+_c2(bruto)),
+            _cDate(contGet(r,['created_utc','created'])||fecha),null,
+            {guest_key:null,property_id:svc.propId,check_in:null},bruto,fee,svc.kind);
           continue;
         }
         if(svc){
@@ -3158,6 +3165,10 @@ function contArmarStripe(rows,month,label){
           if(Math.abs(fee)>=0.005)p.lines.push({kind:'fee',amount:-Math.abs(fee),
             property_id:svc.propId,qbo_class_id:contClassOf(svc.propId),
             guest_name:null,description:'Fee de Stripe — '+desc});
+          contApuntaFee('stripe',contGet(r,['balance_transaction_id','charge_id','id'])||
+            ('po:'+id+'|'+desc+'|'+_c2(bruto)),
+            _cDate(contGet(r,['created_utc','created'])||fecha),null,
+            {guest_key:null,property_id:svc.propId,check_in:null},bruto,fee,svc.kind);
           continue;
         }
         if(guest){
