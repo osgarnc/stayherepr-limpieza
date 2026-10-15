@@ -1188,7 +1188,24 @@ function moneyPago(n){
     : '<span style="color:var(--ok)">'+money(v)+'</span>';
 }
 // La misma idea pero en texto, para el PDF y el Excel.
-function pagoTexto(n){const v=Number(n)||0;return v<0?'('+Math.abs(v).toFixed(2)+')':v.toFixed(2);}
+// Formato de contabilidad para el PDF: miles con coma, dos decimales y los
+// negativos entre paréntesis — 1,234.56 y (250.32).
+function _recCont(v){
+  const n=Number(v);
+  if(v===''||v==null||!isFinite(n))return String(v==null?'':v);
+  const s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return n<0?'('+s+')':s;
+}
+// Una fila lista para el PDF. `ents` marca las columnas que son cuenta (noches),
+// que van sin decimales.
+function _recFilaPdf(f,ents){
+  return f.map(function(v,i){
+    if(typeof v!=='number')return v;
+    if(ents&&ents[i])return String(Math.round(v));
+    return _recCont(v);
+  });
+}
+function pagoTexto(n){return _recCont(Number(n)||0);}
 // Formato de Excel para el pago: en negativo lo pinta rojo y entre paréntesis.
 const REC_FMT_PAGO='$#,##0.00_);[Red]($#,##0.00)';
 function initials(n){return n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();}
@@ -4147,7 +4164,7 @@ async function recExcelProp(oi,pi){
     aoa.push([]);
   }
   if(d.gastos.length){
-    aoa.push(['Expenses & income'],['Date','Description','Billable?','Amount']);
+    aoa.push(['Additional Expenses/Income'],['Date','Description','Billable?','Amount']);
     d.gastos.forEach(function(g){aoa.push(g);});
     (d.gastosTot||[]).forEach(function(g){aoa.push(g);});
     aoa.push([]);
@@ -4181,8 +4198,11 @@ function recTablaPdf(doc,d,y0){
   });
   const sel=function(arr){return arr.filter(function(_,i){return usar[i];});};
   const iOwner=sel(d.enc).indexOf('Owner Payout');
+  const ents=sel(REC_COLS.map(function(c){return !!c.ent;}));
   doc.autoTable({
-    startY:y0,head:[sel(d.enc)],body:d.filas.map(sel),foot:[sel(d.totales)],
+    startY:y0,head:[sel(d.enc)],
+    body:d.filas.map(function(f){return _recFilaPdf(sel(f),ents);}),
+    foot:[_recFilaPdf(sel(d.totales),ents)],
     styles:{fontSize:6.8,cellPadding:2.5,overflow:'linebreak'},
     headStyles:{fillColor:[14,124,123],fontSize:6.5},
     footStyles:{fillColor:[236,240,241],textColor:20,fontStyle:'bold'},
@@ -4195,7 +4215,9 @@ function recTablaPdf(doc,d,y0){
   const bloque=function(titulo,enc,filas,total){
     if(!filas.length)return;
     doc.setFontSize(10);doc.text(titulo,40,y);
-    doc.autoTable({startY:y+6,head:[enc],body:filas,foot:total&&total.length?total:undefined,
+    doc.autoTable({startY:y+6,head:[enc],
+      body:filas.map(function(f){return _recFilaPdf(f);}),
+      foot:total&&total.length?total.map(function(f){return _recFilaPdf(f);}):undefined,
       styles:{fontSize:7,cellPadding:3},headStyles:{fillColor:[90,100,110],fontSize:6.8},
       footStyles:{fillColor:[251,233,226],textColor:[181,66,31],fontStyle:'bold',fontSize:7.5},
       margin:{left:40}});
@@ -4203,17 +4225,17 @@ function recTablaPdf(doc,d,y0){
   };
   bloque('Not paid — cancelled or duplicate reservations',
     ['Check In','Guest','Why','Would have been'],d.fuera||[]);
-  bloque('Expenses & income',['Date','Description','Billable?','Amount'],d.gastos,
-    (d.gastosTot||[]).map(function(g){return g.map(function(v,i){return i===3?Number(v).toFixed(2):String(v);});}));
+  bloque('Additional Expenses/Income',['Date','Description','Billable?','Amount'],d.gastos,d.gastosTot||[]);
   bloque('Cancellations',['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee'],d.canc);
-  doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],r[1].toFixed(2)];}),
+  doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],_recCont(r[1])];}),
     styles:{fontSize:9,cellPadding:4},margin:{left:40},tableWidth:300,
     columnStyles:{1:{halign:'right',fontStyle:'bold'}},
     didParseCell:function(h){if(String(h.row.raw[0]).indexOf('Owners PayOut')===0){
       h.cell.styles.fontStyle='bold';
-      const neg=Number(h.row.raw[1])<0;
+      // Ya viene en contabilidad: si está entre paréntesis, es negativo.
+      const neg=String(h.row.raw[1]).charAt(0)==='(';
       h.cell.styles.fillColor=neg?[251,233,226]:[223,245,233];
-      if(neg){h.cell.styles.textColor=[176,42,21];if(h.column.index===1)h.cell.text=[pagoTexto(h.row.raw[1])];}
+      if(neg)h.cell.styles.textColor=[176,42,21];
     }}});
 }
 async function recPdfProp(oi,pi){
@@ -4285,7 +4307,7 @@ async function recExcelDueno(oi){
       dp.fuera.forEach(function(x){aoa.push(x);});aoa.push([]);
     }
     if(dp.gastos.length){
-      aoa.push(['Expenses & income'],['Date','Description','Billable?','Amount']);
+      aoa.push(['Additional Expenses/Income'],['Date','Description','Billable?','Amount']);
       dp.gastos.forEach(function(g){aoa.push(g);});
       (dp.gastosTot||[]).forEach(function(g){aoa.push(g);});
       aoa.push([]);
@@ -4313,8 +4335,8 @@ async function recPdfDueno(oi){
     d.owner+'   ·   '+d.props.length+' properties',recMesIngles(d.mes));
   doc.autoTable({
     startY:y0,head:[d.encRes],
-    body:d.resumen.map(function(r){return r.map(function(v,i){return i?Number(v).toFixed(2):v;}).map(function(v,i){return i===1?String(Math.round(Number(v))):v;});}),
-    foot:[d.totales.map(function(v,i){return i?Number(v).toFixed(2):v;}).map(function(v,i){return i===1?String(Math.round(Number(v))):v;})],
+    body:d.resumen.map(function(r){return r.map(function(v,i){return i?(i===1?String(Math.round(Number(v))):_recCont(v)):v;});}),
+    foot:[d.totales.map(function(v,i){return i?(i===1?String(Math.round(Number(v))):_recCont(v)):v;})],
     styles:{fontSize:8.5,cellPadding:4},headStyles:{fillColor:[14,124,123]},
     footStyles:{fillColor:[223,245,233],textColor:20,fontStyle:'bold'},
     columnStyles:{0:{cellWidth:200},1:{halign:'right'},2:{halign:'right'},3:{halign:'right'},
