@@ -1179,6 +1179,18 @@ function todayISO(){return new Date(Date.now()-4*3600*1000).toISOString().slice(
 function propName(id){if(!id)return '';return (properties.find(p=>p.id===id)||{}).name||id;}
 function staffName(id){return (staff.find(s=>s.id===id)||{}).name||id;}
 function money(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+// Lo que hay que pagarle al dueño: verde. Si sale negativo (el dueño debe),
+// entre paréntesis y en rojo, como en contabilidad.
+function moneyPago(n){
+  const v=Number(n)||0;
+  return v<0
+    ? '<span style="color:var(--danger)">('+money(Math.abs(v))+')</span>'
+    : '<span style="color:var(--ok)">'+money(v)+'</span>';
+}
+// La misma idea pero en texto, para el PDF y el Excel.
+function pagoTexto(n){const v=Number(n)||0;return v<0?'('+Math.abs(v).toFixed(2)+')':v.toFixed(2);}
+// Formato de Excel para el pago: en negativo lo pinta rojo y entre paréntesis.
+const REC_FMT_PAGO='$#,##0.00_);[Red]($#,##0.00)';
 function initials(n){return n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2600);}
 /* ---------- OVERLAY DE PROGRESO DE SUBIDA ---------- */
@@ -4133,9 +4145,14 @@ async function recExcelProp(oi,pi){
     aoa.push(['Cancellations'],['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee']);
     d.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
   }
-  d.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
+  let filaPago=-1;
+  d.resumen.forEach(function(r){
+    if(String(r[0]).indexOf('Owners PayOut')===0)filaPago=aoa.length;
+    aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);
+  });
   aoa.push([],[REC_MARCA.pie]);
   const ws=X.utils.aoa_to_sheet(aoa);
+  if(filaPago>=0){const cel=ws[X.utils.encode_cell({r:filaPago,c:16})];if(cel)cel.z=REC_FMT_PAGO;}
   ws['!cols']=d.enc.map(function(t,i){return {wch:i<2?22:(i<4?11:Math.max(9,t.length+1))};});
   const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,d.prop.slice(0,28)||'Statement');
   X.writeFile(wb,_recArchivo(d,'xlsx'));
@@ -4182,7 +4199,11 @@ function recTablaPdf(doc,d,y0){
     styles:{fontSize:9,cellPadding:4},margin:{left:40},tableWidth:300,
     columnStyles:{1:{halign:'right',fontStyle:'bold'}},
     didParseCell:function(h){if(String(h.row.raw[0]).indexOf('Owners PayOut')===0){
-      h.cell.styles.fontStyle='bold';h.cell.styles.fillColor=[223,245,233];}}});
+      h.cell.styles.fontStyle='bold';
+      const neg=Number(h.row.raw[1])<0;
+      h.cell.styles.fillColor=neg?[251,233,226]:[223,245,233];
+      if(neg){h.cell.styles.textColor=[176,42,21];if(h.column.index===1)h.cell.text=[pagoTexto(h.row.raw[1])];}
+    }}});
 }
 async function recPdfProp(oi,pi){
   const d=recBuscarProp(oi,pi);if(!d)return;
@@ -4234,6 +4255,10 @@ async function recExcelDueno(oi){
   const res=[[REC_MARCA.nombre],['Owner Statement — consolidated'],[d.owner],[recMesIngles(d.mes)],[],d.encRes]
     .concat(d.resumen,[d.totales],[[],[REC_MARCA.pie]]);
   const wsR=X.utils.aoa_to_sheet(res);
+  for(let i=0;i<=d.resumen.length;i++){
+    const cel=wsR[X.utils.encode_cell({r:6+i,c:7})];
+    if(cel&&typeof cel.v==='number')cel.z=REC_FMT_PAGO;
+  }
   wsR['!cols']=[{wch:34},{wch:9},{wch:12},{wch:18},{wch:16},{wch:17},{wch:19},{wch:12}];
   X.utils.book_append_sheet(wb,wsR,'Summary');
   // Una hoja por propiedad, con el mismo detalle del reporte individual.
@@ -4286,7 +4311,9 @@ async function recPdfDueno(oi){
   });
   let y=doc.lastAutoTable.finalY+14;
   doc.setFont('helvetica','bold');doc.setFontSize(11);
-  doc.text('Total Owners PayOut:  '+d.pago.toFixed(2),40,y);
+  if(Number(d.pago)<0)doc.setTextColor(176,42,21);
+  doc.text('Total Owners PayOut:  '+pagoTexto(d.pago),40,y);
+  doc.setTextColor(20,20,20);
   doc.setFont('helvetica','normal');
   // El detalle de cada propiedad, una por página.
   for(const dp of d.props){
@@ -4340,7 +4367,7 @@ async function renderRecReport(){
           '✅ Booking ties out: all '+bkc.reservas+' stays carry the commission from Booking&rsquo;s own report, '+money(bkc.comision)+' in total.</div>')
     : '';
   out.innerHTML=avisoBk+'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">'+
-      '<span class="muted" style="font-size:12px">'+esc(recMesIngles(month))+' · '+owners.length+' owner(s) · Total payout '+money(grand)+'</span>'+
+      '<span class="muted" style="font-size:12px">'+esc(recMesIngles(month))+' · '+owners.length+' owner(s) · Total payout '+moneyPago(grand)+'</span>'+
       '<button class="btn sm" onclick="recCopiarTabla()" title="Copies every stay with its columns, ready to paste into Excel">📋 Copy table</button></div>'+
     owners.map(function(o,oi){
       return '<div style="border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px">'+
@@ -4351,7 +4378,7 @@ async function renderRecReport(){
               ? '<button class="btn sm" onclick="recExcelDueno('+oi+')" title="One Excel with the summary of their '+((o.properties||[]).length)+' properties and a sheet for each">⬇︎ Consolidated Excel</button>'+
                 '<button class="btn sm" onclick="recPdfDueno('+oi+')" title="One PDF with the summary of their '+((o.properties||[]).length)+' properties and the detail of each">⬇︎ Consolidated PDF</button>'
               : '')+
-            '<span style="font-weight:800;color:var(--sea);font-size:16px">'+money(o.total_payout)+'</span>'+
+            '<span style="font-weight:800;font-size:16px">'+moneyPago(o.total_payout)+'</span>'+
           '</span></div>'+
         o.properties.map(function(p,pi){
           const staysRows=recTablaEstadias(p);
@@ -4452,7 +4479,7 @@ async function renderRecReport(){
             (expRows?'<div style="margin-top:3px">'+expRows+expTot+'</div>':'')+
             (Number(p.cancel_fee_owner)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Cancellation processing fees, owner share (StayHere absorbs '+esc(100-Number(p.commission_pct||0))+'%)</span><span>−'+money(p.cancel_fee_owner)+'</span></div>':'')+
             (cancRows?'<div style="margin-top:5px"><div class="muted" style="font-size:11px;font-weight:700;margin-bottom:1px">Cancellations</div>'+cancRows+'</div>':'')+
-            '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px"><span style="font-weight:700">Owners PayOut</span><b>'+money(p.payout)+'</b></div>'+
+            '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px"><span style="font-weight:700">Owners PayOut</span><b>'+moneyPago(p.payout)+'</b></div>'+
           '</div>';
         }).join('')+
       '</div>';
