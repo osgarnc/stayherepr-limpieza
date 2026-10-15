@@ -1188,12 +1188,12 @@ function moneyPago(n){
     : '<span style="color:var(--ok)">'+money(v)+'</span>';
 }
 // La misma idea pero en texto, para el PDF y el Excel.
-// Formato de contabilidad para el PDF: miles con coma, dos decimales y los
-// negativos entre paréntesis — 1,234.56 y (250.32).
+// Formato de contabilidad para el PDF: signo de dólar, miles con coma, dos
+// decimales y los negativos entre paréntesis — $1,234.56 y ($250.32).
 function _recCont(v){
   const n=Number(v);
   if(v===''||v==null||!isFinite(n))return String(v==null?'':v);
-  const s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const s='$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   return n<0?'('+s+')':s;
 }
 // Una fila lista para el PDF. `ents` marca las columnas que son cuenta (noches),
@@ -3976,7 +3976,7 @@ const REC_COLS=[
   {k:'rent',t:'Rent'},{k:'cleaning',t:'Cleaning Fee'},{k:'extra_guest',t:'Extra Guest Fee'},
   {k:'pet_fee',t:'Pet Fee'},{k:'gross_total',t:'Gross Total'},{k:'tourism_tax',t:'Tourism Tax'},
   {k:'guest_paid',t:'Guest Paid'},{k:'channel_fee',t:'Channel Commission'},
-  {k:'processor_fee',t:'Paypal Fee'},{k:'base',t:'Net Earnings'},
+  {k:'paypal_fee',t:'Paypal Fee'},{k:'stripe_fee',t:'Stripe Fee'},{k:'base',t:'Net Earnings'},
   {k:'commission',t:'Due Stay Here'},{k:'net',t:'Owner Payout',verde:1},
   {k:'tax_remitted',t:'Tax to Be Remitted'}
 ];
@@ -4206,20 +4206,28 @@ function recTablaPdf(doc,d,y0){
     styles:{fontSize:6.8,cellPadding:2.5,overflow:'linebreak'},
     headStyles:{fillColor:[14,124,123],fontSize:6.5},
     footStyles:{fillColor:[236,240,241],textColor:20,fontStyle:'bold'},
-    columnStyles:(function(){const cs={};sel(d.enc).forEach(function(t,i){
-      if(i>=5)cs[i]={halign:'right'};
-      if(i===iOwner)cs[i]={halign:'right',fillColor:[223,245,233],fontStyle:'bold'};
-    });return cs;})(),
+    // columnStyles de autoTable solo pinta el CUERPO: si la alineación se pone
+    // ahí, la fila del total y el encabezado salen a la izquierda y las columnas
+    // no cuadran con las reservas. didParseCell sí corre en las tres secciones.
+    didParseCell:function(h){
+      const i=h.column.index;
+      if(i>=4)h.cell.styles.halign='right';
+      if(i===iOwner){h.cell.styles.fillColor=[223,245,233];h.cell.styles.fontStyle='bold';}
+    },
   });
   let y=doc.lastAutoTable.finalY+16;
   const bloque=function(titulo,enc,filas,total){
     if(!filas.length)return;
     doc.setFontSize(10);doc.text(titulo,40,y);
+    // Las columnas de dinero (de la tercera en adelante en estos bloques) a la
+    // derecha en las tres secciones, igual que la tabla de estadías.
+    const derecha=enc.map(function(t){return /amount|paid|refunded|kept|fee|would have been/i.test(t);});
     doc.autoTable({startY:y+6,head:[enc],
       body:filas.map(function(f){return _recFilaPdf(f);}),
       foot:total&&total.length?total.map(function(f){return _recFilaPdf(f);}):undefined,
       styles:{fontSize:7,cellPadding:3},headStyles:{fillColor:[90,100,110],fontSize:6.8},
       footStyles:{fillColor:[251,233,226],textColor:[181,66,31],fontStyle:'bold',fontSize:7.5},
+      didParseCell:function(h){if(derecha[h.column.index])h.cell.styles.halign='right';},
       margin:{left:40}});
     y=doc.lastAutoTable.finalY+16;
   };
@@ -4339,8 +4347,14 @@ async function recPdfDueno(oi){
     foot:[d.totales.map(function(v,i){return i?(i===1?String(Math.round(Number(v))):_recCont(v)):v;})],
     styles:{fontSize:8.5,cellPadding:4},headStyles:{fillColor:[14,124,123]},
     footStyles:{fillColor:[223,245,233],textColor:20,fontStyle:'bold'},
-    columnStyles:{0:{cellWidth:200},1:{halign:'right'},2:{halign:'right'},3:{halign:'right'},
-      4:{halign:'right'},5:{halign:'right'},6:{halign:'right'},7:{halign:'right',fontStyle:'bold'}}
+    columnStyles:{0:{cellWidth:200}},
+    // La alineación va aquí y no en columnStyles para que el encabezado y la
+    // fila del total queden en la misma posición que las propiedades.
+    didParseCell:function(h){
+      const i=h.column.index;
+      if(i>=1)h.cell.styles.halign='right';
+      if(i===7)h.cell.styles.fontStyle='bold';
+    }
   });
   let y=doc.lastAutoTable.finalY+14;
   doc.setFont('helvetica','bold');doc.setFontSize(11);
