@@ -4212,7 +4212,11 @@ function recTablaPdf(doc,d,y0){
     didParseCell:function(h){
       const i=h.column.index;
       if(i>=4)h.cell.styles.halign='right';
-      if(i===iOwner){h.cell.styles.fillColor=[223,245,233];h.cell.styles.fontStyle='bold';}
+      // El verde de Owner Payout solo en los datos y el total: en el encabezado
+      // el texto es blanco y sobre verde claro no se lee.
+      if(i===iOwner&&h.section!=='head'){
+        h.cell.styles.fillColor=[223,245,233];h.cell.styles.fontStyle='bold';
+      }
     },
   });
   let y=doc.lastAutoTable.finalY+16;
@@ -4353,7 +4357,7 @@ async function recPdfDueno(oi){
     didParseCell:function(h){
       const i=h.column.index;
       if(i>=1)h.cell.styles.halign='right';
-      if(i===7)h.cell.styles.fontStyle='bold';
+      if(i===7&&h.section!=='head')h.cell.styles.fontStyle='bold';
     }
   });
   let y=doc.lastAutoTable.finalY+14;
