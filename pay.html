@@ -126,7 +126,7 @@
   };
   function t(){ return T[L]; }
   // full_booking / extra_guest / pet_fee: cobro inmediato (sin aprobación) → mensaje de "confirmado".
-  function isImmediateKind(k){ return k==='full_booking'||k==='extra_guest'||k==='pet_fee'||k==='early_11am'||k==='late_4pm'||k==='late_delux'||k==='early_delux'; }
+  function isImmediateKind(k){ return k==='full_booking'||k==='extra_guest'||k==='pet_fee'||k==='early_11am'||k==='late_4pm'||k==='late_delux'||k==='early_delux'||k==='custom'; }
   // `imm` (opcional): true/false explícito del checkout (cumpleaños varía: /stripe=inmediato, pedido por
   // el huésped=retención). Si no se pasa, se decide por el tipo de kind.
   function okMsgFor(k, imm){ var immediate = (imm===undefined||imm===null) ? isImmediateKind(k) : !!imm; return immediate ? t().okImmediate : t().okMsg; }
