@@ -194,7 +194,18 @@
         <button id="segEarly" onclick="segTo('early')">🕐 Early/Late</button>
         <button id="segCalendar" onclick="segTo('calendar')">📅 Calendario</button>
         <button id="segAvail" onclick="segTo('avail')">💲 Disponibles</button>
+        <button id="segCerraduras" onclick="segTo('cerraduras')">🔐 Cerraduras</button>
         <button id="segNueva" onclick="segTo('nueva')" style="display:none">🧾 Libre</button>
+      </div>
+      <div id="paneCerraduras" class="hide">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
+          <label style="font-size:13px;font-weight:700;color:var(--ink-soft)">🔐 Actividad de cerraduras</label>
+          <button class="btn ghost sm" onclick="clLockActLoad()">↻ Actualizar</button>
+        </div>
+        <p class="muted" style="font-size:12px;margin:0 0 8px">Quién abrió/cerró cada propiedad y cuándo (hora de PR). Solo lectura.</p>
+        <input id="clLockActSearch" oninput="clLockActRender()" placeholder="🔎 Buscar por propiedad, nombre o fecha…" style="width:100%;padding:9px 12px;border:1.5px solid var(--line);border-radius:10px;margin-bottom:6px">
+        <div class="muted" id="clLockActCount" style="font-size:12px;margin-bottom:6px"></div>
+        <div style="overflow:auto"><table id="clLockActTable"></table></div>
       </div>
       <div id="paneRegistrar">
         <div class="field"><label>Fecha</label><input type="date" id="svcDate"></div>
@@ -1312,8 +1323,8 @@ function setMode(m,force){
   }
 }
 function segTo(s){
-  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte',early:'paneEarly',calendar:'paneCalendar',avail:'paneAvail',nueva:'paneNueva'};
-  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte',early:'segEarly',calendar:'segCalendar',avail:'segAvail',nueva:'segNueva'};
+  const P={registrar:'paneRegistrar',facturas:'paneFacturas',reporte:'paneReporte',early:'paneEarly',calendar:'paneCalendar',avail:'paneAvail',cerraduras:'paneCerraduras',nueva:'paneNueva'};
+  const B={registrar:'segRegistrar',facturas:'segFacturas',reporte:'segReporte',early:'segEarly',calendar:'segCalendar',avail:'segAvail',cerraduras:'segCerraduras',nueva:'segNueva'};
   Object.keys(P).forEach(k=>{const el=document.getElementById(P[k]);if(el)el.classList.toggle('hide',k!==s);});
   Object.keys(B).forEach(k=>{const el=document.getElementById(B[k]);if(el)el.classList.toggle('on',k===s);});
   if(s==='facturas')renderMyInvoices();
@@ -1321,7 +1332,40 @@ function segTo(s){
   if(s==='early')renderMyEarlyLate();
   if(s==='calendar')renderMyCalendar();
   if(s==='avail')renderAvailability();
+  if(s==='cerraduras')clLockActLoad();
   if(s==='nueva'){const f=document.getElementById('flFecha');if(f&&!f.value)f.value=todayISO();if(!document.getElementById('flLines').children.length){flAddLine();}}
+}
+/* ---------- CERRADURAS (personal) — SOLO actividad, lectura ---------- */
+async function clLockActLoad(){
+  const tb=document.getElementById('clLockActTable'); if(!tb)return;
+  tb.innerHTML='<tbody><tr><td class="muted" style="padding:14px">Cargando actividad…</td></tr></tbody>';
+  try{
+    const {data,error}=await sb.from('ops_lock_activity')
+      .select('device_name,user_name,event,event_type,occurred_at')
+      .order('occurred_at',{ascending:false}).limit(300);
+    if(error)throw error;
+    window._clLockAct=data||[];
+  }catch(e){ console.error('clLockActLoad',e); tb.innerHTML='<tbody><tr><td class="muted" style="padding:14px">No se pudo cargar la actividad. Intenta ↻ Actualizar.</td></tr></tbody>'; return; }
+  clLockActRender();
+}
+function clLockActRender(){
+  const tb=document.getElementById('clLockActTable'); if(!tb)return;
+  const all=window._clLockAct||[];
+  const q=((document.getElementById('clLockActSearch')||{}).value||'').trim().toLowerCase();
+  const evLbl=e=>e.event==='Unlocked'?'🔓 Abrió':(e.event==='Locked'?'🔒 Cerró':e.event);
+  const meth=e=>(typeof ACT_METHOD!=='undefined'&&ACT_METHOD[e.event_type])||e.event_type||'';
+  const prop=e=>e.device_name||'—';
+  const rowText=e=>[e.user_name,prop(e),evLbl(e),meth(e),fmtLockDT(e.occurred_at)].map(v=>String(v||'').toLowerCase()).join(' ');
+  const list=q?all.filter(e=>rowText(e).includes(q)):all;
+  const cnt=document.getElementById('clLockActCount'); if(cnt)cnt.textContent=list.length+(q?(' de '+all.length):'')+' evento'+(list.length===1?'':'s');
+  const rows=list.map(e=>{const opened=e.event==='Unlocked';
+    return '<tr><td class="muted" style="font-size:12px;white-space:nowrap">'+fmtLockDT(e.occurred_at)+'</td>'+
+      '<td style="white-space:nowrap;font-weight:600;color:'+(opened?'#166534':'#64748b')+'">'+evLbl(e)+'</td>'+
+      '<td class="muted" style="font-size:12.5px">'+opsEsc(prop(e))+'</td>'+
+      '<td>'+opsEsc(e.user_name||'—')+'</td>'+
+      '<td class="muted" style="font-size:12px">'+opsEsc(meth(e))+'</td></tr>';
+  }).join('');
+  tb.innerHTML='<thead><tr><th>Fecha (PR)</th><th>Acción</th><th>Propiedad</th><th>Quién</th><th>Método</th></tr></thead><tbody>'+(rows||'<tr><td class="muted" colspan="5" style="padding:12px">Aún no hay actividad.</td></tr>')+'</tbody>';
 }
 /* ---------- EARLY/LATE DE LA LIMPIADORA (personal) ---------- */
 async function renderMyEarlyLate(){
