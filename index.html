@@ -1340,11 +1340,14 @@ async function clLockActLoad(){
   const tb=document.getElementById('clLockActTable'); if(!tb)return;
   tb.innerHTML='<tbody><tr><td class="muted" style="padding:14px">Cargando actividad…</td></tr></tbody>';
   try{
-    const {data,error}=await sb.from('ops_lock_activity')
-      .select('device_name,user_name,event,event_type,occurred_at')
-      .order('occurred_at',{ascending:false}).limit(300);
-    if(error)throw error;
-    window._clLockAct=data||[];
+    const [act,devs]=await Promise.all([
+      sb.from('ops_lock_activity').select('device_id,device_name,user_name,event,event_type,occurred_at').order('occurred_at',{ascending:false}).limit(300),
+      sb.from('ops_lock_devices').select('device_id,name')
+    ]);
+    if(act.error)throw act.error;
+    window._clLockAct=act.data||[];
+    // device_id -> nombre de la propiedad/cerradura (la cerradura reporta "Front Door" genérico)
+    window._clLockDevName={}; (devs.data||[]).forEach(d=>{ if(d.device_id)window._clLockDevName[d.device_id]=d.name; });
   }catch(e){ console.error('clLockActLoad',e); tb.innerHTML='<tbody><tr><td class="muted" style="padding:14px">No se pudo cargar la actividad. Intenta ↻ Actualizar.</td></tr></tbody>'; return; }
   clLockActRender();
 }
@@ -1354,7 +1357,7 @@ function clLockActRender(){
   const q=((document.getElementById('clLockActSearch')||{}).value||'').trim().toLowerCase();
   const evLbl=e=>e.event==='Unlocked'?'🔓 Abrió':(e.event==='Locked'?'🔒 Cerró':e.event);
   const meth=e=>(typeof ACT_METHOD!=='undefined'&&ACT_METHOD[e.event_type])||e.event_type||'';
-  const prop=e=>e.device_name||'—';
+  const prop=e=>(window._clLockDevName&&window._clLockDevName[e.device_id])||e.device_name||'—';
   const rowText=e=>[e.user_name,prop(e),evLbl(e),meth(e),fmtLockDT(e.occurred_at)].map(v=>String(v||'').toLowerCase()).join(' ');
   const list=q?all.filter(e=>rowText(e).includes(q)):all;
   const cnt=document.getElementById('clLockActCount'); if(cnt)cnt.textContent=list.length+(q?(' de '+all.length):'')+' evento'+(list.length===1?'':'s');
