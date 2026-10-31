@@ -169,6 +169,8 @@
     if(steps.length){
       body.innerHTML='<h1>'+esc(t().codesTitle)+'</h1><p class="prop">'+esc(prop||"")+'</p>'+
         (c.fridge?'<div class="combo"><div class="k">🧊 '+esc(t().fridge)+'</div><div class="v">'+esc(c.fridge)+'</div></div>':'')+
+        // La combinación de la VITRINA también (antes faltaba aquí; caso Camilo 2026-10-30).
+        (c.display?'<div class="combo"><div class="k">🗄️ '+esc(t().display)+'</div><div class="v">'+esc(c.display)+'</div></div>':'')+
         '<ol class="steps" style="padding:0;margin:0 0 6px">'+steps.map(function(x,i){ return '<li><b class="n">'+(i+1)+'</b><span>'+esc(x)+'</span></li>'; }).join('')+'</ol>';
       return;
     }
