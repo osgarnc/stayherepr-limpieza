@@ -3396,18 +3396,47 @@ async function contReload(){
         (unres.length?'<div style="margin-top:8px;border-top:1px dashed var(--line);padding-top:7px">'+
           unres.map(function(u,ix){ return contResolverHTML(p,u,ix); }).join('')+'</div>':'')+
         '<div id="contL-'+p.id+'" class="hide" style="margin-top:8px;overflow:auto">'+
-          '<table><tr><th>Tipo</th><th>Huésped</th><th>Propiedad</th><th style="text-align:right">Monto</th></tr>'+
+          '<table><tr><th>Tipo</th><th>Huésped</th><th>Propiedad</th><th style="text-align:right">Monto</th><th></th></tr>'+
           (ls.length?ls.map(function(l){
             return '<tr><td>'+_cEsc(CONT_KINDLBL[l.kind]||l.kind)+'</td>'+
               '<td class="muted">'+_cEsc(l.guest_name||'—')+'</td>'+
               '<td class="muted">'+_cEsc(pname[l.property_id]||'—')+(l.qbo_class_id?'':' <span style="color:var(--danger)">sin clase</span>')+'</td>'+
-              '<td style="text-align:right"><b>'+money(l.amount)+'</b></td></tr>';
-          }).join(''):'<tr><td colspan="4" class="muted" style="padding:12px">Sin renglones</td></tr>')+
+              '<td style="text-align:right"><b>'+money(l.amount)+'</b></td>'+
+              // Quitar un renglón: vuelve a quedar por revisar para clasificarlo
+              // otra vez. No se puede si ya está en QuickBooks: ahí se anula.
+              '<td style="text-align:right">'+(p.status==='posteado'?'':
+                '<button class="btn sm ghost" title="Quitar este renglón y volver a clasificarlo" '+
+                'onclick="contBorrarLinea(\''+p.id+'\',\''+l.id+'\')">✕</button>')+'</td></tr>';
+          }).join(''):'<tr><td colspan="5" class="muted" style="padding:12px">Sin renglones</td></tr>')+
           '</table></div>'+
       '</div>';
     }).join('');
 }
 function contVer(k){contFiltro=k;contReload();}
+/* Quitar un renglón ya clasificado. Sirve para corregir: lo que se quita vuelve
+   a la lista de "por revisar" con su monto, y el payout regresa a pendiente
+   hasta que lo clasifiques otra vez. Si ya está en QuickBooks hay que anularlo
+   primero, que para eso está el botón de anular. */
+async function contBorrarLinea(payoutId,lineId){
+  const p=contPayouts.find(x=>x.id===payoutId);if(!p)return;
+  if(p.status==='posteado'){toast('Ya está en QuickBooks: anúlalo primero');return;}
+  const {data:l}=await sb.from('cont_payout_lines').select('*').eq('id',lineId).maybeSingle();
+  if(!l){toast('Ese renglón ya no está');await contReload();return;}
+  if(!confirm('¿Quitar el renglón de '+money(l.amount)+'?\n\n'+
+    (l.description||CONT_KINDLBL[l.kind]||l.kind)+
+    '\n\nVuelve a quedar por revisar para que lo clasifiques otra vez.'))return;
+  const {error}=await sb.from('cont_payout_lines').delete().eq('id',lineId);
+  if(error){console.error(error);toast('No se pudo quitar el renglón');return;}
+  const et=String(l.description||'').replace(/ — clasificado a mano$/,'')||CONT_KINDLBL[l.kind]||l.kind;
+  const unres=(p.unresolved||[]).concat([{label:et,amount:Number(l.amount)||0,
+    property_id:l.property_id||null,reason:'lo quitaste para volver a clasificarlo'}]);
+  const {data:ls}=await sb.from('cont_payout_lines').select('amount').eq('payout_id',payoutId);
+  const suma=_c2((ls||[]).reduce((a,x)=>a+Number(x.amount||0),0));
+  await sb.from('cont_payouts').update({unresolved:unres,matched:suma,status:'pendiente',
+    updated_at:new Date().toISOString()}).eq('id',payoutId);
+  toast('Renglón quitado — vuelve a estar por revisar');
+  await contReload();
+}
 function contToggleLines(id){const e=document.getElementById('contL-'+id);if(e)e.classList.toggle('hide');}
 
 /* ---------- resolver pendientes ----------
@@ -3446,6 +3475,11 @@ function contResolverHTML(p,u,ix){
       '<label style="display:flex;align-items:center;gap:4px;font-size:11.5px" title="La próxima vez que aparezca este texto, el motor lo clasifica solo">'+
         '<input type="checkbox" id="cR-r-'+id+'"> recordar</label>'+
       '<button class="btn sm" onclick="contResolver(\''+p.id+'\','+ix+')">Aplicar</button>'+
+    '</div>'+
+    // El monto se puede bajar para clasificar solo una parte: lo que sobre
+    // sigue apareciendo aquí y se clasifica aparte, contra otra cuenta.
+    '<div class="muted" style="font-size:11px;padding-left:14px;margin-top:2px">'+
+      'Puedes clasificar solo una parte: baja el monto y el resto se queda aquí para clasificarlo contra otra cuenta.'+
     '</div></div>';
 }
 async function contResolver(payoutId,ix){
