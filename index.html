@@ -3450,8 +3450,11 @@ function contResolverHTML(p,u,ix){
   if(p.status==='posteado')
     return '<div style="font-size:12px;color:var(--danger)">⚠️ '+_cEsc(u.label)+(u.amount?' · '+money(u.amount):'')+'</div>';
   const id=p.id+'-'+ix;
+  // El valor lleva la fecha además del nombre: un mismo huésped puede tener dos
+  // reservas y hay que saber a cuál se le está pegando el pago.
   const invitados=contFin.slice().sort((a,b)=>a.guest_name<b.guest_name?-1:1)
-    .map(f=>'<option value="'+_cEsc(f.guest_key)+'">'+_cEsc(f.guest_name)+' · '+_cEsc(f.check_in)+'</option>').join('');
+    .map(f=>'<option value="'+_cEsc(f.guest_key+'|'+f.check_in)+'">'+_cEsc(f.guest_name)+' · '+_cEsc(f.check_in)+
+      ' · '+_cEsc((contProps.find(x=>x.id===f.property_id)||{}).name||'')+'</option>').join('');
   const tipos=Object.keys(CONT_KINDLBL).map(k=>'<option value="'+k+'">'+_cEsc(CONT_KINDLBL[k])+'</option>').join('');
   // El selector es de CLASES: así se puede mandar algo a Office (una compra de la
   // oficina, un movimiento interno) y no solo a una propiedad.
@@ -3492,28 +3495,47 @@ async function contResolver(payoutId,ix){
   const pv=(contProps.find(x=>contClassOf(x.id)===clsSelV)||{}).id||null;   // la propiedad, si la clase es de una
   const av=_c2(parseFloat((document.getElementById('cR-a-'+id)||{}).value)||0);
 
-  // (a) alias: el pagador es un huésped con otro nombre
+  // (a) alias: el pagador es un huésped con otro nombre. Se guarda el alias
+  // (queda aprendido para la próxima) y se desglosa ESTA reserva aquí mismo.
+  // Antes esto volvía a cuadrar el mes entero, y eso borra y rearma todos los
+  // payouts que no estén posteados — o sea, se llevaba por delante lo que ya
+  // hubieras clasificado a mano.
+  let nuevas=null;
   if(gv){
+    const [gk,gci]=gv.split('|');
+    const fin=contFin.find(f=>f.guest_key===gk&&String(f.check_in)===gci)||
+              contFin.find(f=>f.guest_key===gk);
+    if(!fin){toast('No encontré esa reserva en el reporte de dueños');return;}
+    if(!av){toast('El monto no puede ser cero');return;}
     const {error}=await sb.from('cont_alias').upsert(
-      {payer_key:_cKey(u.label),guest_key:gv,note:u.label},{onConflict:'payer_key'});
-    if(error){console.error(error);toast('No se pudo guardar el alias');return;}
-    toast('Alias guardado. Volviendo a cuadrar…');
-    await contAnalizar();
-    return;
+      {payer_key:_cKey(u.label),guest_key:gk,note:u.label},{onConflict:'payer_key'});
+    if(error)console.error('alias',error);   // el desglose se hace igual
+    nuevas=contLineasReserva(fin,av,'').map(function(l){
+      return {payout_id:payoutId,ord:999+ix,kind:l.kind,amount:l.amount,
+        property_id:l.property_id,qbo_class_id:l.qbo_class_id,qbo_account_id:null,
+        guest_name:l.guest_name,description:l.description};
+    });
+    if(!nuevas.length){toast('Esa reserva no deja ningún renglón');return;}
+    const sinCls=nuevas.filter(l=>!l.qbo_class_id).length;
+    if(sinCls){toast('Esa propiedad no tiene clase de QuickBooks asignada');return;}
+    const {error:e2}=await sb.from('cont_payout_lines').insert(nuevas);
+    if(e2){console.error(e2);toast('No se pudo añadir el desglose');return;}
   }
   // (b) clasificación manual contra una cuenta
   const cv=(document.getElementById('cR-c-'+id)||{}).value||'';   // cuenta de QBO, opcional
-  if(!kv&&!cv){toast('Elige el huésped, el tipo de renglón o la cuenta');return;}
-  if(!clsSelV){toast('Toda línea lleva clase: elige una');return;}
+  if(!nuevas&&!kv&&!cv){toast('Elige el huésped, el tipo de renglón o la cuenta');return;}
   const cls=clsSelV;
-  if(!av){toast('El monto no puede ser cero');return;}
-  const {error}=await sb.from('cont_payout_lines').insert({
-    payout_id:payoutId,ord:999+ix,kind:kv||'servicio',amount:av,property_id:pv,qbo_class_id:cls,
-    qbo_account_id:cv||null,
-    guest_name:null,description:u.label+' — clasificado a mano'});
-  if(error){console.error(error);toast('No se pudo añadir el renglón');return;}
+  if(!nuevas){
+    if(!clsSelV){toast('Toda línea lleva clase: elige una');return;}
+    if(!av){toast('El monto no puede ser cero');return;}
+    const {error}=await sb.from('cont_payout_lines').insert({
+      payout_id:payoutId,ord:999+ix,kind:kv||'servicio',amount:av,property_id:pv,qbo_class_id:cls,
+      qbo_account_id:cv||null,
+      guest_name:null,description:u.label+' — clasificado a mano'});
+    if(error){console.error(error);toast('No se pudo añadir el renglón');return;}
+  }
   // "recordar": la próxima vez que aparezca este texto, el motor lo hace solo.
-  if((document.getElementById('cR-r-'+id)||{}).checked){
+  if(!nuevas&&(document.getElementById('cR-r-'+id)||{}).checked){
     const pat=String(u.label||'').trim().slice(0,60);
     const cn=cv?(contCatalogo.cuentas.find(c=>String(c.id)===String(cv))||{}).name:null;
     const et=cn||CONT_KINDLBL[kv]||kv;
@@ -3538,8 +3560,9 @@ async function contResolver(payoutId,ix){
   const cuadra=Math.abs(suma-Number(p.amount))<0.005&&!resto.length&&!sinClase;
   await sb.from('cont_payouts').update({unresolved:resto,matched:suma,
     status:cuadra?'listo':'pendiente',updated_at:new Date().toISOString()}).eq('id',payoutId);
+  const qué=nuevas?'Reserva desglosada ('+nuevas.length+' renglones)':'Renglón añadido';
   toast(cuadra?'Resuelto — ese payout ya cuadra'
-        :(Math.abs(sobra)>=0.005?'Renglón añadido · quedan '+money(sobra)+' por clasificar':'Renglón añadido'));
+        :(Math.abs(sobra)>=0.005?qué+' · quedan '+money(sobra)+' por clasificar':qué));
   await contReload();
 }
 
