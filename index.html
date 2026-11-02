@@ -2200,9 +2200,12 @@ const CONT_FUENTES=[
   {kind:'stripe',   icon:'💳',label:'Payouts de Stripe',            hint:'Itemized payout reconciliation. Una subida por cuenta. Usa SIEMPRE el mismo nombre para la misma cuenta (reservas · tienda · host.co).'},
   {kind:'booking',  icon:'🔵',label:'Reservas de Booking.com',       hint:'El Excel de Reservations de la extranet. Trae la comisión real que cobra Booking, que no siempre es la que calcula Hostfully.',acepta:'.xls,.xlsx,.csv'},
 ];
-const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Pago al dueño',roomtax:'Impuesto de turismo',
+// OJO con los dos pasivos: "al dueño" es plata del DUEÑO de la propiedad y
+// "por devolver al huésped" es plata del HUÉSPED (un prepago, un cobro doble).
+// Ninguno de los dos es gasto: los dos son deuda hasta que se paguen.
+const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Al dueño (pasivo)',roomtax:'Impuesto de turismo',
   canal:'Comisión del canal',partnerfee:'Fee de Hostfully',fee:'Fee de Stripe',paypalfee:'Fee de PayPal',
-  reserva:'Retención de Stripe',prepago:'Pasivo (por devolver)',sobrecobro:'Cobro doble (por devolver)',
+  reserva:'Retención de Stripe',prepago:'Por devolver al huésped (pasivo)',sobrecobro:'Cobro doble al huésped (por devolver)',
   seguro:'Reclamación de seguro',reembolso:'Reembolso',reparaciones:'Reembolso de gastos',
   earlyci:'Early check-in',extraguest:'Huésped extra',servicio:'Servicios'};
 let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={},contLedgerPila={},contComision={},contRules=[],contCat=null,contFiltro='';
