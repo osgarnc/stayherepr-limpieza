@@ -2209,6 +2209,9 @@ const CONT_KINDLBL={limpieza:'Limpieza',comision:'Comisión',dueno:'Al dueño (p
   seguro:'Reclamación de seguro',reembolso:'Reembolso',reparaciones:'Reembolso de gastos',
   earlyci:'Early check-in',extraguest:'Huésped extra',servicio:'Servicios'};
 let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contAlias={},contLedger={},contLedgerPila={},contComision={},contRules=[],contCat=null,contFiltro='';
+// Clases y cuentas de QuickBooks. Se traen solas al abrir Ingresos (hacen falta
+// para clasificar algo que no es una propiedad, como un gasto de la oficina).
+let contCatalogo={clases:[],cuentas:[]};
 const _cEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const _c2=n=>Math.round((Number(n)||0)*100)/100;
 const _cNum=v=>{if(v==null)return 0;const s=String(v).replace(/[$,\s]/g,'').replace(/[()]/g,m=>m==='('?'-':'');const n=parseFloat(s);return isNaN(n)?0:n;};
@@ -2276,7 +2279,23 @@ async function contInit(){
   contRenderDrops();
   await contLoadProps();
   contCheckQbo();
+  // El catálogo de QuickBooks (clases y cuentas) hace falta para clasificar un
+  // pendiente contra algo que NO es una propiedad: la oficina, una cuenta de
+  // gasto. Antes solo se traía si le dabas al botón en Ajustes, así que al
+  // clasificar solo salían las propiedades y no había forma de mandar un gasto
+  // a Office. Se trae solo, callado, la primera vez.
+  contCatalogoSilencioso();
   contReload();
+}
+async function contCatalogoSilencioso(){
+  if(contCatalogo.clases.length)return;
+  try{
+    const r=await sb.functions.invoke('cont-qbo',{body:{action:'catalogo'}});
+    const d=r.data||{};
+    if(!d.ok)return;
+    contCatalogo={clases:d.clases||[],cuentas:d.cuentas||[]};
+    contReload();            // para que los menús ya salgan con las clases
+  }catch(e){ /* sin QuickBooks se sigue trabajando con las propiedades */ }
 }
 async function contLoadProps(){
   const [pr,cm,po]=await Promise.all([
@@ -3713,7 +3732,6 @@ function contToggleSetup(abrir){
     try{e.scrollIntoView({behavior:'smooth',block:'start'});}catch(_e){e.scrollIntoView();}
   }
 }
-let contCatalogo={clases:[],cuentas:[]};
 async function contCargarCatalogo(){
   toast('Trayendo de QuickBooks…');
   try{
