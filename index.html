@@ -2396,9 +2396,9 @@ async function contBorrarUpload(id){
 // las reservas del mes que estás cuadrando están o no.
 async function contCobertura(){
   const el=document.getElementById('contUploadLog');if(!el)return;
-  const {data,error}=await sb.from('cont_reservation_finance')
-    .select('check_in').order('check_in');
-  if(error||!data||!data.length){
+  const data=await contTodas((a,b)=>sb.from('cont_reservation_finance')
+    .select('check_in').order('check_in').range(a,b));
+  if(!data||!data.length){
     el.innerHTML='<span style="color:var(--danger)">Todavía no hay ningún desglose cargado. Empieza por el reporte de dueños de Hostfully.</span>';
     return;}
   const ini=data[0].check_in, fin=data[data.length-1].check_in;
@@ -2880,13 +2880,14 @@ async function contAnalizar(){
   await contLoadProps();
 
   const [fin,als,led,rul]=await Promise.all([
-    sb.from('cont_reservation_finance').select('*'),
+    contTodas((a,b)=>sb.from('cont_reservation_finance').select('*').order('check_in').range(a,b)),
     sb.from('cont_alias').select('*'),
-    sb.from('ops_reservations_ledger').select('guest_name,property_id,check_in,source'),
+    contTodas((a,b)=>sb.from('ops_reservations_ledger')
+      .select('guest_name,property_id,check_in,source').order('check_in').range(a,b)),
     sb.from('cont_rules').select('*')
   ]);
   contRules=rul.error?[]:(rul.data||[]);   // si aún no corriste el SQL, sigue sin reglas
-  contFin=fin.data||[];
+  contFin=fin;
   contAlias={};(als.data||[]).forEach(a=>{contAlias[a.payer_key]=a.guest_key;});
   // Nos quedamos con la estadía más reciente de cada huésped: es la que suele
   // corresponder al payout que estamos cuadrando.
@@ -2894,7 +2895,7 @@ async function contAnalizar(){
   // Airbnb y PayPal traen el nombre completo ("Hongming Zhang"). Se indexa por
   // los dos para poder ligarlos.
   contLedger={};contLedgerPila={};
-  (led.data||[]).forEach(function(r){
+  led.forEach(function(r){
     const k=_cKey(r.guest_name);if(!k)return;
     if(!contLedger[k]||String(r.check_in)>String(contLedger[k].check_in))contLedger[k]=r;
     const pila=k.split(' ')[0];
@@ -3028,6 +3029,22 @@ function contApuntaFee(source,txn,fecha,pagador,fin,bruto,fee,kind){
     payer_name:pagador||null,guest_key:fin?fin.guest_key:null,
     property_id:fin?fin.property_id:null,check_in:fin?fin.check_in:null,
     gross:_c2(bruto),fee:_c2(Math.abs(fee)),kind:kind||null});
+}
+/* PostgREST devuelve como MÁXIMO 1000 filas por consulta, sin avisar: no da
+   error, simplemente manda menos. El reporte de dueños ya pasó de ahí (1,023
+   reservas) y las que caían fuera del corte el app las daba por "no están en el
+   reporte de dueños" — pasó con Wendy Ramirez. Esto las trae todas, de mil en
+   mil. `hacer(desde,hasta)` es la consulta con su .range(). */
+async function contTodas(hacer){
+  const PAG=1000; let out=[],desde=0;
+  for(;;){
+    const {data,error}=await hacer(desde,desde+PAG-1);
+    if(error){console.error('contTodas',error);break;}
+    out=out.concat(data||[]);
+    if(!data||data.length<PAG)break;
+    desde+=PAG;
+  }
+  return out;
 }
 function contArmarPaypal(rows,month){
   const out=[];let buf=[];
@@ -3335,8 +3352,9 @@ async function contReload(){
   contPayouts=data||[];
   if(!contPayouts.length){el.innerHTML='<p class="muted" style="text-align:center;padding:18px">Nada cuadrado para '+_cEsc(month)+' todavía.</p>';return;}
   const ids=contPayouts.map(p=>p.id);
-  const {data:lines}=await sb.from('cont_payout_lines').select('*').in('payout_id',ids).order('ord');
-  const byPayout={};(lines||[]).forEach(l=>{(byPayout[l.payout_id]=byPayout[l.payout_id]||[]).push(l);});
+  const lines=await contTodas((a,b)=>sb.from('cont_payout_lines').select('*')
+    .in('payout_id',ids).order('ord').range(a,b));
+  const byPayout={};lines.forEach(l=>{(byPayout[l.payout_id]=byPayout[l.payout_id]||[]).push(l);});
   const pname={};contProps.forEach(p=>{pname[p.id]=p.name;});
   const tot=contPayouts.reduce((a,p)=>a+Number(p.amount||0),0);
   const post=contPayouts.filter(p=>p.status==='posteado');
@@ -3786,9 +3804,10 @@ async function contAplicarClases(){
     .eq('month',month).neq('status','posteado');
   if(!pays||!pays.length)return 0;
   const ids=pays.map(p=>p.id);
-  const {data:lines}=await sb.from('cont_payout_lines').select('*').in('payout_id',ids);
+  const lines=await contTodas((a,b)=>sb.from('cont_payout_lines').select('*')
+    .in('payout_id',ids).order('ord').range(a,b));
   let n=0;
-  for(const l of (lines||[])){
+  for(const l of lines){
     if(l.qbo_class_id||!l.property_id)continue;
     const cls=contClassOf(l.property_id);
     if(!cls)continue;
