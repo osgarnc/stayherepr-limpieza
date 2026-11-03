@@ -2766,10 +2766,15 @@ function contAutoLinea(label,amount,month,fecha,texto){
   return null;
 }
 // Empuja un renglón si el motor pudo resolverlo solo; si no, lo deja pendiente.
-function contAgrega(p,label,amount,reason,month,pista,texto){
+// `cobro` es lo que la plataforma se quedó por ESE cargo ({fee,txn,source,fecha,
+// gross}). Viaja con el pendiente para que, al clasificarlo a mano, el fee se
+// pueda guardar: si no, se pierde, y el reporte de dueños no se lo puede cobrar
+// al dueño cuando la reserva se cancela (caso Luerh Lo).
+function contAgrega(p,label,amount,reason,month,pista,texto,cobro){
   const l=contAutoLinea(label,amount,month,p.pay_date,texto);
   if(l){p.lines.push(l);return true;}
   const u=contPendiente(label,amount,reason,p.pay_date,texto?((contPropEnTexto(texto)||{}).id||null):null);
+  if(cobro&&Math.abs(Number(cobro.fee)||0)>=0.005)u.cobro=cobro;
   // Pista: la propiedad que dice el propio reporte (la columna Listing de
   // Airbnb). Así el panel ya trae la clase puesta y resolverlo es un clic.
   if(pista&&!u.property_id)u.property_id=pista;
@@ -2788,6 +2793,7 @@ function contPendiente(label,amount,reason,fecha,pistaProp){
   const r=hit.r;
   const p=contProps.find(x=>x.id===r.property_id);
   return {label,amount:_c2(amount),property_id:r.property_id||pistaProp||null,
+    check_in:r.check_in||null,
     reason:reason+' · en Hostfully es '+(p?p.name:'—')+', check-in '+r.check_in+
            (r.source?' ('+r.source+')':'')+'. Falta su desglose en el reporte de dueños.'};
 }
@@ -3117,7 +3123,9 @@ function contArmarPaypal(rows,month){
         }
         const f=contBuscarFin(g,null,gb);
         if(!f){
-          const ok=contAgrega(p,g||asunto||t,_c2(gb+mf),'no aparece en el reporte de dueños',month,null,asunto);
+          const ok=contAgrega(p,g||asunto||t,_c2(gb+mf),'no aparece en el reporte de dueños',month,null,asunto,
+            {fee:Math.abs(mf),gross:gb,source:'paypal',txn:contGet(m,['Transaction ID']),
+             fecha:_cDate(contGet(m,['Date']))});
           // Un prepago de una reserva futura también paga su fee, y ese fee se
           // pierde si la reserva se cancela: la plataforma no lo devuelve y la
           // reserva desaparece del reporte de dueños. Hay que apuntarlo igual.
@@ -3275,7 +3283,10 @@ function contArmarStripe(rows,month,label){
           continue;
         }
         if(guest){
-          if(contAgrega(p,guest,neto,'no aparece en el reporte de dueños',month))_apuntaPrepago();
+          if(contAgrega(p,guest,neto,'no aparece en el reporte de dueños',month,null,null,
+            {fee:Math.abs(fee),gross:bruto,source:'stripe',
+             txn:contGet(r,['balance_transaction_id','charge_id','id']),
+             fecha:_cDate(contGet(r,['created_utc','created'])||fecha)}))_apuntaPrepago();
           continue;
         }
         const razon=cat==='other_adjustment'
@@ -3600,6 +3611,21 @@ async function contResolver(payoutId,ix){
   const cuadra=Math.abs(suma-Number(p.amount))<0.005&&!resto.length&&!sinClase;
   await sb.from('cont_payouts').update({unresolved:resto,matched:suma,
     status:cuadra?'listo':'pendiente',updated_at:new Date().toISOString()}).eq('id',payoutId);
+  // El fee que se quedó la plataforma por ese cobro. Se guarda con la reserva a
+  // la que pertenece: así, si después se cancela, el reporte de dueños sabe
+  // cuánto fee no se recuperó y le cobra al dueño su parte.
+  if(u.cobro&&Math.abs(Number(u.cobro.fee)||0)>=0.005){
+    const fPid=(nuevas&&nuevas[0]&&nuevas[0].property_id)||pv||u.property_id||null;
+    const fCi=(gv?String(gv).split('|')[1]:null)||u.check_in||null;
+    if(fPid&&fCi&&u.cobro.txn){
+      const {error:ef}=await sb.from('cont_cobro_fees').upsert({
+        txn_id:String(u.cobro.txn),source:u.cobro.source||null,charge_date:u.cobro.fecha||null,
+        payer_name:u.label||null,guest_key:_cKey(u.label)||null,
+        property_id:fPid,check_in:fCi,
+        gross:_c2(u.cobro.gross),fee:_c2(Math.abs(u.cobro.fee))},{onConflict:'txn_id'});
+      if(ef)console.error('fee del cobro',ef);
+    }
+  }
   const qué=nuevas?'Reserva desglosada ('+nuevas.length+' renglones)':'Renglón añadido';
   toast(cuadra?'Resuelto — ese payout ya cuadra'
         :(Math.abs(sobra)>=0.005?qué+' · quedan '+money(sobra)+' por clasificar':qué));
