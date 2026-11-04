@@ -4353,19 +4353,27 @@ async function recMarcarPagado(oi,pi){
   if(!confirm('¿Marcar como pagado el estado de '+recMesIngles(mes)+'?\n\n'+
     o.name+' · '+props.length+' propiedad(es) · '+money(total)+'\n\n'+
     (gastos.length?'Se liquidan '+gastos.length+' gasto(s): salen de la pestaña de Gastos y dejan de acumularse.\n':'')+
-    'El mes queda sellado: el reporte no lo vuelve a recalcular.'))return;
-  // 1) sellar el mes en cada propiedad
-  for(const x of props){
-    if(!x.property_id)continue;
-    const {error}=await sb.from('ops_property_owner').update({pagado_hasta:mes})
-      .eq('property_id',x.property_id);
-    if(error){console.error(error);toast('No se pudo sellar el mes de '+x.property_name);return;}
+    'Se guarda una foto del estado, para poder reimprimirlo igual aunque la data cambie después.'))return;
+  // 1) guardar la FOTO del estado. Es lo que lo protege: un estado pagado se
+  // reimprime de aquí, aunque mañana alguien borre un gasto de ese mes.
+  // (OJO: no se toca pagado_hasta. Ese es otro control —desde qué mes aplican
+  // las correcciones— y moverlo cambiaría el número que acabas de pagar.)
+  const filas=props.map(function(x){
+    return {property_id:x.property_id,month:mes,owner_id:o.owner_id||x.owner_id||null,
+      payout:Number(x.payout)||0,stays_net:Number(x.stays_net)||0,
+      billable_expense:Number(x.billable_expense)||0,
+      cancel_fee_owner:Number(x.cancel_fee_owner)||0,
+      snapshot:x,paid_at:new Date().toISOString()};
+  }).filter(function(x){return x.property_id;});
+  if(filas.length){
+    const {error}=await sb.from('ops_owner_statements').upsert(filas,{onConflict:'property_id,month'});
+    if(error){console.error(error);toast('No se pudo guardar el estado (¿corriste el SQL?)');return;}
   }
-  // 2) liquidar sus gastos
+  // 2) liquidar sus gastos: salen de la pestaña de Gastos, pero no se borran
   if(gastos.length){
     const {error}=await sb.from('ops_property_expenses')
       .update({paid_month:mes,paid_at:new Date().toISOString()}).in('id',gastos);
-    if(error){console.error(error);toast('El mes quedó sellado, pero los gastos no se liquidaron (¿corriste el SQL?)');}
+    if(error){console.error(error);toast('El estado quedó guardado, pero los gastos no se liquidaron');}
   }
   toast('Pagado · '+props.length+' propiedad(es)'+(gastos.length?' · '+gastos.length+' gasto(s) liquidados':''));
   await renderRecReport();
@@ -4702,8 +4710,12 @@ async function renderRecReport(){
                 // y liquida los gastos de esta factura, que si no se quedan
                 // acumulándose en la pestaña de gastos.
                 (p.pagado
-                  ? '<span class="pill paid" title="Este mes ya se le pagó a este dueño">✓ Paid</span>'
-                  : '<button class="btn sm" onclick="recMarcarPagado('+oi+','+pi+')" title="Mark this statement as paid: it freezes the month and clears its expenses from the Gastos tab">✓ Mark paid</button>')+
+                  ? '<span class="pill paid" title="Pagado'+(p.pagado_el?' el '+esc(String(p.pagado_el).slice(0,10)):'')+'">✓ Paid '+money(p.payout_pagado)+'</span>'+
+                    // Si hoy no da lo mismo que se pagó, algo de atrás cambió.
+                    (Math.abs(Number(p.payout_pagado||0)-Number(p.payout||0))>0.005
+                      ? '<span class="pill pending" title="Se pagó '+money(p.payout_pagado)+' y hoy el cálculo da '+money(p.payout)+'. Algo de este mes cambió después de pagarlo.">⚠︎ cambió</span>'
+                      : '')
+                  : '<button class="btn sm" onclick="recMarcarPagado('+oi+','+pi+')" title="Mark this statement as paid: saves a snapshot and clears its expenses from the Gastos tab">✓ Mark paid</button>')+
               '</span></div>'+
             (staysRows||'<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>')+
             (function(){
