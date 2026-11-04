@@ -4568,6 +4568,97 @@ async function recExcelDueno(oi){
   X.writeFile(wb,_recArchivoD(d,'xlsx'));
   toast('Excel consolidado descargado');
 }
+/* Consolidado del MES: un solo PDF con todos los dueños. Solo se habilita
+   cuando todas las facturas están marcadas como pagadas, porque hasta entonces
+   los números todavía se mueven y el documento nacería viejo.
+   Página 1: resumen por dueño. Página 2: resumen por propiedad. Después, el
+   detalle de cada propiedad, una por página, igual que el consolidado de un
+   dueño. */
+async function recPdfTodos(){
+  const d=recReportData;if(!d||!(d.owners||[]).length){toast('Genera el reporte otra vez');return;}
+  const mes=d.month||(document.getElementById('recMonth')||{}).value||'';
+  try{
+    await recLib('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+    await recLib('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+  }catch(e){ toast('No se pudo cargar el generador de PDF'); return; }
+  const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
+  const nProps=d.owners.reduce(function(n,o){return n+(o.properties||[]).length;},0);
+  const y0=await recEncabezadoPdf(doc,'Consolidated Owner Statement',
+    d.owners.length+' owners   ·   '+nProps+' properties',recMesIngles(mes));
+
+  // ---- página 1: por dueño ----
+  const filaDue=function(o){
+    const P=o.properties||[];
+    const n=function(k){return P.reduce(function(a,p){return a+(Number(p[k])||0);},0);};
+    const est=P.reduce(function(a,p){return a+(p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;}).length;},0);
+    return [o.name,P.length,est,_recN2(n('stays_rent')),_recN2(n('stays_commission')),_recN2(n('stays_net')),
+            _recN2(-n('billable_expense')),_recN2(-n('cancel_fee_owner')),_recN2(Number(o.total_payout)||0)];
+  };
+  const encDue=['Owner','Properties','Stays','Rent','StayHere Commission','Owners Payout','Total Expense','Cancellation Fees','Owners Deposit'];
+  const cuerpoDue=d.owners.map(filaDue);
+  const totDue=['TOTAL',0,0,0,0,0,0,0,0];
+  cuerpoDue.forEach(function(r){for(let i=1;i<9;i++)totDue[i]=_recN2(totDue[i]+r[i]);});
+  const pintar=function(enc,cuerpo,total,y,anchoCol0){
+    doc.autoTable({startY:y,head:[enc],
+      body:cuerpo.map(function(r){return r.map(function(v,i){return i?(i<=2?String(Math.round(Number(v))):_recCont(v)):v;});}),
+      foot:[total.map(function(v,i){return i?(i<=2?String(Math.round(Number(v))):_recCont(v)):v;})],
+      styles:{fontSize:8,cellPadding:3.5},headStyles:{fillColor:[14,124,123]},
+      footStyles:{fillColor:[223,245,233],textColor:20,fontStyle:'bold'},
+      columnStyles:{0:{cellWidth:anchoCol0}},
+      didParseCell:function(h){
+        const i=h.column.index;
+        if(i>=1)h.cell.styles.halign='right';
+        if(i===enc.length-1&&h.section!=='head')h.cell.styles.fontStyle='bold';
+      }});
+    return doc.lastAutoTable.finalY;
+  };
+  let y=pintar(encDue,cuerpoDue,totDue,y0,190)+14;
+  doc.setFont('helvetica','bold');doc.setFontSize(12);
+  if(Number(totDue[8])<0)doc.setTextColor(176,42,21);
+  doc.text('Total Owners Deposit:  '+pagoTexto(totDue[8]),40,y);
+  doc.setTextColor(20,20,20);doc.setFont('helvetica','normal');
+
+  // ---- página 2: por propiedad ----
+  doc.addPage();
+  const y2=await recEncabezadoPdf(doc,'Consolidated Owner Statement  ·  by property','',recMesIngles(mes));
+  const encProp=['Owner','Property','Stays','Rent','StayHere Commission','Owners Payout','Total Expense','Cancellation Fees','Owners Deposit'];
+  const cuerpoProp=[];
+  d.owners.forEach(function(o){(o.properties||[]).forEach(function(p){
+    cuerpoProp.push([o.name,p.property_name,
+      (p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;}).length,
+      _recN2(p.stays_rent),_recN2(p.stays_commission),_recN2(p.stays_net),
+      _recN2(-(Number(p.billable_expense)||0)),_recN2(-(Number(p.cancel_fee_owner)||0)),_recN2(p.payout)]);
+  });});
+  const totProp=['TOTAL','',0,0,0,0,0,0,0];
+  cuerpoProp.forEach(function(r){for(let i=2;i<9;i++)totProp[i]=_recN2(totProp[i]+r[i]);});
+  doc.autoTable({startY:y2,head:[encProp],
+    body:cuerpoProp.map(function(r){return r.map(function(v,i){return i<2?v:(i===2?String(Math.round(Number(v))):_recCont(v));});}),
+    foot:[totProp.map(function(v,i){return i<2?v:(i===2?String(Math.round(Number(v))):_recCont(v));})],
+    styles:{fontSize:7.5,cellPadding:3},headStyles:{fillColor:[14,124,123]},
+    footStyles:{fillColor:[223,245,233],textColor:20,fontStyle:'bold'},
+    columnStyles:{0:{cellWidth:120},1:{cellWidth:150}},
+    didParseCell:function(h){
+      const i=h.column.index;
+      if(i>=2)h.cell.styles.halign='right';
+      if(i===8&&h.section!=='head')h.cell.styles.fontStyle='bold';
+    }});
+
+  // ---- el detalle de cada propiedad ----
+  for(const o of d.owners){
+    for(const p of (o.properties||[])){
+      const dp=recDatosProp(o,p,mes);
+      doc.addPage();
+      const yy=await recEncabezadoPdf(doc,'Owner Statement  ·  '+dp.prop,
+        dp.owner+'   ·   Owner '+dp.pct+'%  ·  StayHere '+_recN(100-Number(dp.pct||0)).replace(/\.00$/,'')+'%',
+        recMesIngles(dp.mes));
+      recTablaPdf(doc,dp,yy);
+    }
+  }
+  recPiePdf(doc);
+  doc.save(('Consolidated Owner Statement - '+mes).replace(/[\\/:*?"<>|]/g,'-')+'.pdf');
+  toast('Consolidado del mes descargado');
+}
+const _recN2=function(v){return Number((Number(v)||0).toFixed(2));};
 async function recPdfDueno(oi){
   const d=recDatosDueno(oi);if(!d)return;
   try{
@@ -4651,7 +4742,17 @@ async function renderRecReport(){
     : '';
   out.innerHTML=avisoBk+'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">'+
       '<span class="muted" style="font-size:12px">'+esc(recMesIngles(month))+' · '+owners.length+' owner(s) · Total payout '+moneyPago(grand)+'</span>'+
-      '<button class="btn sm" onclick="recCopiarTabla()" title="Copies every stay with its columns, ready to paste into Excel">📋 Copy table</button></div>'+
+      '<span style="display:flex;gap:6px;align-items:center">'+
+      // El consolidado del mes solo tiene sentido cuando ya está todo pagado:
+      // si falta alguno, el documento saldría con números que todavía se mueven.
+      (function(){
+        const faltan=owners.reduce(function(n,o){return n+(o.properties||[]).filter(function(p){return !p.pagado;}).length;},0);
+        return faltan
+          ? '<button class="btn sm ghost" disabled style="opacity:.45" title="Faltan '+faltan+' factura(s) por marcar como pagadas">🖨 Consolidated Owner Statement</button>'+
+            '<span class="muted" style="font-size:11.5px">faltan '+faltan+' por marcar pagadas</span>'
+          : '<button class="btn sm" onclick="recPdfTodos()" title="Un solo PDF con todos los dueños del mes">🖨 Consolidated Owner Statement</button>';
+      })()+
+      '<button class="btn sm" onclick="recCopiarTabla()" title="Copies every stay with its columns, ready to paste into Excel">📋 Copy table</button></span></div>'+
     owners.map(function(o,oi){
       return '<div style="border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:14px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'+
