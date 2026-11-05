@@ -4453,7 +4453,9 @@ function recBuscarProp(oi,pi){
   return recDatosProp(o,p,(recReportData||{}).month||(mi&&mi.value)||'');
 }
 // ---- Excel (.xlsx de verdad, no un CSV con otro nombre) ----
-/* Marcar pagado el estado de fin de mes. Hace dos cosas:
+// El gasto con que se arrastra al mes siguiente un estado que quedó en negativo.
+const REC_ARRASTRE='Last month expenses pending balance carry on to this month';
+/* Marcar pagado el estado de fin de mes. Hace tres cosas:
      1) sella el mes en ops_property_owner.pagado_hasta, para que el reporte no
         vuelva a recalcular lo que ya se pagó (ver no tocar meses pagados);
      2) LIQUIDA los gastos que iban en esa factura: les pone paid_month, y así
@@ -4473,6 +4475,8 @@ async function recMarcarPagado(oi,pi){
   if(!confirm('¿Marcar como pagado el estado de '+recMesIngles(mes)+'?\n\n'+
     o.name+' · '+props.length+' propiedad(es) · '+money(total)+'\n\n'+
     (gastos.length?'Se liquidan '+gastos.length+' gasto(s): salen de la pestaña de Gastos y dejan de acumularse.\n':'')+
+    (props.filter(function(x){return Number(x.payout)<-0.005;}).length
+      ? 'El balance en negativo pasa al mes siguiente como gasto.\n':'')+
     'Se guarda una foto del estado, para poder reimprimirlo igual aunque la data cambie después.'))return;
   // 1) guardar la FOTO del estado. Es lo que lo protege: un estado pagado se
   // reimprime de aquí, aunque mañana alguien borre un gasto de ese mes.
@@ -4495,7 +4499,29 @@ async function recMarcarPagado(oi,pi){
       .update({paid_month:mes,paid_at:new Date().toISOString()}).in('id',gastos);
     if(error){console.error(error);toast('El estado quedó guardado, pero los gastos no se liquidaron');}
   }
-  toast('Pagado · '+props.length+' propiedad(es)'+(gastos.length?' · '+gastos.length+' gasto(s) liquidados':''));
+  // 3) el que quedó en NEGATIVO no se paga: el dueño debe esa plata, así que
+  // pasa al mes siguiente como gasto para recuperarla ahí.
+  const _sig=function(m){const t=String(m).split('-');
+    const d=new Date(Date.UTC(+t[0],+t[1],1));return d.toISOString().slice(0,10);};
+  const deben=props.filter(function(x){return Number(x.payout)<-0.005&&x.property_id;});
+  if(deben.length){
+    const fecha=_sig(mes);
+    // Si ya se arrastró antes (se volvió a marcar), no se duplica.
+    const {data:ya}=await sb.from('ops_property_expenses')
+      .select('property_id').eq('date',fecha).eq('description',REC_ARRASTRE)
+      .in('property_id',deben.map(function(x){return x.property_id;}));
+    const hechos={};(ya||[]).forEach(function(x){hechos[x.property_id]=1;});
+    const nuevas=deben.filter(function(x){return !hechos[x.property_id];}).map(function(x){
+      return {property_id:x.property_id,date:fecha,description:REC_ARRASTRE,
+        amount:_c2(Math.abs(Number(x.payout))),billable:true};
+    });
+    if(nuevas.length){
+      const {error}=await sb.from('ops_property_expenses').insert(nuevas);
+      if(error){console.error(error);toast('No se pudo arrastrar el balance al mes siguiente');}
+    }
+  }
+  toast('Pagado · '+props.length+' propiedad(es)'+(gastos.length?' · '+gastos.length+' gasto(s) liquidados':'')+
+    (deben.length?' · '+deben.length+' balance(s) arrastrado(s)':''));
   await renderRecReport();
   if(typeof renderRecExpenses==='function')renderRecExpenses();
 }
