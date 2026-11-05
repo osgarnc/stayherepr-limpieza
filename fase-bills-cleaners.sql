@@ -42,6 +42,12 @@ update public.invoice_categories set qbo_account_id='1150040011'
 -- 3) La clase de QuickBooks de cada propiedad DEL APP DE LIMPIEZA. Ojo: no es
 --    la misma tabla que la de contabilidad (`properties` vs `ops_properties`,
 --    con ids distintos), así que la clase se guarda aquí.
+-- `properties` tiene un trigger set_updated_at pero le falta la columna, asi que
+-- CUALQUIER update a esta tabla falla ("record new has no field updated_at").
+-- Es un bug de antes: tambien rompia editar una propiedad en Ajustes.
+alter table public.properties
+  add column if not exists updated_at timestamptz not null default now();
+
 alter table public.properties
   add column if not exists qbo_class_id text;
 
