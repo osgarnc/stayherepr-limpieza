@@ -5036,7 +5036,12 @@ async function renderRecReport(){
             // el reparto sale del número de Hostfully, igual que siempre. Aquí
             // se ve lo que de verdad se cobró, para poder cuadrarlo.
             (function(){
-              const ne=p.extra_nights||[];
+              // Desde que la noche extra se cobra al mismo precio que la pone
+              // Hostfully, no hay nada que explicar: la noche ya está en la
+              // renta de arriba y su fee en la columna Stripe Fee. La sección
+              // solo sale cuando de verdad hubo diferencia (las vendidas antes
+              // del arreglo del 27/09).
+              const ne=(p.extra_nights||[]).filter(function(n){return Math.abs(Number(n.difference)||0)>=0.005;});
               if(!ne.length)return '';
               const ap=!!p.extra_nights_applied;
               return '<div style="margin-top:5px;font-size:11.5px;color:var(--ink-soft);border-top:1px dashed var(--line);padding-top:5px">'+
