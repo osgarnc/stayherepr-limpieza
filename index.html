@@ -4294,7 +4294,7 @@ function recTablaCancel(p){
     const v=c.txt?'':(c.ent?String(Math.round(tot[c.k])):_recN(tot[c.k]));
     return '<td style="padding:5px 6px;text-align:right;white-space:nowrap;font-weight:800;'+
       'border-top:2px solid var(--line)'+(c.verde?';background:rgba(16,185,129,.22)':'')+'">'+v+'</td>';}).join('');
-  return '<div style="margin-top:8px"><b style="font-size:12.5px">Cancellations · cancellation policy</b>'+
+  return '<div style="margin-top:8px"><b style="font-size:12.5px">Cancellations</b>'+
     '<div style="overflow-x:auto;margin:4px 0 2px">'+
     '<table style="width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums">'+
     '<thead><tr>'+th+'</tr></thead><tbody>'+tr+'<tr>'+tf+'</tr></tbody></table></div></div>';
@@ -4585,7 +4585,7 @@ function recTablaPdf(doc,d,y0){
   bloque('Not paid — cancelled or duplicate reservations',
     ['Check In','Guest','Why','Would have been'],d.fuera||[]);
   if((d.cancDet||[]).length){
-    doc.setFontSize(10);doc.text('Cancellations · cancellation policy',40,y);
+    doc.setFontSize(10);doc.text('Cancellations',40,y);
     const usarC=d.enc.map(function(t,i){
       if(i<5)return true;
       return d.cancDet.some(function(f){return Number(f[i])!==0;});
