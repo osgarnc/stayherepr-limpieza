@@ -4260,7 +4260,11 @@ function recDatosProp(o,p,mes){
   const canc=(p.cancellations||[]).map(function(c){
     return [String(c.check_in||''),String(c.guest||''),String(c.source||''),
       Number((Number(c.paid)||0).toFixed(2)),Number((Number(c.refunded)||0).toFixed(2)),
-      Number((Number(c.kept)||0).toFixed(2)),Number((Number(c.fee_dueno)||0).toFixed(2))];
+      // Lo retenido por la política de cancelación. En Airbnb de co-anfitrión
+      // el canal se lo paga al dueño directo (kept_owner); en lo demás se queda
+      // en Stay Here (kept). En su estado el dueño ve el monto retenido igual.
+      Number(((Number(c.kept)||0)+(Number(c.kept_owner)||0)).toFixed(2)),
+      Number((Number(c.fee_dueno)||0).toFixed(2))];
   });
   const resumen=[
     ['Owners Payout',Number((Number(p.stays_net)||0).toFixed(2))],
@@ -4402,7 +4406,7 @@ async function recExcelProp(oi,pi){
     aoa.push([]);
   }
   if(d.canc.length){
-    aoa.push(['Cancellations'],['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee']);
+    aoa.push(['Cancellations'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Retained (cancellation policy)','Processing Fee']);
     d.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
   }
   let filaPago=-1;
@@ -4470,7 +4474,7 @@ function recTablaPdf(doc,d,y0){
   bloque('Not paid — cancelled or duplicate reservations',
     ['Check In','Guest','Why','Would have been'],d.fuera||[]);
   bloque('Additional Expenses/Income',['Date','Description','Billable?','Amount'],d.gastos,d.gastosTot||[]);
-  bloque('Cancellations',['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee'],d.canc);
+  bloque('Cancellations',['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Retained (cancellation policy)','Processing Fee'],d.canc);
   doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],_recCont(r[1])];}),
     styles:{fontSize:9,cellPadding:4},margin:{left:40},tableWidth:300,
     columnStyles:{1:{halign:'right',fontStyle:'bold'}},
@@ -4557,7 +4561,7 @@ async function recExcelDueno(oi){
       aoa.push([]);
     }
     if(dp.canc.length){
-      aoa.push(['Cancellations'],['Check In','Guest','Channel','Paid','Refunded','Kept','Owner fee']);
+      aoa.push(['Cancellations'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Retained (cancellation policy)','Processing Fee']);
       dp.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
     }
     dp.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
@@ -4787,7 +4791,8 @@ async function renderRecReport(){
                 '<span>Covered by Stay Here PR LLC (for reference)</span><span>'+money(Math.abs(_gn))+'</span></div>':'')
             : '';
           const cancRows=(p.cancellations||[]).map(function(c){
-            const fee=Number(c.fee_cobro||0),fd=Number(c.fee_dueno||0),kept=Number(c.kept||0);
+            const fee=Number(c.fee_cobro||0),fd=Number(c.fee_dueno||0);
+            const kept=Number(c.kept||0),keptO=Number(c.kept_owner||0);
             // Lo que se le habría pagado al dueño si la estadía hubiera ocurrido.
             const est=(p.stays||[]).find(function(s){
               return (s.cancelada||s.duplicado)&&String(s.check_in)===String(c.check_in)&&
@@ -4796,7 +4801,8 @@ async function renderRecReport(){
             return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:var(--ink-soft)">'+
               '<span>✕ '+esc(c.guest||'—')+' <span class="muted">'+esc(c.check_in)+'→'+esc(c.check_out)+'</span>'+
               (est?' <span class="muted">· not paid '+money(est.net)+'</span>':'')+
-              (kept?' <span class="muted">· kept '+money(kept)+' (counts as rent)</span>':'')+'</span>'+
+              (kept?' <span class="muted">· retained per cancellation policy '+money(kept)+'</span>':'')+
+              (keptO?' <span class="muted">· retained per cancellation policy '+money(keptO)+', paid to you directly by '+esc(c.source||'the channel')+'</span>':'')+'</span>'+
               '<span class="muted" style="font-size:11px">'+esc(c.source||'')+
               (fee?' · processing fee '+money(fee)+' → owner <b style="color:var(--danger)">'+money(fd)+'</b>'
                   :' · no processing fee of ours')+'</span></div>';}).join('');
