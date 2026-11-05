@@ -4521,8 +4521,14 @@ async function recExcelProp(oi,pi){
     (d.gastosTot||[]).forEach(function(g){aoa.push(g);});
     aoa.push([]);
   }
+  // Las que retuvieron dinero van con el mismo detalle que las estadías.
+  if((d.cancDet||[]).length){
+    aoa.push(['Cancellations'],d.enc);
+    d.cancDet.forEach(function(c){aoa.push(c);});
+    aoa.push(d.cancDetTot);aoa.push([]);
+  }
   if(d.canc.length){
-    aoa.push(['Cancellations'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee']);
+    aoa.push(['Cancellations · fully refunded'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee']);
     d.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
   }
   let filaPago=-1;
@@ -4699,8 +4705,13 @@ async function recExcelDueno(oi){
       (dp.gastosTot||[]).forEach(function(g){aoa.push(g);});
       aoa.push([]);
     }
+    if((dp.cancDet||[]).length){
+      aoa.push(['Cancellations'],dp.enc);
+      dp.cancDet.forEach(function(c){aoa.push(c);});
+      aoa.push(dp.cancDetTot);aoa.push([]);
+    }
     if(dp.canc.length){
-      aoa.push(['Cancellations'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee']);
+      aoa.push(['Cancellations · fully refunded'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee']);
       dp.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
     }
     dp.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
