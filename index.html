@@ -5032,7 +5032,7 @@ async function renderRecReport(){
               }).join('')+'</div>':'')+
             // Con su propio título, igual que las cancelaciones: así no se
             // confunde con la tabla de estadías de arriba.
-            (expRows?'<div style="margin-top:8px"><b style="font-size:12.5px">Expenses</b>'+
+            (expRows?'<div style="margin-top:8px"><b style="font-size:12.5px">Additional Expenses/Income</b>'+
               '<div style="margin-top:3px">'+expRows+expTot+'</div></div>':'')+
             (Number(p.cancel_fee_owner)>0?'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:12px;color:var(--danger)"><span class="muted">Cancellation processing fees, owner share (StayHere absorbs '+esc(100-Number(p.commission_pct||0))+'%)</span><span>−'+money(p.cancel_fee_owner)+'</span></div>':'')+
             (cancRows?'<div style="margin-top:5px"><div class="muted" style="font-size:11px;font-weight:700;margin-bottom:1px">Cancellations</div>'+cancRows+'</div>':'')+
