@@ -4794,38 +4794,44 @@ async function recExcelDueno(oi){
   X.utils.book_append_sheet(wb,wsR,'Summary');
   // Una hoja por propiedad, con el mismo detalle del reporte individual.
   const usados={};
-  d.props.forEach(function(dp){
-    let nom=(dp.prop||'Property').replace(/[\\/?*\[\]:]/g,' ').slice(0,28).trim()||'Property';
-    usados[nom]=(usados[nom]||0)+1; if(usados[nom]>1)nom=nom.slice(0,25)+' '+usados[nom];
-    const aoa=[[dp.prop],[dp.owner+'  ·  '+recMesIngles(dp.mes)+'  ·  Owner '+dp.pct+'%  ·  StayHere '+_recN(100-Number(dp.pct||0)).replace(/\.00$/,'')+'%'],[],dp.enc]
-      .concat(dp.filas,[dp.totales],[[]]);
-    if(dp.fuera&&dp.fuera.length){
-      aoa.push(['Not paid — cancelled or duplicate reservations'],
-        ['Check In','Guest','Why','Would have been']);
-      dp.fuera.forEach(function(x){aoa.push(x);});aoa.push([]);
-    }
-    if(dp.gastos.length){
-      aoa.push(['Additional Expenses/Income'],['Date','Description','Billable?','Amount']);
-      dp.gastos.forEach(function(g){aoa.push(g);});
-      (dp.gastosTot||[]).forEach(function(g){aoa.push(g);});
-      aoa.push([]);
-    }
-    if((dp.cancDet||[]).length){
-      aoa.push(['Cancellations'],dp.enc);
-      dp.cancDet.forEach(function(c){aoa.push(c);});
-      aoa.push(dp.cancDetTot);aoa.push([]);
-    }
-    if(dp.canc.length){
-      aoa.push(['Cancellations · fully refunded'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee']);
-      dp.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
-    }
-    dp.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
-    const ws=X.utils.aoa_to_sheet(aoa);
-    ws['!cols']=dp.enc.map(function(t,i){return {wch:i<2?22:(i<4?11:Math.max(9,t.length+1))};});
-    X.utils.book_append_sheet(wb,ws,nom);
-  });
+  d.props.forEach(function(dp){ _recHojaProp(X,wb,dp,usados); });
   X.writeFile(wb,_recArchivoD(d,'xlsx'));
   toast('Excel consolidado descargado');
+}
+/* La hoja de UNA propiedad, con el mismo detalle del reporte individual. La usan
+   el consolidado de un dueño y el del mes completo, para que el detalle sea
+   idéntico en los dos. `usados` lleva los nombres ya puestos: Excel no admite
+   dos hojas con el mismo nombre ni más de 31 caracteres. */
+function _recHojaProp(X,wb,dp,usados){
+  let nom=(dp.prop||'Property').replace(/[\\/?*\[\]:]/g,' ').slice(0,28).trim()||'Property';
+  usados[nom]=(usados[nom]||0)+1; if(usados[nom]>1)nom=nom.slice(0,25)+' '+usados[nom];
+  const aoa=[[dp.prop],[dp.owner+'  ·  '+recMesIngles(dp.mes)+'  ·  Owner '+dp.pct+'%  ·  StayHere '+_recN(100-Number(dp.pct||0)).replace(/\.00$/,'')+'%'],[],dp.enc]
+    .concat(dp.filas,[dp.totales],[[]]);
+  if(dp.fuera&&dp.fuera.length){
+    aoa.push(['Not paid — cancelled or duplicate reservations'],
+      ['Check In','Guest','Why','Would have been']);
+    dp.fuera.forEach(function(x){aoa.push(x);});aoa.push([]);
+  }
+  if(dp.gastos.length){
+    aoa.push(['Additional Expenses/Income'],['Date','Description','Billable?','Amount']);
+    dp.gastos.forEach(function(g){aoa.push(g);});
+    (dp.gastosTot||[]).forEach(function(g){aoa.push(g);});
+    aoa.push([]);
+  }
+  if((dp.cancDet||[]).length){
+    aoa.push(['Cancellations'],dp.enc);
+    dp.cancDet.forEach(function(c){aoa.push(c);});
+    aoa.push(dp.cancDetTot);aoa.push([]);
+  }
+  if(dp.canc.length){
+    aoa.push(['Cancellations · fully refunded'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee']);
+    dp.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
+  }
+  dp.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
+  const ws=X.utils.aoa_to_sheet(aoa);
+  ws['!cols']=dp.enc.map(function(t,i){return {wch:i<2?22:(i<4?11:Math.max(9,t.length+1))};});
+  X.utils.book_append_sheet(wb,ws,nom);
+  return nom;
 }
 /* Consolidado del MES: un solo PDF con todos los dueños. Solo se habilita
    cuando todas las facturas están marcadas como pagadas, porque hasta entonces
@@ -4874,6 +4880,75 @@ async function recBillsQbo(){
       return '• '+x.owner+' · '+money(x.total)+' · bill '+x.bill_id+(x.adoptado?' (ya existía)':'');}).join('\n')+
     (malos.length?'\n\nNo se pudieron crear:\n'+malos.map(function(x){return '• '+x.owner+': '+x.error;}).join('\n'):''));
   toast(q.creados?'Bills creados':'No se creó ninguno');
+}
+/* Consolidado del MES en Excel: el mismo documento que el PDF consolidado, pero
+   para trabajarlo. Hoja 1 por dueño, hoja 2 por propiedad, y después una hoja
+   con el detalle de cada propiedad. Se habilita con las mismas reglas que el
+   PDF: solo cuando ya está todo marcado como pagado. */
+async function recExcelTodos(){
+  const d=recReportData;if(!d||!(d.owners||[]).length){toast('Genera el reporte otra vez');return;}
+  const mes=d.month||(document.getElementById('recMonth')||{}).value||'';
+  try{ await recLib('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'); }
+  catch(e){ toast('No se pudo cargar el generador de Excel'); return; }
+  const X=window.XLSX,wb=X.utils.book_new();
+  const nProps=d.owners.reduce(function(n,o){return n+(o.properties||[]).length;},0);
+  const vivas=function(p){return (p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;}).length;};
+
+  // ---- hoja 1: por dueño ----
+  const encDue=['Owner','Properties','Stays','Rent','StayHere Commission','Owners Payout','Total Expense','Cancellation Fees','Owners Deposit'];
+  const cuerpoDue=d.owners.map(function(o){
+    const P=o.properties||[];
+    const n=function(k){return _recN2(P.reduce(function(a,p){return a+(Number(p[k])||0);},0));};
+    return [o.name,P.length,P.reduce(function(a,p){return a+vivas(p);},0),
+      n('stays_rent'),n('stays_commission'),n('stays_net'),
+      _recN2(-P.reduce(function(a,p){return a+(Number(p.billable_expense)||0);},0)),
+      _recN2(-P.reduce(function(a,p){return a+(Number(p.cancel_fee_owner)||0);},0)),
+      _recN2(Number(o.total_payout)||0)];
+  });
+  const totDue=['TOTAL',0,0,0,0,0,0,0,0];
+  cuerpoDue.forEach(function(r){for(let i=1;i<9;i++)totDue[i]=_recN2(totDue[i]+r[i]);});
+  const aoaDue=[[REC_MARCA.nombre],['Consolidated Owner Statement'],
+    [d.owners.length+' owners  ·  '+nProps+' properties'],[recMesIngles(mes)],[],encDue]
+    .concat(cuerpoDue,[totDue],[[],['Total Owners Deposit',totDue[8]],[],[REC_MARCA.pie]]);
+  const wsD=X.utils.aoa_to_sheet(aoaDue);
+  // Los montos con el mismo formato de contabilidad del PDF: el negativo rojo
+  // y en paréntesis, que es como se lee un dueño que quedó debiendo.
+  for(let i=0;i<=cuerpoDue.length;i++)for(let c=3;c<=8;c++){
+    const cel=wsD[X.utils.encode_cell({r:6+i,c:c})];
+    if(cel&&typeof cel.v==='number')cel.z=REC_FMT_PAGO;
+  }
+  const celTot=wsD[X.utils.encode_cell({r:6+cuerpoDue.length+2,c:1})];
+  if(celTot&&typeof celTot.v==='number')celTot.z=REC_FMT_PAGO;
+  wsD['!cols']=[{wch:26},{wch:11},{wch:8},{wch:13},{wch:19},{wch:15},{wch:14},{wch:17},{wch:16}];
+  X.utils.book_append_sheet(wb,wsD,'By owner');
+
+  // ---- hoja 2: por propiedad ----
+  const encProp=['Owner','Property','Stays','Rent','StayHere Commission','Owners Payout','Total Expense','Cancellation Fees','Owners Deposit'];
+  const cuerpoProp=[];
+  d.owners.forEach(function(o){(o.properties||[]).forEach(function(p){
+    cuerpoProp.push([o.name,p.property_name,vivas(p),
+      _recN2(p.stays_rent),_recN2(p.stays_commission),_recN2(p.stays_net),
+      _recN2(-(Number(p.billable_expense)||0)),_recN2(-(Number(p.cancel_fee_owner)||0)),_recN2(p.payout)]);
+  });});
+  const totProp=['TOTAL','',0,0,0,0,0,0,0];
+  cuerpoProp.forEach(function(r){for(let i=2;i<9;i++)totProp[i]=_recN2(totProp[i]+r[i]);});
+  const aoaProp=[[REC_MARCA.nombre],['Consolidated Owner Statement · by property'],[recMesIngles(mes)],[],encProp]
+    .concat(cuerpoProp,[totProp],[[],[REC_MARCA.pie]]);
+  const wsP=X.utils.aoa_to_sheet(aoaProp);
+  for(let i=0;i<=cuerpoProp.length;i++)for(let c=3;c<=8;c++){
+    const cel=wsP[X.utils.encode_cell({r:5+i,c:c})];
+    if(cel&&typeof cel.v==='number')cel.z=REC_FMT_PAGO;
+  }
+  wsP['!cols']=[{wch:26},{wch:30},{wch:8},{wch:13},{wch:19},{wch:15},{wch:14},{wch:17},{wch:16}];
+  X.utils.book_append_sheet(wb,wsP,'By property');
+
+  // ---- el detalle de cada propiedad, una hoja cada una ----
+  const usados={};
+  d.owners.forEach(function(o,oi){
+    (o.properties||[]).forEach(function(p){ _recHojaProp(X,wb,recDatosProp(o,p,mes),usados); });
+  });
+  X.writeFile(wb,('Consolidated Owner Statement - '+mes).replace(/[\\/:*?"<>|]/g,'-')+'.xlsx');
+  toast('Consolidado del mes en Excel descargado');
 }
 async function recPdfTodos(){
   const d=recReportData;if(!d||!(d.owners||[]).length){toast('Genera el reporte otra vez');return;}
@@ -5052,6 +5127,7 @@ async function renderRecReport(){
           ? '<button class="btn sm ghost" disabled style="opacity:.45" title="Faltan '+faltan+' factura(s) por marcar como pagadas">🖨 Consolidated Owner Statement</button>'+
             '<span class="muted" style="font-size:11.5px">faltan '+faltan+' por marcar pagadas</span>'
           : '<button class="btn sm" onclick="recPdfTodos()" title="Un solo PDF con todos los dueños del mes">🖨 Consolidated Owner Statement</button>'+
+            '<button class="btn sm" onclick="recExcelTodos()" title="El mismo consolidado del mes, en Excel">⬇︎ Consolidated Excel</button>'+
             '<button class="btn sm" onclick="recBillsQbo()" title="Crea en QuickBooks un bill por dueño con lo que se le pagó este mes">🧾 Bills en QuickBooks</button>';
       })()+
       '<button class="btn sm" onclick="recCopiarTabla()" title="Copies every stay with its columns, ready to paste into Excel">📋 Copy table</button></span></div>'+
