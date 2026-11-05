@@ -2212,6 +2212,12 @@ let contProps=[],contClassMap={},contFin=[],contPayouts=[],contQboOk=false,contA
 // Clases y cuentas de QuickBooks. Se traen solas al abrir Ingresos (hacen falta
 // para clasificar algo que no es una propiedad, como un gasto de la oficina).
 let contCatalogo={clases:[],cuentas:[]};
+// Propiedades cuya cuenta de Airbnb es de Stay Here. En las demás (co-anfitrión)
+// Airbnb le paga al dueño directo y a nosotros solo nuestra comisión.
+let contAirbnbSH={};
+// Cancelaciones del mes, para reconocer un pago de Airbnb de una reserva que ya
+// no está en el reporte de dueños porque se canceló.
+let contCanc={};
 const _cEsc=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const _c2=n=>Math.round((Number(n)||0)*100)/100;
 const _cNum=v=>{if(v==null)return 0;const s=String(v).replace(/[$,\s]/g,'').replace(/[()]/g,m=>m==='('?'-':'');const n=parseFloat(s);return isNaN(n)?0:n;};
@@ -2301,12 +2307,16 @@ async function contLoadProps(){
   const [pr,cm,po]=await Promise.all([
     sb.from('ops_properties').select('id,name').eq('is_active',true).order('name'),
     sb.from('cont_qbo_class').select('*'),
-    sb.from('ops_property_owner').select('property_id,commission_pct')
+    sb.from('ops_property_owner').select('property_id,commission_pct,airbnb_sh')
   ]);
   contProps=pr.data||[];contClassMap={};
   (cm.data||[]).forEach(c=>{contClassMap[c.property_id]=c;});
   // % de comisión por propiedad (pestaña Dueños). Lo usa la noche extra.
-  contComision={};(po.data||[]).forEach(x=>{if(x.commission_pct!=null)contComision[x.property_id]=Number(x.commission_pct);});
+  contComision={};contAirbnbSH={};
+  (po.data||[]).forEach(x=>{
+    if(x.commission_pct!=null)contComision[x.property_id]=Number(x.commission_pct);
+    contAirbnbSH[x.property_id]=!!x.airbnb_sh;   // la cuenta de Airbnb es de Stay Here
+  });
   return contProps;
 }
 // Números y ordinales del nombre: es lo que distingue "Salo 1rst floor" de
@@ -2904,13 +2914,22 @@ async function contAnalizar(){
   if(out)out.innerHTML='<p class="muted" style="padding:10px">Cuadrando…</p>';
   await contLoadProps();
 
-  const [fin,als,led,rul]=await Promise.all([
+  const [fin,als,led,rul,canc]=await Promise.all([
     contTodas((a,b)=>sb.from('cont_reservation_finance').select('*').order('check_in').range(a,b)),
     sb.from('cont_alias').select('*'),
     contTodas((a,b)=>sb.from('ops_reservations_ledger')
       .select('guest_name,property_id,check_in,source').order('check_in').range(a,b)),
-    sb.from('cont_rules').select('*')
+    sb.from('cont_rules').select('*'),
+    contTodas((a,b)=>sb.from('ops_cancellations')
+      .select('guest_name,property_id,check_in,check_out,source').order('check_in').range(a,b))
   ]);
+  // Índice de cancelaciones por propiedad + nombre de pila.
+  contCanc={};
+  (canc||[]).forEach(function(c){
+    const k=String(c.guest_name||'').trim().split(/\s+/)[0].toLowerCase();
+    if(!k||!c.property_id)return;
+    (contCanc[c.property_id+'|'+k]=contCanc[c.property_id+'|'+k]||[]).push(c);
+  });
   contRules=rul.error?[]:(rul.data||[]);   // si aún no corriste el SQL, sigue sin reglas
   contFin=fin;
   contAlias={};(als.data||[]).forEach(a=>{contAlias[a.payer_key]=a.guest_key;});
@@ -3012,6 +3031,16 @@ function contArmarAirbnb(rows,month){
     if(Math.abs(monto)<0.005)continue;
     const guest=contGet(r,['Guest']);
     const inicio=_cDate(contGet(r,['Start date']));
+    // Airbnb manda la penalidad de cancelación y su devolución como dos
+    // renglones del mismo monto al revés. Se clasifican los dos igual para que
+    // se cancelen solos; si algún día no la devuelve, queda como comisión.
+    if(/cancellation fee/i.test(tipo||'')){
+      const pid=(contPropMatch(contGet(r,['Listing']))||{}).id||null;
+      cur.lines.push({kind:'comision',amount:monto,property_id:pid,
+        qbo_class_id:contClassOf(pid),guest_name:guest,
+        description:(guest||'Airbnb')+' — '+tipo});
+      continue;
+    }
     if(tipo==='Resolution Payout'){
       const f=contBuscarFin(guest,inicio);
       const pid=f?f.property_id:(contPropMatch(contGet(r,['Listing']))||{}).id;
@@ -3023,12 +3052,26 @@ function contArmarAirbnb(rows,month){
     const f=contBuscarFin(guest,inicio);
     if(!f){
       const lst=(contPropMatch(contGet(r,['Listing']))||{}).id||null;
+      // La reserva no está en el reporte de dueños porque está CANCELADA. Si
+      // además es de co-anfitrión, lo que Airbnb nos manda de una cancelación
+      // es nuestra comisión sobre lo que retuvo: al dueño ya le pagó su parte
+      // directo. Eso se clasifica solo en vez de dejarlo pendiente.
+      const pilaG=String(guest||'').trim().split(/\s+/)[0].toLowerCase();
+      const cancel=lst&&pilaG?(contCanc[lst+'|'+pilaG]||[]):[];
+      if(cancel.length&&!contAirbnbSH[lst]&&monto>0){
+        cur.lines.push({kind:'comision',amount:monto,property_id:lst,
+          qbo_class_id:contClassOf(lst),guest_name:guest,
+          description:(guest||'Airbnb')+' — comisión Stay Here de una reserva cancelada'+
+            ' (check-in '+_cEsc(cancel[0].check_in)+'; Airbnb le pagó al dueño su parte directo)'});
+        continue;
+      }
       // En una reserva de co-anfitrión Airbnb le paga al dueño directo y a Stay
       // Here solo le manda su parte: casi siempre es comisión, y cuando la
       // estadía quedó a caballo entre dos meses, la comisión de una noche extra.
       const cohost=/co-?host/i.test(tipo);
       contAgrega(cur,guest||contGet(r,['Confirmation code'])||tipo,monto,
         'no aparece en el reporte de dueños'+
+        (cancel.length?' · esa reserva está CANCELADA (check-in '+_cEsc(cancel[0].check_in)+')':'')+
         (cohost?' · es un pago de co-anfitrión ('+_cEsc(contGet(r,['Nights'])||'?')+
           ' noches desde '+_cEsc(inicio||'?')+'): Airbnb le paga al dueño directo, '+
           'esto suele ser tu comisión':''),
