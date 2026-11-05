@@ -4892,59 +4892,101 @@ async function recExcelTodos(){
   catch(e){ toast('No se pudo cargar el generador de Excel'); return; }
   const X=window.XLSX,wb=X.utils.book_new();
   const nProps=d.owners.reduce(function(n,o){return n+(o.properties||[]).length;},0);
-  const vivas=function(p){return (p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;}).length;};
+  const vivas=function(p){return (p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;});};
+  // Todas las partidas del reporte de dueños, no solo renta y comisión: de aquí
+  // salen el impuesto de turismo, las comisiones de canal y los fees.
+  const NUM=REC_COLS.filter(function(c){return !c.txt;});
+  const encNum=NUM.map(function(c){return c.t;});
+  const sumar=function(lista){
+    const t=NUM.map(function(){return 0;});
+    lista.forEach(function(s){NUM.forEach(function(c,i){t[i]=_recN2(t[i]+(Number(s[c.k])||0));});});
+    return t;
+  };
+  const ext=['Total Expense','Cancellation Fees','Owners Deposit'];
+  // La renta del resumen es la MISMA del estado del dueño: deja fuera las
+  // estadías de Airbnb de co-anfitrión, que Airbnb le paga al dueño directo.
+  // Las demás columnas suman todas las estadías, como la tabla de detalle.
+  const iRent=NUM.findIndex(function(c){return c.k==='rent';});
+  const NOTA='Rent follows the owner statement: it leaves out co-host Airbnb stays, which Airbnb pays the owner directly. '+
+    'Every other column totals all stays.';
+  const _fmt=function(ws,r0,nFilas,c0,c1){
+    for(let i=0;i<nFilas;i++)for(let c=c0;c<=c1;c++){
+      const cel=ws[X.utils.encode_cell({r:r0+i,c:c})];
+      if(cel&&typeof cel.v==='number')cel.z=REC_FMT_PAGO;
+    }
+  };
 
-  // ---- hoja 1: por dueño ----
-  const encDue=['Owner','Properties','Stays','Rent','StayHere Commission','Owners Payout','Total Expense','Cancellation Fees','Owners Deposit'];
+  // ---- hoja 1: por dueño, con todas las partidas ----
+  const encDue=['Owner','Properties','Stays'].concat(encNum,ext);
   const cuerpoDue=d.owners.map(function(o){
     const P=o.properties||[];
-    const n=function(k){return _recN2(P.reduce(function(a,p){return a+(Number(p[k])||0);},0));};
-    return [o.name,P.length,P.reduce(function(a,p){return a+vivas(p);},0),
-      n('stays_rent'),n('stays_commission'),n('stays_net'),
+    let est=[];P.forEach(function(p){est=est.concat(vivas(p));});
+    const n=sumar(est);
+    if(iRent>=0)n[iRent]=_recN2(P.reduce(function(a,p){return a+(Number(p.stays_rent)||0);},0));
+    return [o.name,P.length,est.length].concat(n,[
       _recN2(-P.reduce(function(a,p){return a+(Number(p.billable_expense)||0);},0)),
       _recN2(-P.reduce(function(a,p){return a+(Number(p.cancel_fee_owner)||0);},0)),
-      _recN2(Number(o.total_payout)||0)];
+      _recN2(Number(o.total_payout)||0)]);
   });
-  const totDue=['TOTAL',0,0,0,0,0,0,0,0];
-  cuerpoDue.forEach(function(r){for(let i=1;i<9;i++)totDue[i]=_recN2(totDue[i]+r[i]);});
+  const totDue=['TOTAL',0,0].concat(encNum.map(function(){return 0;}),[0,0,0]);
+  cuerpoDue.forEach(function(r){for(let i=1;i<r.length;i++)totDue[i]=_recN2(totDue[i]+r[i]);});
   const aoaDue=[[REC_MARCA.nombre],['Consolidated Owner Statement'],
     [d.owners.length+' owners  ·  '+nProps+' properties'],[recMesIngles(mes)],[],encDue]
-    .concat(cuerpoDue,[totDue],[[],['Total Owners Deposit',totDue[8]],[],[REC_MARCA.pie]]);
+    .concat(cuerpoDue,[totDue],[[],['Total Owners Deposit',totDue[totDue.length-1]],[],[NOTA],[REC_MARCA.pie]]);
   const wsD=X.utils.aoa_to_sheet(aoaDue);
-  // Los montos con el mismo formato de contabilidad del PDF: el negativo rojo
-  // y en paréntesis, que es como se lee un dueño que quedó debiendo.
-  for(let i=0;i<=cuerpoDue.length;i++)for(let c=3;c<=8;c++){
-    const cel=wsD[X.utils.encode_cell({r:6+i,c:c})];
-    if(cel&&typeof cel.v==='number')cel.z=REC_FMT_PAGO;
-  }
-  const celTot=wsD[X.utils.encode_cell({r:6+cuerpoDue.length+2,c:1})];
-  if(celTot&&typeof celTot.v==='number')celTot.z=REC_FMT_PAGO;
-  wsD['!cols']=[{wch:26},{wch:11},{wch:8},{wch:13},{wch:19},{wch:15},{wch:14},{wch:17},{wch:16}];
+  _fmt(wsD,6,cuerpoDue.length+1,4,encDue.length-1);
+  const celT=wsD[X.utils.encode_cell({r:6+cuerpoDue.length+2,c:1})];
+  if(celT&&typeof celT.v==='number')celT.z=REC_FMT_PAGO;
+  wsD['!cols']=encDue.map(function(t,i){return {wch:i?Math.max(10,t.length+2):26};});
   X.utils.book_append_sheet(wb,wsD,'By owner');
 
-  // ---- hoja 2: por propiedad ----
-  const encProp=['Owner','Property','Stays','Rent','StayHere Commission','Owners Payout','Total Expense','Cancellation Fees','Owners Deposit'];
+  // ---- hoja 2: por propiedad, con todas las partidas ----
+  const encProp=['Owner','Property','Stays'].concat(encNum,ext);
   const cuerpoProp=[];
   d.owners.forEach(function(o){(o.properties||[]).forEach(function(p){
-    cuerpoProp.push([o.name,p.property_name,vivas(p),
-      _recN2(p.stays_rent),_recN2(p.stays_commission),_recN2(p.stays_net),
-      _recN2(-(Number(p.billable_expense)||0)),_recN2(-(Number(p.cancel_fee_owner)||0)),_recN2(p.payout)]);
+    const n=sumar(vivas(p));
+    if(iRent>=0)n[iRent]=_recN2(p.stays_rent);
+    cuerpoProp.push([o.name,p.property_name,vivas(p).length].concat(n,[
+      _recN2(-(Number(p.billable_expense)||0)),
+      _recN2(-(Number(p.cancel_fee_owner)||0)),_recN2(p.payout)]));
   });});
-  const totProp=['TOTAL','',0,0,0,0,0,0,0];
-  cuerpoProp.forEach(function(r){for(let i=2;i<9;i++)totProp[i]=_recN2(totProp[i]+r[i]);});
+  const totProp=['TOTAL','',0].concat(encNum.map(function(){return 0;}),[0,0,0]);
+  cuerpoProp.forEach(function(r){for(let i=2;i<r.length;i++)totProp[i]=_recN2(totProp[i]+r[i]);});
   const aoaProp=[[REC_MARCA.nombre],['Consolidated Owner Statement · by property'],[recMesIngles(mes)],[],encProp]
-    .concat(cuerpoProp,[totProp],[[],[REC_MARCA.pie]]);
+    .concat(cuerpoProp,[totProp],[[],[NOTA],[REC_MARCA.pie]]);
   const wsP=X.utils.aoa_to_sheet(aoaProp);
-  for(let i=0;i<=cuerpoProp.length;i++)for(let c=3;c<=8;c++){
-    const cel=wsP[X.utils.encode_cell({r:5+i,c:c})];
-    if(cel&&typeof cel.v==='number')cel.z=REC_FMT_PAGO;
-  }
-  wsP['!cols']=[{wch:26},{wch:30},{wch:8},{wch:13},{wch:19},{wch:15},{wch:14},{wch:17},{wch:16}];
+  _fmt(wsP,5,cuerpoProp.length+1,4,encProp.length-1);
+  wsP['!cols']=encProp.map(function(t,i){return {wch:i<2?26:Math.max(10,t.length+2)};});
   X.utils.book_append_sheet(wb,wsP,'By property');
+
+  // ---- hoja 3: TODAS las partidas, renglón por renglón ----
+  // Es la hoja de donde salen los taxes: cada estadía y cada cancelación con
+  // dinero retenido, con todas sus columnas, para filtrar o hacer pivot.
+  const encTodo=['Owner','Property','Type'].concat(REC_COLS.map(function(c){return c.t;}));
+  const cuerpoTodo=[];
+  d.owners.forEach(function(o){(o.properties||[]).forEach(function(p){
+    const fila=function(tipo,s){
+      return [o.name,p.property_name,tipo].concat(REC_COLS.map(function(c){
+        return c.txt?String(s[c.k]||''):_recN2(s[c.k]);}));
+    };
+    vivas(p).forEach(function(s){cuerpoTodo.push(fila('Stay',s));});
+    recCancelConMonto(p).forEach(function(s){cuerpoTodo.push(fila('Cancellation',s));});
+  });});
+  const totTodo=['TOTAL','',''].concat(REC_COLS.map(function(c){return c.txt?'':0;}));
+  cuerpoTodo.forEach(function(r){r.forEach(function(v,i){if(typeof v==='number')totTodo[i]=_recN2((Number(totTodo[i])||0)+v);});});
+  const aoaTodo=[[REC_MARCA.nombre],['Consolidated Owner Statement · all line items'],
+    [recMesIngles(mes)+'  ·  '+cuerpoTodo.length+' line item(s)'],[],encTodo]
+    .concat(cuerpoTodo,[totTodo],[[],[REC_MARCA.pie]]);
+  const wsT=X.utils.aoa_to_sheet(aoaTodo);
+  _fmt(wsT,5,cuerpoTodo.length+1,8,encTodo.length-1);
+  wsT['!cols']=encTodo.map(function(t,i){return {wch:i<2?26:(i<7?13:Math.max(10,t.length+2))};});
+  wsT['!autofilter']={ref:X.utils.encode_range(
+    {r:4,c:0},{r:4+cuerpoTodo.length,c:encTodo.length-1})};
+  X.utils.book_append_sheet(wb,wsT,'All line items');
 
   // ---- el detalle de cada propiedad, una hoja cada una ----
   const usados={};
-  d.owners.forEach(function(o,oi){
+  d.owners.forEach(function(o){
     (o.properties||[]).forEach(function(p){ _recHojaProp(X,wb,recDatosProp(o,p,mes),usados); });
   });
   X.writeFile(wb,('Consolidated Owner Statement - '+mes).replace(/[\\/:*?"<>|]/g,'-')+'.xlsx');
@@ -5018,6 +5060,40 @@ async function recPdfTodos(){
       if(i>=2)h.cell.styles.halign='right';
       if(i===8&&h.section!=='head')h.cell.styles.fontStyle='bold';
     }});
+
+  // ---- página 3: los totales del mes, partida por partida ----
+  // Es la página de los impuestos: el turismo, las comisiones de canal y los
+  // fees del mes completo, sin tener que sumar propiedad por propiedad.
+  doc.addPage();
+  const y3=await recEncabezadoPdf(doc,'Consolidated Owner Statement  ·  month totals','',recMesIngles(mes));
+  const NUM=REC_COLS.filter(function(c){return !c.txt;});
+  let _est=[],_canc=[];
+  d.owners.forEach(function(o){(o.properties||[]).forEach(function(p){
+    _est=_est.concat((p.stays||[]).filter(function(s){return !s.cancelada&&!s.duplicado;}));
+    _canc=_canc.concat(recCancelConMonto(p));
+  });});
+  const _sum=function(lista,k){return _recN2(lista.reduce(function(t,s){return t+(Number(s[k])||0);},0));};
+  const cuerpoTot=NUM.map(function(c){
+    const a=_sum(_est,c.k),b=_sum(_canc,c.k);
+    return [c.t,a,b,_recN2(a+b)];
+  });
+  // La renta sigue el estado del dueño: deja fuera Airbnb de co-anfitrión.
+  const _iR=NUM.findIndex(function(c){return c.k==='rent';});
+  if(_iR>=0){
+    let r=0;d.owners.forEach(function(o){(o.properties||[]).forEach(function(p){r=_recN2(r+(Number(p.stays_rent)||0));});});
+    cuerpoTot[_iR]=[NUM[_iR].t,r,cuerpoTot[_iR][2],_recN2(r+cuerpoTot[_iR][2])];
+  }
+  const entero={Nights:1};
+  doc.autoTable({startY:y3,head:[['','Stays ('+_est.length+')','Cancellations ('+_canc.length+')','Total']],
+    body:cuerpoTot.map(function(r){return [r[0]].concat(r.slice(1).map(function(v){
+      return entero[r[0]]?String(Math.round(Number(v))):_recCont(v);}));}),
+    styles:{fontSize:9,cellPadding:4},headStyles:{fillColor:[14,124,123]},
+    columnStyles:{0:{cellWidth:200,fontStyle:'bold'},1:{cellWidth:120},2:{cellWidth:140},3:{cellWidth:120}},
+    didParseCell:function(h){if(h.column.index>=1)h.cell.styles.halign='right';}});
+  let y3b=doc.lastAutoTable.finalY+12;
+  doc.setFontSize(8);doc.setTextColor(110,110,110);
+  doc.text('Rent follows the owner statements: it leaves out co-host Airbnb stays, which Airbnb pays the owner directly.',40,y3b);
+  doc.setTextColor(20,20,20);doc.setFontSize(10);
 
   // ---- el detalle de cada propiedad ----
   for(const o of d.owners){
