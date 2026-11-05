@@ -4253,6 +4253,52 @@ function recTablaEstadias(p){
     '<table style="width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums">'+
     '<thead><tr>'+th+'</tr></thead><tbody>'+tr+'<tr>'+tf+'</tr></tbody></table></div>';
 }
+/* Una cancelación donde quedó dinero retenido se enseña CON EL MISMO DETALLE
+   que una estadía: mismas columnas, para no tener que interpretar nada. Va en
+   su propia tabla porque ese dinero no se paga igual —en Airbnb de co-anfitrión
+   el canal ya le pagó al dueño su parte directo. */
+function recFilaCancel(c){
+  return {
+    source_label:String(c.source||''),guest:String(c.guest||'—'),
+    check_in:c.check_in,check_out:c.check_out,nights:Number(c.nights)||0,
+    rent:Number(c.rent)||0,cleaning:Number(c.cleaning)||0,extra_guest:0,pet_fee:0,
+    gross_total:Number(c.gross_total)||0,tourism_tax:Number(c.tourism_tax)||0,
+    guest_paid:Number(c.kept)||0,channel_fee:Number(c.channel_fee)||0,
+    paypal_fee:Number(c.fee_cobro)||0,stripe_fee:0,
+    // Net Earnings = lo retenido, para que la fila sume igual que una estadía:
+    // Net Earnings = Due Stay Here + Owner Payout. De eso, la limpieza es de
+    // Stay Here completa y solo el resto se reparte.
+    base:Number(c.kept)||0,
+    commission:Number(c.kept_sh)||0,
+    net:_c2((Number(c.kept_owner)||0)+(Number(c.kept_share)||0)),
+    tax_remitted:0,
+  };
+}
+function recCancelConMonto(p){
+  return (p.cancellations||[]).filter(function(c){return (Number(c.kept)||0)>0;}).map(recFilaCancel);
+}
+function recTablaCancel(p){
+  const filas=recCancelConMonto(p);
+  if(!filas.length)return '';
+  const tot={};REC_COLS.forEach(function(c){tot[c.k]=0;});
+  const th=REC_COLS.map(function(c){
+    return '<th style="padding:4px 6px;text-align:'+(c.txt?'left':'right')+';white-space:nowrap;'+
+      'font-size:10.5px;font-weight:700;border-bottom:1.5px solid var(--line)'+
+      (c.verde?';background:rgba(16,185,129,.14)':'')+'">'+_recEsc(c.t)+'</th>';}).join('');
+  const tr=filas.map(function(s){
+    REC_COLS.forEach(function(c){if(!c.txt)tot[c.k]+=Number(s[c.k])||0;});
+    return '<tr style="border-bottom:1px solid var(--line)">'+
+      REC_COLS.map(function(c){return recCelda(s,c);}).join('')+'</tr>';
+  }).join('');
+  const tf=REC_COLS.map(function(c){
+    const v=c.txt?'':(c.ent?String(Math.round(tot[c.k])):_recN(tot[c.k]));
+    return '<td style="padding:5px 6px;text-align:right;white-space:nowrap;font-weight:800;'+
+      'border-top:2px solid var(--line)'+(c.verde?';background:rgba(16,185,129,.22)':'')+'">'+v+'</td>';}).join('');
+  return '<div style="margin-top:8px"><b style="font-size:12.5px">Cancellations · cancellation policy</b>'+
+    '<div style="overflow-x:auto;margin:4px 0 2px">'+
+    '<table style="width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums">'+
+    '<thead><tr>'+th+'</tr></thead><tbody>'+tr+'<tr>'+tf+'</tr></tbody></table></div></div>';
+}
 // Librerías que solo se bajan si el usuario pide el archivo (pesan y casi nunca
 // se usan). Mismo patrón que el QR de la tienda.
 const _recLibs={};
@@ -4310,7 +4356,18 @@ function recDatosProp(o,p,mes){
   const gastosTot=[['','Total Expense','',
     Number(((p.expenses||[]).filter(function(e){return e.billable;})
       .reduce(function(t,e){return t+Number(e.amount||0);},0)).toFixed(2))]];
-  const canc=(p.cancellations||[]).map(function(c){
+  // Las cancelaciones con dinero retenido van con el MISMO detalle que las
+  // estadías (mismas columnas); las demás siguen en la tabla corta de abajo.
+  const cancDet=recCancelConMonto(p).map(function(s){
+    return REC_COLS.map(function(c){
+      return c.txt?String(s[c.k]||''):Number((Number(s[c.k])||0).toFixed(2));
+    });
+  });
+  const cancDetTot=REC_COLS.map(function(c){
+    return c.txt?'':Number(cancDet.reduce(function(t,f){return t+Number(f[REC_COLS.indexOf(c)]||0);},0).toFixed(2));
+  });
+  if(cancDet.length)cancDetTot[0]='TOTAL';
+  const canc=(p.cancellations||[]).filter(function(c){return !((Number(c.kept)||0)>0);}).map(function(c){
     return [String(c.check_in||''),String(c.guest||''),String(c.source||''),
       Number((Number(c.paid)||0).toFixed(2)),Number((Number(c.refunded)||0).toFixed(2)),
       // Lo retenido por la política de cancelación. En Airbnb de co-anfitrión
@@ -4327,7 +4384,8 @@ function recDatosProp(o,p,mes){
   resumen.push(['Owners Deposit',Number((Number(p.payout)||0).toFixed(2))]);
   return {owner:o.name,prop:p.property_name,mes:mes,pct:p.commission_pct,
     enc:REC_COLS.map(function(c){return c.t;}),filas:filas,totales:totales,
-    fuera:fuera,gastos:gastos,gastosTot:gastosTot,canc:canc,resumen:resumen};
+    fuera:fuera,gastos:gastos,gastosTot:gastosTot,canc:canc,
+    cancDet:cancDet,cancDetTot:cancDetTot,resumen:resumen};
 }
 // El logo se carga una sola vez y se guarda como data URI, que es lo que pide
 // jsPDF. Si no carga (sin conexión, archivo movido) el reporte sale igual, solo
@@ -4526,6 +4584,29 @@ function recTablaPdf(doc,d,y0){
   };
   bloque('Not paid — cancelled or duplicate reservations',
     ['Check In','Guest','Why','Would have been'],d.fuera||[]);
+  if((d.cancDet||[]).length){
+    doc.setFontSize(10);doc.text('Cancellations · cancellation policy',40,y);
+    const usarC=d.enc.map(function(t,i){
+      if(i<5)return true;
+      return d.cancDet.some(function(f){return Number(f[i])!==0;});
+    });
+    const selC=function(arr){return arr.filter(function(_,i){return usarC[i];});};
+    const entsC=selC(REC_COLS.map(function(c){return !!c.ent;}));
+    const iO=selC(d.enc).indexOf('Owner Payout');
+    doc.autoTable({startY:y+6,head:[selC(d.enc)],
+      body:d.cancDet.map(function(f){return _recFilaPdf(selC(f),entsC);}),
+      foot:[_recFilaPdf(selC(d.cancDetTot),entsC)],
+      styles:{fontSize:6.8,cellPadding:2.5,overflow:'linebreak'},
+      headStyles:{fillColor:[90,100,110],fontSize:6.5},
+      footStyles:{fillColor:[236,240,241],textColor:20,fontStyle:'bold'},
+      margin:{left:40},
+      didParseCell:function(h){
+        const i=h.column.index;
+        if(i>=4)h.cell.styles.halign='right';
+        if(i===iO&&h.section!=='head'){h.cell.styles.fillColor=[223,245,233];h.cell.styles.fontStyle='bold';}
+      }});
+    y=doc.lastAutoTable.finalY+16;
+  }
   bloque('Additional Expenses/Income',['Date','Description','Billable?','Amount'],d.gastos,d.gastosTot||[]);
   bloque('Cancellations',['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee'],d.canc);
   doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],_recCont(r[1])];}),
@@ -4843,7 +4924,7 @@ async function renderRecReport(){
               (_gn?'<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:1px 0" class="muted">'+
                 '<span>Covered by Stay Here PR LLC (for reference)</span><span>'+money(Math.abs(_gn))+'</span></div>':'')
             : '';
-          const cancRows=(p.cancellations||[]).map(function(c){
+          const cancRows=(p.cancellations||[]).filter(function(c){return !((Number(c.kept)||0)>0);}).map(function(c){
             const fee=Number(c.fee_cobro||0),fd=Number(c.fee_dueno||0);
             const kept=Number(c.kept||0),keptO=Number(c.kept_owner||0);
             // Lo que se le habría pagado al dueño si la estadía hubiera ocurrido.
@@ -4878,6 +4959,7 @@ async function renderRecReport(){
                   : '<button class="btn sm" onclick="recMarcarPagado('+oi+','+pi+')" title="Mark this statement as paid: saves a snapshot and clears its expenses from the Gastos tab">✓ Mark paid</button>')+
               '</span></div>'+
             (staysRows||'<div class="muted" style="font-size:12px;padding:3px 0">Sin estadías este mes</div>')+
+            recTablaCancel(p)+
             (function(){
               const fuera=(p.stays||[]).filter(function(s){return (s.cancelada||s.duplicado)&&!_recEnCanc(p,s);});
               if(!fuera.length)return '';
