@@ -557,6 +557,7 @@
       <input id="invSearch" oninput="renderInvoices()" placeholder="🔎 Buscar por persona, fecha o detalle…" style="flex:1;padding:9px 12px;border:1.5px solid var(--line);border-radius:10px">
       <button class="btn ghost sm" onclick="document.getElementById('invSearch').value='';renderInvoices()">Limpiar</button>
     </div>
+    <div id="clQbo"></div>
     <div id="invoiceList"></div>
   </div>
   <div id="tabRejected" class="card hide" style="padding:18px">
@@ -1107,14 +1108,19 @@ async function loadAll(){
     sb.from('profiles').select('*'),
     sb.from('daily_reports').select('*').order('created_at',{ascending:false}),
     sb.from('submissions').select('*').not('deleted_at','is',null).order('deleted_at',{ascending:false}),
-    sb.from('invoice_categories').select('name').order('name'),
+    sb.from('invoice_categories').select('name,qbo_account_id').order('name'),
   ]);
   // Categorías de la factura libre: 6 por defecto + las personalizadas guardadas (BD).
   const customCats=(catR&&catR.data||[]).map(c=>c.name).filter(Boolean);
   invoiceCategories=DEFAULT_INVOICE_CATEGORIES.concat(customCats.filter(c=>DEFAULT_INVOICE_CATEGORIES.indexOf(c)<0));
+  // La cuenta de QuickBooks de cada categoría: es lo que decide a dónde entra
+  // el renglón cuando se crea el bill de la cleaner.
+  catCuenta={};(catR&&catR.data||[]).forEach(function(c){if(c.name)catCuenta[c.name]=c.qbo_account_id||'';});
   trash=(trashR.data||[]).map(s=>({id:s.id,type:s.type,staff:s.professional_id,date:s.date,desc:s.expense_desc||'',prop:s.property_id,amount:Number(s.total||0),customLines:s.custom_lines||null,deletedAt:s.deleted_at}));
   properties=(propsR.data||[]).map(p=>({id:p.id,name:p.name}));
-  staff=(staffR.data||[]).map(s=>({id:s.id,name:s.name,address:s.address||'',phone:s.phone||'',taxid:s.tax_id||'',email:s.email||''}));
+  propClase={};(propsR.data||[]).forEach(function(p){if(p.qbo_class_id)propClase[p.id]=p.qbo_class_id;});
+  staff=(staffR.data||[]).map(s=>({id:s.id,name:s.name,address:s.address||'',phone:s.phone||'',taxid:s.tax_id||'',email:s.email||'',
+    qboVendor:s.qbo_vendor_id||'',qboVendorName:s.qbo_vendor_name||''}));
   rates={};
   (ratesR.data||[]).forEach(r=>{(rates[r.professional_id]=rates[r.professional_id]||{})[r.property_id]=Number(r.amount);});
   staff.forEach(s=>{rates[s.id]=rates[s.id]||{};});
@@ -1770,6 +1776,14 @@ function flPropOptions(sel){return '<option value="">(Sin propiedad)</option>'+p
 // ---- Categorías de la factura libre (6 por defecto + personalizadas persistentes) ----
 const DEFAULT_INVOICE_CATEGORIES=['Repair and Maintenance','Cleaning supplies','Commissions','Purchases','Vehicle expense','Utilities'];
 let invoiceCategories=DEFAULT_INVOICE_CATEGORIES.slice();
+// nombre de categoría → cuenta de QuickBooks (para el bill de la cleaner)
+let catCuenta={};
+// Clases de QuickBooks y la clase de cada propiedad del app de limpieza. OJO:
+// estas propiedades NO son las de contabilidad (otra tabla, otros ids), así que
+// la clase se guarda aquí.
+let qboClases=[],propClase={};
+// Lo que ya está en QuickBooks: "profesional|bisemana" → id del bill.
+let clBills={};
 function flCatOptions(sel){return '<option value="">(Categoría)</option>'+invoiceCategories.map(function(c){return '<option value="'+String(c).replace(/"/g,'&quot;')+'"'+(sel===c?' selected':'')+'>'+String(c).replace(/</g,'&lt;')+'</option>';}).join('');}
 // Refresca todos los <select> de categoría abiertos (crear + editar) conservando su selección.
 function flRefreshCatSelects(){document.querySelectorAll('.fl-cat, .ef-cat').forEach(function(sel){var v=sel.value;sel.innerHTML=flCatOptions(v);sel.value=v;});}
@@ -2056,7 +2070,7 @@ function showSentConfirmation(sent){
   });
   openModal('✅ Enviado — revisa lo que mandaste',body);
 }
-function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();if(session&&session.canReconcile){renderRecOwners();renderRecExpenses();recDefaultMonth();}}
+function renderOffice(){renderStats();renderDash();renderInbox();renderInvoices();renderRejected();renderDamage();renderCharges();renderEarlyLateHist();loadElStore();renderExpenses();renderReports();renderRatesWho();renderRates();renderSettings();renderUsers();renderData();renderTrash();if(session&&session.canReconcile){renderRecOwners();renderRecExpenses();recDefaultMonth();clCargarQbo();}}
 /* ---------- AUTO-REFRESH DEL BACK OFFICE ----------
    La app no tenía actualización en vivo: si dos personas la abrían, una podía quedarse con
    datos viejos (ej. un servicio recién enviado que aún no tenía sus ítems → se veía en $0).
@@ -5802,6 +5816,7 @@ function renderInvoices(){
   const grpText=k=>{const parts=k.split('|');const wk=parts[0],sid=parts[1];return (staffName(sid)+' '+weekLabel(wk)+' '+wk+' '+weekEnd(wk)+' '+allGroups[k].map(subSearchText).join(' ')).toLowerCase();};
   const groups={};allKeys.forEach(k=>{if((invoiceView==='paid')===isPaid(k)&&(!q||grpText(k).indexOf(q)>-1))groups[k]=allGroups[k];});
   const keys=Object.keys(groups).sort().reverse();
+  renderClQbo();
   const el=document.getElementById('invoiceList');
   if(!keys.length){el.innerHTML='<p class="muted" style="text-align:center;padding:20px">'+(invoiceView==='paid'?'Aún no hay facturas pagadas.':'No hay facturas por pagar 🎉')+'</p>';return;}
   el.innerHTML=keys.map(k=>{
@@ -5828,11 +5843,192 @@ function renderInvoices(){
         '<button class="btn sm" onclick="photoReport(\''+k+'\')">📸 Reporte de fotos</button>'+
         '<button class="btn sm coral" onclick="sendArchive(\''+k+'\')">✉️ Enviar a la lista</button>'+
         (paid?'':'<button class="btn sm gold" onclick="markPaid(\''+k+'\')">Marcar pagada</button>')+
+        // El bill en QuickBooks: un bill por cleaner por bisemana, con la
+        // retención del 10% ya descontada.
+        (!(session&&session.canReconcile)?''
+          : clBills[sid+'|'+wk]
+            ? '<span class="pill paid" title="Bill '+clBills[sid+'|'+wk].qbo_bill_id+' en QuickBooks">🧾 En QuickBooks</span>'
+            : '<button class="btn sm" onclick="clBillQbo(\''+k+'\')">🧾 Bill en QuickBooks</button>')+
         '<button class="btn sm dgr" onclick="returnToInbox(\''+k+'\')">↩️ Regresar a bandeja</button>'+
       '</div>'+
       '<div class="muted" style="font-size:12px;margin-top:8px">'+distSummary()+'</div>'+
       '</div>';
   }).join('');
+}
+/* ---------- LAS FACTURAS DE LAS CLEANERS EN QUICKBOOKS ----------
+   Lo mismo que se hizo con los dueños: un bill por cleaner por bisemana, con
+   una línea por propiedad del servicio, una por propiedad de los materiales que
+   reembolsa, y la retención del 10% en negativo con la clase Office.
+   Hacen falta dos datos: el proveedor de QuickBooks de cada cleaner (el nombre
+   no calza) y la cuenta de cada categoría de factura libre. Los dos se ponen en
+   el panel de QuickBooks de esta misma pestaña. */
+async function clCargarQbo(){
+  if(!(session&&session.canReconcile))return;
+  try{
+    const [r,b]=await Promise.all([
+      sb.functions.invoke('cont-qbo',{body:{action:'catalogo'}}),
+      sb.from('ops_cleaner_bills').select('professional_id,week,qbo_bill_id,amount')
+    ]);
+    clBills={};(b.data||[]).forEach(function(x){clBills[x.professional_id+'|'+x.week]=x;});
+    const d=r.data||{};
+    if(d.ok){
+      if((d.clases||[]).length)qboClases=(d.clases||[]).slice()
+        .sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
+      if((d.proveedores||[]).length)recVendors=d.proveedores;
+      if((d.cuentas||[]).length)recCuentas=(d.cuentas||[]).filter(function(c){
+        return /expense|cost of goods|othercurrentliab|othercurrentasset/i.test(String(c.type||''));
+      }).sort(function(a,b){return String(a.full||a.name).localeCompare(String(b.full||b.name));});
+    }
+    renderInvoices();
+  }catch(e){ /* sin QuickBooks se sigue facturando igual */ }
+}
+function renderClQbo(){
+  const el=document.getElementById('clQbo');
+  if(!el)return;
+  if(!(session&&session.canReconcile)){el.innerHTML='';return;}
+  if(!recVendors.length&&!recCuentas.length&&!qboClases.length){
+    el.innerHTML='<p class="muted" style="font-size:12.5px">Conectando con QuickBooks…</p>';
+    return;
+  }
+  const _i='padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;width:100%';
+  const vopt=function(sel){return '<option value="">— sin asignar —</option>'+
+    recVendors.map(function(v){return '<option value="'+_recAttr(v.id)+'"'+(String(sel)===String(v.id)?' selected':'')+'>'+_recEsc(v.name)+'</option>';}).join('');};
+  const copt=function(sel){return '<option value="">— cuenta —</option>'+
+    recCuentas.map(function(c){return '<option value="'+_recAttr(c.id)+'"'+(String(sel)===String(c.id)?' selected':'')+'>'+_recEsc(c.full||c.name)+'</option>';}).join('');};
+  const klopt=function(sel){return '<option value="">— clase —</option>'+
+    qboClases.map(function(c){return '<option value="'+_recAttr(c.id)+'"'+(String(sel)===String(c.id)?' selected':'')+'>'+_recEsc(c.name)+'</option>';}).join('');};
+  const faltanV=staff.filter(function(s){return !s.qboVendor;}).length;
+  const faltanC=invoiceCategories.filter(function(c){return !catCuenta[c];}).length;
+  const faltanP=properties.filter(function(p){return !propClase[p.id];}).length;
+  el.innerHTML='<details style="border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:12px;background:var(--sunk)">'+
+    '<summary style="font-weight:800;font-size:13px;cursor:pointer">🧾 QuickBooks'+
+      '<span class="muted" style="font-weight:400;font-size:11.5px"> · el proveedor de cada cleaner y la cuenta de cada categoría'+
+      ((faltanV||faltanC||faltanP)
+        ? ' — <b style="color:var(--danger)">falta: '+[faltanV?faltanV+' proveedor(es)':'',faltanC?faltanC+' cuenta(s)':'',faltanP?faltanP+' clase(s)':''].filter(Boolean).join(', ')+'</b>'
+        : ' — todo listo ✓')+
+      '</span></summary>'+
+    '<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px">'+
+      '<div style="flex:1;min-width:280px"><div style="font-weight:700;font-size:12.5px;margin-bottom:6px">Cleaner → proveedor</div>'+
+        '<table style="width:100%">'+staff.map(function(s){
+          return '<tr><td style="font-size:13px">'+_recEsc(s.name)+'</td>'+
+            '<td style="width:58%"><select onchange="setCleanerVendor(\''+s.id+'\',this)" style="'+_i+'">'+vopt(s.qboVendor)+'</select></td></tr>';
+        }).join('')+'</table></div>'+
+      '<div style="flex:1;min-width:280px"><div style="font-weight:700;font-size:12.5px;margin-bottom:6px">Categoría → cuenta</div>'+
+        '<table style="width:100%">'+invoiceCategories.map(function(c){
+          return '<tr><td style="font-size:13px">'+_recEsc(c)+'</td>'+
+            '<td style="width:58%"><select onchange="setCatCuenta(\''+_recAttr(c).replace(/'/g,"\\\\'")+'\',this)" style="'+_i+'">'+copt(catCuenta[c])+'</select></td></tr>';
+        }).join('')+'</table></div>'+
+      '<div style="flex:1;min-width:280px"><div style="font-weight:700;font-size:12.5px;margin-bottom:6px">Propiedad → clase</div>'+
+        '<table style="width:100%">'+properties.map(function(p){
+          return '<tr><td style="font-size:13px">'+_recEsc(p.name)+'</td>'+
+            '<td style="width:58%"><select onchange="setPropClase(\''+p.id+'\',this)" style="'+_i+'">'+klopt(propClase[p.id])+'</select></td></tr>';
+        }).join('')+'</table></div>'+
+    '</div>'+
+    '<p class="muted" style="font-size:11.5px;margin:8px 0 0">El servicio de limpieza va a <b>Professional Services</b> y el material sin categoría a '+
+    '<b>Cleaning Supplies &amp; Materials</b>, como los bills que se hacían a mano. La retención del 10% sale en negativo con la clase <b>Office</b>.</p>'+
+    '</details>';
+}
+async function setCleanerVendor(id,el){
+  const v=recVendors.find(function(x){return String(x.id)===String(el.value);});
+  const {error}=await sb.from('professionals')
+    .update({qbo_vendor_id:v?String(v.id):null,qbo_vendor_name:v?v.name:null}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo guardar (¿corriste el SQL?)');return;}
+  const s=staff.find(function(x){return x.id===id;});
+  if(s){s.qboVendor=v?String(v.id):'';s.qboVendorName=v?v.name:'';}
+  toast(v?'Proveedor: '+v.name:'Proveedor quitado');
+  renderClQbo();
+}
+async function setPropClase(id,el){
+  const c=qboClases.find(function(x){return String(x.id)===String(el.value);});
+  const {error}=await sb.from('properties').update({qbo_class_id:c?String(c.id):null}).eq('id',id);
+  if(error){console.error(error);toast('No se pudo guardar (¿corriste el SQL?)');return;}
+  if(c)propClase[id]=String(c.id);else delete propClase[id];
+  toast(c?'Clase: '+c.name:'Clase quitada');
+  renderClQbo();
+}
+async function setCatCuenta(nombre,el){
+  const val=el.value||null;
+  const r=await sb.from('invoice_categories').update({qbo_account_id:val}).eq('name',nombre).select('name');
+  if(r.error){console.error(r.error);toast('No se pudo guardar (¿corriste el SQL?)');return;}
+  if(!(r.data||[]).length){
+    const i=await sb.from('invoice_categories').insert({name:nombre,qbo_account_id:val});
+    if(i.error){console.error(i.error);toast('No se pudo guardar');return;}
+  }
+  catCuenta[nombre]=val||'';
+  toast('Categoría guardada');
+  renderClQbo();
+}
+/* Los renglones del bill, agrupados como en los bills hechos a mano: por
+   propiedad y por cuenta. La matemática de la bisemana es la misma de la
+   factura impresa; la retención y el total los calcula la función. */
+function clLineasBill(wk,sid){
+  const list=subs.filter(function(s){return s.status==='approved'&&weekKey(s.date)===wk&&s.staff===sid;});
+  const svc={},exp={},veces={};
+  const mete=function(d,prop,cta,cat,amt){
+    const k=(prop||'')+'|'+(cta||'')+'|'+(cat||'');
+    d[k]=(d[k]||0)+amt;
+  };
+  list.forEach(function(s){
+    if(s.type==='service'){
+      (s.items||[]).forEach(function(i){
+        mete(svc,i.prop,'','',itemTotal(i));
+        veces[i.prop||'']=(veces[i.prop||'']||0)+1;
+      });
+    } else if(s.customLines){
+      (s.customLines.lines||[]).forEach(function(l){
+        const amt=Number(l.amount||0);if(!amt)return;
+        const cat=l.category||'';
+        mete(l.svc?svc:exp,l.prop,cat?(catCuenta[cat]||''):'',cat,amt);
+      });
+    } else {
+      mete(exp,s.prop,'','',Number(s.amount||0));
+    }
+  });
+  const salida=[];
+  const armar=function(d,kind){
+    Object.keys(d).forEach(function(k){
+      const p=k.split('|'),prop=p[0]||null,cta=p[1]||null,cat=p[2]||'';
+      const monto=Math.round(d[k]*100)/100;
+      if(Math.abs(monto)<0.005)return;
+      const nom=prop?propName(prop):'Office';
+      const det=cat?(' · '+cat)
+        :(kind==='svc'?(' · limpieza'+(veces[prop||'']?' ('+veces[prop||'']+')':'')):' · materiales');
+      salida.push({property_id:prop,account_id:cta,kind:kind,label:nom,
+        amount:monto,description:nom+det});
+    });
+  };
+  armar(svc,'svc');armar(exp,'exp');
+  return salida;
+}
+async function clBillQbo(k){
+  const parts=k.split('|'),wk=parts[0],sid=parts[1];
+  const lineas=clLineasBill(wk,sid);
+  if(!lineas.length){toast('Esa factura no tiene renglones');return;}
+  toast('Revisando con QuickBooks…');
+  const ver=await sb.functions.invoke('cont-qbo',{body:{action:'bill_cleaner',
+    professional_id:sid,week:wk,lineas:lineas,preview:true}});
+  const p=(ver.data||{});
+  if(!p.ok){toast(p.error||'No se pudo revisar');return;}
+  const x=p.plan||{};
+  if(x.ya_creado){alert('Esa bisemana ya tiene el bill '+x.ya_creado+' en QuickBooks.');return;}
+  if((x.trabas||[]).length){alert('Todavía no se puede:\n\n⚠︎ '+x.trabas.join('\n⚠︎ '));return;}
+  if(!confirm('¿Crear el bill en QuickBooks?\n\n'+
+    x.cleaner+(x.vendor?' → '+x.vendor:'')+'\n'+
+    weekLabel(wk)+'  ·  fecha '+x.txn_date+'  ·  '+x.doc_number+'\n\n'+
+    'Servicio      '+money(x.servicios)+'\n'+
+    'Retención 10% −'+money(x.retencion)+'\n'+
+    'Materiales    '+money(x.materiales)+'\n'+
+    'TOTAL         '+money(x.total)+'\n\n'+
+    x.lineas+' línea(s), una por propiedad.'))return;
+  toast('Creando en QuickBooks…');
+  const r=await sb.functions.invoke('cont-qbo',{body:{action:'bill_cleaner',
+    professional_id:sid,week:wk,lineas:lineas}});
+  const q=r.data||{};
+  if(!q.ok){toast(q.error||'No se pudo crear');return;}
+  clBills[sid+'|'+wk]={professional_id:sid,week:wk,qbo_bill_id:q.bill_id,amount:(q.plan||{}).total};
+  renderInvoices();
+  alert('Listo: bill '+q.bill_id+' en QuickBooks por '+money((q.plan||{}).total)+
+    (q.adoptado?'\n(ya existía, se adoptó en vez de duplicarlo)':''));
 }
 function distSummary(){
   const active=distribution.filter(d=>d.active);
