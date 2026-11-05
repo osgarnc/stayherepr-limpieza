@@ -3058,11 +3058,28 @@ function contArmarAirbnb(rows,month){
       // directo. Eso se clasifica solo en vez de dejarlo pendiente.
       const pilaG=String(guest||'').trim().split(/\s+/)[0].toLowerCase();
       const cancel=lst&&pilaG?(contCanc[lst+'|'+pilaG]||[]):[];
-      if(cancel.length&&!contAirbnbSH[lst]&&monto>0){
-        cur.lines.push({kind:'comision',amount:monto,property_id:lst,
-          qbo_class_id:contClassOf(lst),guest_name:guest,
-          description:(guest||'Airbnb')+' — comisión Stay Here de una reserva cancelada'+
-            ' (check-in '+_cEsc(cancel[0].check_in)+'; Airbnb le pagó al dueño su parte directo)'});
+      if(cancel.length&&monto>0){
+        const ci=_cEsc(cancel[0].check_in);
+        if(!contAirbnbSH[lst]){
+          // Co-anfitrión: Airbnb le pagó al dueño su parte directo y a nosotros
+          // solo la nuestra, así que todo lo que entra es comisión.
+          cur.lines.push({kind:'comision',amount:monto,property_id:lst,
+            qbo_class_id:contClassOf(lst),guest_name:guest,
+            description:(guest||'Airbnb')+' — comisión Stay Here de una reserva cancelada'+
+              ' (check-in '+ci+'; Airbnb le pagó al dueño su parte directo)'});
+          continue;
+        }
+        // La cuenta de Airbnb es NUESTRA: entra completo lo que retuvo la
+        // política de cancelación y eso se reparte, pero la LIMPIEZA es de Stay
+        // Here entera y solo el resto se divide. El monto de la limpieza no
+        // está aquí (una reserva cancelada no sale en el reporte de dueños),
+        // así que no se adivina: queda pendiente, diciendo cómo partirlo.
+        const pct=contComision[lst]!=null?Number(contComision[lst]):80;
+        contAgrega(cur,guest||contGet(r,['Confirmation code'])||tipo,monto,
+          'reserva CANCELADA (check-in '+ci+') en nuestra cuenta de Airbnb · lo retuvo la '+
+          'política de cancelación: la limpieza entra completa a Stay Here y el resto va '+
+          pct+'% al dueño. Clasifica la limpieza aparte y lo demás en dos partes',
+          month,lst);
         continue;
       }
       // En una reserva de co-anfitrión Airbnb le paga al dueño directo y a Stay
