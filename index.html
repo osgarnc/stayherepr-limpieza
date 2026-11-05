@@ -4258,7 +4258,12 @@ function recTablaEstadias(p){
    su propia tabla porque ese dinero no se paga igual —en Airbnb de co-anfitrión
    el canal ya le pagó al dueño su parte directo. */
 function recFilaCancel(c){
+  // Misma lógica que una estadía: en co-anfitrión (Airbnb le paga al dueño
+  // directo) el reporte deja Due Stay Here y Owner Payout en cero, porque por
+  // aquí no pasa ese dinero. `kept_owner` solo tiene monto en ese caso.
+  const coHost=(Number(c.kept_owner)||0)>0;
   return {
+    airbnb:coHost,
     source_label:String(c.source||''),guest:String(c.guest||'—'),
     check_in:c.check_in,check_out:c.check_out,nights:Number(c.nights)||0,
     rent:Number(c.rent)||0,cleaning:Number(c.cleaning)||0,extra_guest:0,pet_fee:0,
@@ -4269,8 +4274,8 @@ function recFilaCancel(c){
     // Net Earnings = Due Stay Here + Owner Payout. De eso, la limpieza es de
     // Stay Here completa y solo el resto se reparte.
     base:Number(c.kept)||0,
-    commission:Number(c.kept_sh)||0,
-    net:_c2((Number(c.kept_owner)||0)+(Number(c.kept_share)||0)),
+    commission:coHost?0:(Number(c.kept_sh)||0),
+    net:coHost?0:(Number(c.kept_share)||0),
     tax_remitted:0,
   };
 }
@@ -4287,7 +4292,7 @@ function recTablaCancel(p){
       (c.verde?';background:rgba(16,185,129,.14)':'')+'">'+_recEsc(c.t)+'</th>';}).join('');
   const tr=filas.map(function(s){
     REC_COLS.forEach(function(c){if(!c.txt)tot[c.k]+=Number(s[c.k])||0;});
-    return '<tr style="border-bottom:1px solid var(--line)">'+
+    return '<tr style="border-bottom:1px solid var(--line)'+(s.airbnb?';opacity:.6':'')+'">'+
       REC_COLS.map(function(c){return recCelda(s,c);}).join('')+'</tr>';
   }).join('');
   const tf=REC_COLS.map(function(c){
