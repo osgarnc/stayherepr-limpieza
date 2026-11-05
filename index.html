@@ -4802,7 +4802,7 @@ async function renderRecReport(){
               '<span>✕ '+esc(c.guest||'—')+' <span class="muted">'+esc(c.check_in)+'→'+esc(c.check_out)+'</span>'+
               (est?' <span class="muted">· not paid '+money(est.net)+'</span>':'')+
               (kept?' <span class="muted">· retained per cancellation policy '+money(kept)+'</span>':'')+
-              (keptO?' <span class="muted">· retained per cancellation policy '+money(keptO)+', paid to you directly by '+esc(c.source||'the channel')+'</span>':'')+'</span>'+
+              (keptO?' <span class="muted">· retained per cancellation policy '+money(keptO)+' — '+esc(c.source||'the channel')+' pays this to you directly, on its normal payout schedule</span>':'')+'</span>'+
               '<span class="muted" style="font-size:11px">'+esc(c.source||'')+
               (fee?' · processing fee '+money(fee)+' → owner <b style="color:var(--danger)">'+money(fd)+'</b>'
                   :' · no processing fee of ours')+'</span></div>';}).join('');
