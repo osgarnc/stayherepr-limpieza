@@ -3065,8 +3065,7 @@ function contArmarAirbnb(rows,month){
           // solo la nuestra, así que todo lo que entra es comisión.
           cur.lines.push({kind:'comision',amount:monto,property_id:lst,
             qbo_class_id:contClassOf(lst),guest_name:guest,
-            description:(guest||'Airbnb')+' — comisión Stay Here de una reserva cancelada'+
-              ' (check-in '+ci+'; Airbnb le pagó al dueño su parte directo)'});
+            description:(guest||'Airbnb')+' — reserva cancelada · comisión Stay Here'});
           continue;
         }
         // La cuenta de Airbnb es NUESTRA: entra completo lo que retuvo la
@@ -3074,12 +3073,8 @@ function contArmarAirbnb(rows,month){
         // Here entera y solo el resto se divide. El monto de la limpieza no
         // está aquí (una reserva cancelada no sale en el reporte de dueños),
         // así que no se adivina: queda pendiente, diciendo cómo partirlo.
-        const pct=contComision[lst]!=null?Number(contComision[lst]):80;
         contAgrega(cur,guest||contGet(r,['Confirmation code'])||tipo,monto,
-          'reserva CANCELADA (check-in '+ci+') en nuestra cuenta de Airbnb · lo retuvo la '+
-          'política de cancelación: la limpieza entra completa a Stay Here y el resto va '+
-          pct+'% al dueño. Clasifica la limpieza aparte y lo demás en dos partes',
-          month,lst);
+          'reserva cancelada · aplica política de cancelación',month,lst);
         continue;
       }
       // En una reserva de co-anfitrión Airbnb le paga al dueño directo y a Stay
@@ -3088,10 +3083,8 @@ function contArmarAirbnb(rows,month){
       const cohost=/co-?host/i.test(tipo);
       contAgrega(cur,guest||contGet(r,['Confirmation code'])||tipo,monto,
         'no aparece en el reporte de dueños'+
-        (cancel.length?' · esa reserva está CANCELADA (check-in '+_cEsc(cancel[0].check_in)+')':'')+
-        (cohost?' · es un pago de co-anfitrión ('+_cEsc(contGet(r,['Nights'])||'?')+
-          ' noches desde '+_cEsc(inicio||'?')+'): Airbnb le paga al dueño directo, '+
-          'esto suele ser tu comisión':''),
+        (cancel.length?' · reserva cancelada':'')+
+        (cohost?' · pago de co-anfitrión: suele ser tu comisión':''),
         month,lst);
       continue;
     }
@@ -4466,7 +4459,7 @@ async function recExcelProp(oi,pi){
     aoa.push([]);
   }
   if(d.canc.length){
-    aoa.push(['Cancellations'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Retained (cancellation policy)','Processing Fee']);
+    aoa.push(['Cancellations'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee']);
     d.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
   }
   let filaPago=-1;
@@ -4534,7 +4527,7 @@ function recTablaPdf(doc,d,y0){
   bloque('Not paid — cancelled or duplicate reservations',
     ['Check In','Guest','Why','Would have been'],d.fuera||[]);
   bloque('Additional Expenses/Income',['Date','Description','Billable?','Amount'],d.gastos,d.gastosTot||[]);
-  bloque('Cancellations',['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Retained (cancellation policy)','Processing Fee'],d.canc);
+  bloque('Cancellations',['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee'],d.canc);
   doc.autoTable({startY:y,body:d.resumen.map(function(r){return [r[0],_recCont(r[1])];}),
     styles:{fontSize:9,cellPadding:4},margin:{left:40},tableWidth:300,
     columnStyles:{1:{halign:'right',fontStyle:'bold'}},
@@ -4621,7 +4614,7 @@ async function recExcelDueno(oi){
       aoa.push([]);
     }
     if(dp.canc.length){
-      aoa.push(['Cancellations'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Retained (cancellation policy)','Processing Fee']);
+      aoa.push(['Cancellations'],['Check In','Guest','Channel','Guest Paid','Refunded to Guest','Cancellation Policy','Processing Fee']);
       dp.canc.forEach(function(c){aoa.push(c);});aoa.push([]);
     }
     dp.resumen.forEach(function(r){aoa.push([r[0],'','','','','','','','','','','','','','','',r[1]]);});
@@ -4861,8 +4854,8 @@ async function renderRecReport(){
             return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:var(--ink-soft)">'+
               '<span>✕ '+esc(c.guest||'—')+' <span class="muted">'+esc(c.check_in)+'→'+esc(c.check_out)+'</span>'+
               (est?' <span class="muted">· not paid '+money(est.net)+'</span>':'')+
-              (kept?' <span class="muted">· retained per cancellation policy '+money(kept)+'</span>':'')+
-              (keptO?' <span class="muted">· retained per cancellation policy '+money(keptO)+' — '+esc(c.source||'the channel')+' pays this to you directly, on its normal payout schedule</span>':'')+'</span>'+
+              (kept?' <span class="muted">· cancellation policy '+money(kept)+'</span>':'')+
+              (keptO?' <span class="muted">· cancellation policy '+money(keptO)+' · paid to you by '+esc(c.source||'the channel')+'</span>':'')+'</span>'+
               '<span class="muted" style="font-size:11px">'+esc(c.source||'')+
               (fee?' · processing fee '+money(fee)+' → owner <b style="color:var(--danger)">'+money(fd)+'</b>'
                   :' · no processing fee of ours')+'</span></div>';}).join('');
