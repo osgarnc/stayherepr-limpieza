@@ -4475,8 +4475,8 @@ async function recMarcarPagado(oi,pi){
   if(!confirm('¿Marcar como pagado el estado de '+recMesIngles(mes)+'?\n\n'+
     o.name+' · '+props.length+' propiedad(es) · '+money(total)+'\n\n'+
     (gastos.length?'Se liquidan '+gastos.length+' gasto(s): salen de la pestaña de Gastos y dejan de acumularse.\n':'')+
-    (props.filter(function(x){return Number(x.payout)<-0.005;}).length
-      ? 'El balance en negativo pasa al mes siguiente como gasto.\n':'')+
+    (_c2(props.reduce(function(t,x){return t+(Number(x.payout)||0);},0))<-0.005
+      ? 'Queda en negativo: ese balance pasa al mes siguiente como gasto.\n':'')+
     'Se guarda una foto del estado, para poder reimprimirlo igual aunque la data cambie después.'))return;
   // 1) guardar la FOTO del estado. Es lo que lo protege: un estado pagado se
   // reimprime de aquí, aunque mañana alguien borre un gasto de ese mes.
@@ -4503,17 +4503,36 @@ async function recMarcarPagado(oi,pi){
   // pasa al mes siguiente como gasto para recuperarla ahí.
   const _sig=function(m){const t=String(m).split('-');
     const d=new Date(Date.UTC(+t[0],+t[1],1));return d.toISOString().slice(0,10);};
-  const deben=props.filter(function(x){return Number(x.payout)<-0.005&&x.property_id;});
+  // Lo que se arrastra es el NETO de lo que se está pagando, no el negativo de
+  // cada propiedad: al dueño con varias se le hace un solo pago, así que lo que
+  // sobra en una tapa lo que falta en otra. Ese neto se reparte entre las que
+  // quedaron en rojo, en proporción a lo que debe cada una.
+  const neto=_c2(props.reduce(function(t,x){return t+(Number(x.payout)||0);},0));
+  const rojas=props.filter(function(x){return Number(x.payout)<-0.005&&x.property_id;});
+  const deben=neto<-0.005?rojas:[];
   if(deben.length){
     const fecha=_sig(mes);
+    const falta=Math.abs(neto);
+    const sumaRojas=rojas.reduce(function(t,x){return t+Math.abs(Number(x.payout));},0);
+    const parte={};let repartido=0;
+    deben.forEach(function(x){
+      const v=_c2(falta*Math.abs(Number(x.payout))/sumaRojas);
+      parte[x.property_id]=v;repartido=_c2(repartido+v);
+    });
+    // El centavo que sobre del redondeo va en la que más debe.
+    if(Math.abs(repartido-falta)>=0.005&&deben.length){
+      let big=deben[0];
+      deben.forEach(function(x){if(Math.abs(Number(x.payout))>Math.abs(Number(big.payout)))big=x;});
+      parte[big.property_id]=_c2(parte[big.property_id]+(falta-repartido));
+    }
     // Si ya se arrastró antes (se volvió a marcar), no se duplica.
     const {data:ya}=await sb.from('ops_property_expenses')
       .select('property_id').eq('date',fecha).eq('description',REC_ARRASTRE)
       .in('property_id',deben.map(function(x){return x.property_id;}));
     const hechos={};(ya||[]).forEach(function(x){hechos[x.property_id]=1;});
-    const nuevas=deben.filter(function(x){return !hechos[x.property_id];}).map(function(x){
+    const nuevas=deben.filter(function(x){return !hechos[x.property_id]&&parte[x.property_id]>=0.005;}).map(function(x){
       return {property_id:x.property_id,date:fecha,description:REC_ARRASTRE,
-        amount:_c2(Math.abs(Number(x.payout))),billable:true};
+        amount:parte[x.property_id],billable:true};
     });
     if(nuevas.length){
       const {error}=await sb.from('ops_property_expenses').insert(nuevas);
