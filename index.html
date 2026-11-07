@@ -7374,8 +7374,12 @@ async function storePrintSign(){
   const w=window.open('','_blank'); if(!w){ toast('Permite ventanas emergentes para imprimir'); return; }
   w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Minibar QR</title><style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;text-align:center;margin:40px;color:#0f172a}h1{font-size:40px;margin:0 0 6px}h2{font-size:22px;font-weight:600;color:#0b8281;margin:0 0 24px}svg{width:340px;height:340px}p{font-size:19px;line-height:1.5;margin:8px 0}.es{color:#64748b;font-size:16px}.b{margin-top:28px;font-weight:800;color:#0b8281;font-size:15px}</style></head><body>'+
     '<h1>🛒 Minibar &amp; Convenience Store</h1><h2>Snacks · Drinks · Essentials · PR Souvenirs</h2>'+svg+
-    '<p><b>Scan to unlock</b> the fridge &amp; display case.<br>'+dep+' refundable hold · pay only for what you use.</p>'+
-    '<p class="es">Escanea para abrir la nevera y la vitrina. Retención reembolsable de '+dep+' · pagas solo lo que uses.</p>'+
+    (c.deposit_cents>0
+      ? '<p><b>Scan to unlock</b> the fridge &amp; display case.<br>'+dep+' refundable hold · pay only for what you use.</p>'+
+        '<p class="es">Escanea para abrir la nevera y la vitrina. Retención reembolsable de '+dep+' · pagas solo lo que uses.</p>'
+      // Depósito $0 (solo tarjeta guardada): nada de "hold" en el letrero (decisión del dueño 2026-11-07).
+      : '<p><b>Scan to unlock</b> the fridge &amp; display case.<br>Nothing is charged now · pay only for what you take, after check-out.</p>'+
+        '<p class="es">Escanea para abrir la nevera y la vitrina. No se cobra nada ahora · pagas solo lo que tomes, después del check-out.</p>')+
     '<div class="b">Stay Here PR</div><script>setTimeout(function(){print()},300)<\/script></body></html>');
   w.document.close();
 }
