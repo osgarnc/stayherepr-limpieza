@@ -92,6 +92,13 @@
       keyNote:"🔑 The display case key is inside the fridge. Please put it back there when you’re done.",
       s3:"After check-out we count what was used and charge <b>only what you took</b>. The rest of the hold is released.",
       hold:function(d){ return "Prices are marked on the display case. If your purchases go over "+d+", the difference is charged to the same card."; },
+      s1card:"Add a credit or debit card. <b>Nothing is charged now</b> — we just keep it on file. (Prepaid cards aren’t accepted.)",
+      prepaidTitle:"Prepaid card not accepted",
+      prepaidMsg:"Sorry — we can’t use prepaid cards for the minibar. Nothing was charged and the card wasn’t saved. Please try again with a credit or debit card.",
+      tryAgain:"Use another card",
+      s3card:"After check-out we count what was used and charge <b>only what you took</b> to that card.",
+      holdCard:"Prices are marked on the display case. If you don’t take anything, you’re never charged.",
+      btnCard:"Unlock minibar · no charge now",
       menu:"See what’s inside & prices", each:"each", all:function(x){ return "Everything here "+x; },
       termsTitle:"Please read before unlocking",
       terms:[
@@ -106,12 +113,12 @@
       btn:function(d){ return "Unlock minibar · "+d+" hold"; },
       secure:"Secured by Stripe · we never see your card",
       codesTitle:"You’re all set! 🎉",
-      codesMsg:"Enjoy! At check-out we count what was used and charge only that; the rest of the hold is released.",
+      codesMsg:"Enjoy! At check-out we count what was used and charge only that to your card.",
       fridge:"Fridge", display:"Display case",
       lockNote:"When you’re done, lock the display case and close the fridge lock.",
-      pending:"We’re confirming your hold with the bank… this takes a few seconds.",
+      pending:"We’re confirming your card with the bank… this takes a few seconds.",
       retry:"Check again",
-      cancelTitle:"Not completed", cancelMsg:"No problem — no hold was placed. You can unlock the minibar whenever you like.", back:"Back",
+      cancelTitle:"Not completed", cancelMsg:"No problem — nothing was charged. You can unlock the minibar whenever you like.", back:"Back",
       off:"The minibar isn’t available right now. Please message us if you need anything.",
       gen:"Something went wrong. Please try again in a moment."
     },
@@ -124,6 +131,13 @@
       keyNote:"🔑 La llave de la vitrina está dentro de la nevera. Por favor devuélvela ahí al terminar.",
       s3:"Después del check-out contamos lo usado y cobramos <b>solo lo que tomaste</b>. El resto de la retención se libera.",
       hold:function(d){ return "Los precios están marcados en la vitrina. Si tus compras pasan de "+d+", la diferencia se cobra a la misma tarjeta."; },
+      s1card:"Registra una tarjeta de crédito o débito. <b>No se cobra nada ahora</b> — solo la dejamos guardada. (No se aceptan tarjetas prepagadas.)",
+      prepaidTitle:"Tarjeta prepagada no aceptada",
+      prepaidMsg:"Lo siento — no podemos usar tarjetas prepagadas para el minibar. No se cobró nada y la tarjeta no se guardó. Intenta de nuevo con una tarjeta de crédito o débito.",
+      tryAgain:"Usar otra tarjeta",
+      s3card:"Después del check-out contamos lo usado y cobramos <b>solo lo que tomaste</b> a esa tarjeta.",
+      holdCard:"Los precios están marcados en la vitrina. Si no tomas nada, nunca se te cobra.",
+      btnCard:"Abrir minibar · sin cobro ahora",
       menu:"Ver qué hay y precios", each:"c/u", all:function(x){ return "Todo aquí "+x; },
       termsTitle:"Lee esto antes de abrir",
       terms:[
@@ -138,12 +152,12 @@
       btn:function(d){ return "Abrir minibar · retención de "+d; },
       secure:"Protegido por Stripe · nunca vemos tu tarjeta",
       codesTitle:"¡Listo! 🎉",
-      codesMsg:"¡Disfruta! Al check-out contamos lo usado y cobramos solo eso; el resto de la retención se libera.",
+      codesMsg:"¡Disfruta! Al check-out contamos lo usado y cobramos solo eso a tu tarjeta.",
       fridge:"Nevera", display:"Vitrina",
       lockNote:"Al terminar, cierra la vitrina con llave y pon el candado de la nevera.",
-      pending:"Estamos confirmando la retención con el banco… toma unos segundos.",
+      pending:"Estamos confirmando tu tarjeta con el banco… toma unos segundos.",
       retry:"Verificar de nuevo",
-      cancelTitle:"No completado", cancelMsg:"Sin problema — no se hizo ninguna retención. Puedes abrir el minibar cuando gustes.", back:"Volver",
+      cancelTitle:"No completado", cancelMsg:"Sin problema — no se cobró nada. Puedes abrir el minibar cuando gustes.", back:"Volver",
       off:"El minibar no está disponible ahora. Escríbenos si necesitas algo.",
       gen:"Algo salió mal. Intenta de nuevo en un momento."
     }
@@ -192,17 +206,17 @@
   }
   function showOffer(info){
     last=function(){ load(); }; // el menú viene traducido del servidor → recargar
-    var d=money(info.depositCents);
+    var d=money(info.depositCents), card=!(info.depositCents>0); // $0 = solo tarjeta guardada (sin retención)
     body.innerHTML='<h1>'+esc(t().hi(info.guestFirstName))+'</h1><p class="prop">'+esc(info.propertyName)+'</p>'+
       '<p style="font-size:14.5px;line-height:1.5;margin:0 0 14px">'+esc(t().intro)+'</p>'+
-      '<ul class="steps"><li><b class="n">1</b><span>'+t().s1(d)+'</span></li><li><b class="n">2</b><span>'+(info.displayKey?t().s2key:t().s2)+'</span></li><li><b class="n">3</b><span>'+t().s3+'</span></li></ul>'+
-      '<div class="hold">'+esc(t().hold(d))+'</div>'+
+      '<ul class="steps"><li><b class="n">1</b><span>'+(card?t().s1card:t().s1(d))+'</span></li><li><b class="n">2</b><span>'+(info.displayKey?t().s2key:t().s2)+'</span></li><li><b class="n">3</b><span>'+(card?t().s3card:t().s3)+'</span></li></ul>'+
+      '<div class="hold">'+esc(card?t().holdCard:t().hold(d))+'</div>'+
       // Sin menú ni precios en la página (decisión del dueño): los precios están marcados en la vitrina.
 
       // Aviso de responsabilidad (texto fijo nuestro, con <b>; no lleva datos del huésped).
       '<div class="terms"><div class="tt">⚠️ '+esc(t().termsTitle)+'</div><ul>'+t().terms.map(function(x){ return '<li>'+x+'</li>'; }).join('')+'</ul></div>'+
       '<label class="agree"><input type="checkbox" id="ag"><span>'+esc(t().agree)+'</span></label>'+
-      '<button class="main" id="go" disabled>'+esc(t().btn(d))+'</button>'+
+      '<button class="main" id="go" disabled>'+esc(card?t().btnCard:t().btn(d))+'</button>'+
       '<div class="err" id="err" style="display:none"></div><p class="secure">'+esc(t().secure)+'</p>';
     var ag=document.getElementById("ag"), go=document.getElementById("go"), err=document.getElementById("err");
     ag.onchange=function(){ go.disabled=!ag.checked; };
@@ -231,6 +245,7 @@
     api({cs:cs}).then(function(r){
       var gl=r.j&&guestLang(r.j); if(gl) setLang(gl);
       if(r.ok&&r.j&&r.j.held){ showCodes(r.j.combos||{}, r.j.propertyName); return; }
+      if(r.ok&&r.j&&r.j.prepaid){ msg("💳",function(){ return t().prepaidTitle; },function(){ return esc(t().prepaidMsg); },{label:function(){ return t().tryAgain; },fn:function(){ location.search="?p="+encodeURIComponent(p); }}); return; }
       if(tries>0){ msg("⏳","Stay Here PR",function(){ return esc(t().pending); }); setTimeout(function(){ verify(tries-1); },2500); return; }
       msg("⏳","Stay Here PR",function(){ return esc(t().pending); },{label:function(){ return t().retry; },fn:function(){ verify(2); }});
     }).catch(function(){ msg("⚠️","Stay Here PR",function(){ return esc(t().gen); },{label:function(){ return t().retry; },fn:function(){ verify(2); }}); });
