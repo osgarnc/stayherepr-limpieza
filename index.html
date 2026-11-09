@@ -886,9 +886,13 @@
           <div><b>Modo seguro (dry-run)</b><p class="muted" style="font-size:13px;margin:4px 0 0">Activado: el cron calcula y registra pero <b>NO</b> escribe en Hostfully. Apagarlo hace que escriba precios reales.</p></div>
           <label style="display:flex;align-items:center;gap:8px;flex:none"><input type="checkbox" id="opsSafe"> <span class="muted" style="font-size:13px">seguro</span></label>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 0">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 0;border-top:1px solid var(--line)">
           <div><b>Horizonte (días)</b><p class="muted" style="font-size:13px;margin:4px 0 0">Cuántos días adelante evalúa el cron.</p></div>
           <input type="number" id="opsHorizon" min="1" max="365" style="width:90px;padding:8px;border:1.5px solid var(--line);border-radius:8px">
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 0;border-top:1px solid var(--line)">
+          <div><b>Recargo fin de semana / festivo (%)</b><p class="muted" style="font-size:13px;margin:4px 0 0">Cuánto sube el precio de <b>viernes y sábado</b> y los <b>días festivos</b> (PR/EEUU) sobre el precio de la noche anterior. Antes estaba fijo en 15%. Pon <b>0</b> para desactivarlo.</p></div>
+          <input type="number" id="opsPremiumPct" min="0" max="100" step="1" style="width:90px;padding:8px;border:1.5px solid var(--line);border-radius:8px">
         </div>
         <button class="btn" style="margin-top:12px" onclick="opsSaveSettings()">Guardar ajustes</button>
       </div>
@@ -6940,6 +6944,7 @@ async function opsLoadSettings(){
   const safe=(m.safe_mode||'true')!=='false';
   document.getElementById('opsSafe').checked=safe;
   document.getElementById('opsHorizon').value=m.pricing_horizon_days||'30';
+  document.getElementById('opsPremiumPct').value=(m.weekend_premium_pct!=null&&m.weekend_premium_pct!=='')?m.weekend_premium_pct:'15';
   opsPaintBadge(safe);
 }
 function opsPaintBadge(safe){
@@ -6951,7 +6956,8 @@ async function opsSaveSettings(){
   const c=opsC();
   const safe=document.getElementById('opsSafe').checked;
   if(!safe&&!confirm('Vas a DESACTIVAR el modo seguro: el cron empezará a escribir precios REALES en Hostfully. ¿Seguro?')){document.getElementById('opsSafe').checked=true;return;}
-  const rows=[{key:'safe_mode',value:safe?'true':'false'},{key:'pricing_horizon_days',value:String(Number(document.getElementById('opsHorizon').value)||30)}];
+  const ppv=Number(document.getElementById('opsPremiumPct').value);
+  const rows=[{key:'safe_mode',value:safe?'true':'false'},{key:'pricing_horizon_days',value:String(Number(document.getElementById('opsHorizon').value)||30)},{key:'weekend_premium_pct',value:String(Number.isFinite(ppv)&&ppv>=0?ppv:15)}];
   const {error}=await c.from('ops_app_settings').upsert(rows,{onConflict:'key'});
   if(error){toast('Ops: '+error.message);return;}
   opsPaintBadge(safe); toast('✅ Ajustes guardados');
