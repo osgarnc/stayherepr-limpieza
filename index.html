@@ -7680,8 +7680,11 @@ function storeCountCell(x){
   if(x.charge_note) h+='<div style="color:#b45309">⚠️ '+opsEsc(x.charge_note)+'</div>';
   if(x.count_status) h+='<a style="cursor:pointer;color:#2563eb" onclick="storeSessionPhotos(\''+x.id+'\')">📷 Fotos</a>';
   // Cuadre manual: la cleaner no hizo el conteo por Telegram → lo hace el dueño aquí (caso Tisha 2026-11-08).
-  if(x.status==='held'&&(!x.count_status||x.count_status==='counting'||x.count_status==='submitted'))
-    h+='<div style="margin-top:4px"><button class="btn sm" onclick="storeManualOpen(\''+x.id+'\')">🧮 Hacer cuadre aquí</button></div>';
+  if(x.status==='held'&&(!x.count_status||x.count_status==='counting'||x.count_status==='submitted')){
+    const dr=x.manual_draft;
+    if(dr&&dr.saved_at) h+='<div style="color:#b45309">📝 Cobro pendiente · guardado '+fmtLockDT(dr.saved_at)+(dr.blank?' · '+dr.blank+' por recertificar':'')+'</div>';
+    h+='<div style="margin-top:4px"><button class="btn sm" onclick="storeManualOpen(\''+x.id+'\')">🧮 '+(dr?'Continuar cuadre':'Hacer cuadre aquí')+'</button></div>';
+  }
   return h;
 }
 // ── 🧮 Cuadre manual (dueño) ──────────────────────────────────────────────
@@ -7700,6 +7703,7 @@ function storeManualOpen(sid){
   const LOC={vitrina:'🗄️',nevera:'🧊',canasta:'🧺'};
   let h='<div style="max-height:68vh;overflow:auto;padding-right:4px">'+
     '<p class="muted" style="font-size:13px;margin:0 0 10px"><b>'+opsEsc(x.guest_name||'')+'</b> · check-out '+(x.check_out||'—')+'. Sube las fotos y escribe <b>cuántos HAY</b> de cada artículo; al final calculo lo que falta. Si un piso está completo, toca <b>✔ Completo</b>.</p>'+
+    (x.manual_draft&&x.manual_draft.saved_at?'<div style="margin:0 0 10px;padding:7px 10px;border-radius:8px;background:#fffbeb;border:1px solid #f59e0b;font-size:12.5px">📝 Retomando el conteo guardado el '+fmtLockDT(x.manual_draft.saved_at)+'. Las fotos que ya subiste siguen guardadas (📷 Fotos en la tabla); aquí solo sube las nuevas.</div>':'')+
     '<label style="display:block;font-weight:700;font-size:13.5px;margin-bottom:12px">📷 Fotos (evidencia)<br><input type="file" id="smPhotos" accept="image/*" multiple style="margin-top:6px"></label>';
   storeManualGroups().forEach((g,gi)=>{
     h+='<div style="display:flex;align-items:center;gap:8px;margin:14px 0 4px"><b style="flex:1;font-size:13.5px">'+(LOC[g.location]||'')+' '+opsEsc(g.name)+'</b>'+
@@ -7709,7 +7713,7 @@ function storeManualOpen(sid){
       h+='<div style="display:flex;align-items:center;gap:0;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px">'+
         '<span style="flex:1">'+opsEsc(i.name)+' <span class="muted">$'+stD(i.cents)+'</span></span>'+
         '<span style="width:62px;text-align:center;font-weight:700">'+i.max+'</span>'+
-        '<span style="width:66px;text-align:center"><input class="smq" data-g="'+gi+'" data-id="'+i.id+'" data-c="'+i.cents+'" data-max="'+i.max+'" data-name="'+opsEsc(i.name)+'" type="number" min="0" inputmode="numeric" oninput="storeManualTotal()" style="width:52px;padding:4px;border:1.5px solid var(--line);border-radius:8px;text-align:center"></span>'+
+        '<span style="width:66px;text-align:center"><input class="smq" data-g="'+gi+'" data-id="'+i.id+'" data-c="'+i.cents+'" data-max="'+i.max+'" data-name="'+opsEsc(i.name)+'" value="'+(x.manual_draft&&x.manual_draft.counts&&x.manual_draft.counts[i.id]!=null?x.manual_draft.counts[i.id]:'')+'" type="number" min="0" inputmode="numeric" oninput="storeManualTotal()" style="width:52px;padding:4px;border:1.5px solid var(--line);border-radius:8px;text-align:center"></span>'+
         '<span class="smf" style="width:58px;text-align:right;color:var(--muted)">—</span></div>';
     });
   });
@@ -7717,9 +7721,43 @@ function storeManualOpen(sid){
     '<div style="flex:1 1 100%;font-size:13px" id="smSum"></div>'+
     '<div style="flex:1 1 100%;font-weight:800" id="smTotal">Total: $0.00</div>'+
     '<button class="btn" id="smCharge" onclick="storeManualSubmit(\''+sid+'\',\'items\')" disabled>✅ Cobrar</button>'+
+    '<button class="btn ghost" onclick="storeManualSave(\''+sid+'\')">💾 Guardar con cobro pendiente</button>'+
     '<button class="btn ghost" id="smFree" disabled onclick="storeManualSubmit(\''+sid+'\',\'free\')">🆓 Cerrar sin cobro</button></div>'+
-    '<p class="muted" style="font-size:11.5px;margin:8px 0 0">Al cobrar: se cobra a la tarjeta guardada, se descuenta del inventario y le llega el recibo al huésped por su canal. Ingrid recibe el aviso en Telegram.</p>';
+    '<p class="muted" style="font-size:11.5px;margin:8px 0 0"><b>Cobrar:</b> se cobra a la tarjeta guardada, se descuenta del inventario y le llega el recibo al huésped. Ingrid recibe el aviso en Telegram. '+
+    '<b>Guardar con cobro pendiente:</b> guarda el conteo y las fotos sin cobrar ni avisar a nadie; deja en blanco lo que tengas que recertificar y retómalo luego.</p>';
   openModal('🧮 Cuadre del minibar',h);
+  storeManualTotal();
+}
+async function storeManualUpload(x,sid){
+  const files=[...(document.getElementById('smPhotos').files||[])];
+  for(let i=0;i<files.length;i++){
+    const f=files[i], ext=(f.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'')||'jpg';
+    const path='manual/'+sid+'/'+Date.now()+'-'+i+'.'+ext;
+    toast('📤 Subiendo foto '+(i+1)+' de '+files.length+'…');
+    const up=await sb.storage.from('store-photos').upload(path,f,{contentType:f.type||'image/jpeg'});
+    if(up.error) throw new Error('Foto: '+up.error.message);
+    const ins=await sb.from('ops_store_counts').insert({property_id:x.property_id,session_id:sid,shelf_id:null,photo_path:path,ai:{manual:true,source:'panel'},taken_by:'Osgar (panel)'});
+    if(ins.error) throw new Error('Foto: '+ins.error.message);
+  }
+  document.getElementById('smPhotos').value='';
+}
+// Guarda lo contado (en blanco = por recertificar) sin cobrar; se retoma con "Continuar cuadre".
+async function storeManualSave(sid){
+  const x=_st.sessions.find(s=>s.id===sid); if(!x) return;
+  const all=[...document.querySelectorAll('.smq')], counts={};
+  all.forEach(s=>{ if(s.value!=='') counts[s.dataset.id]=Math.max(0,Math.round(+s.value)); });
+  const blank=all.filter(s=>s.value==='').length;
+  const items=storeManualPicks().map(p=>({product_id:p.product_id,name:p.name,qty:p.qty,unit_cents:+p.s.dataset.c}));
+  const btns=document.querySelectorAll('.overlay .btn'); btns.forEach(b=>b.disabled=true);
+  try{
+    await storeManualUpload(x,sid);
+    const draft={counts,blank,saved_at:new Date().toISOString()};
+    const {error}=await sb.from('ops_store_sessions').update({manual_draft:draft,count_status:'counting',counted_by:'Osgar (panel)',items,counted_cents:items.reduce((a,i)=>a+i.qty*i.unit_cents,0)}).eq('id',sid).eq('status','held');
+    if(error) throw new Error(error.message);
+    document.querySelector('.overlay')?.remove();
+    toast('💾 Guardado con cobro pendiente'+(blank?' · '+blank+' por recertificar':''));
+    storeLoadProp(_st.cur);
+  }catch(e){ btns.forEach(b=>b.disabled=false); storeManualTotal(); toast('❌ '+e.message); }
 }
 function storeManualFull(gi){
   document.querySelectorAll('.smq[data-g="'+gi+'"]').forEach(s=>{ if(s.value==='') s.value=s.dataset.max; });
@@ -7746,7 +7784,7 @@ function storeManualTotal(){
 }
 async function storeManualSubmit(sid,mode){
   const x=_st.sessions.find(s=>s.id===sid); if(!x) return;
-  const total=storeManualTotal(), files=[...(document.getElementById('smPhotos').files||[])];
+  const total=storeManualTotal();
   if(document.querySelectorAll('.smq').length!==[...document.querySelectorAll('.smq')].filter(s=>s.value!=='').length){ toast('Faltan artículos por contar'); return; }
   const sel=storeManualPicks(), picks=sel.map(p=>({product_id:p.product_id,qty:p.qty}));
   const lines=sel.map(p=>'• '+p.name+' ×'+p.qty).join('\n');
@@ -7756,15 +7794,7 @@ async function storeManualSubmit(sid,mode){
   if(!confirm(q)) return;
   const btns=document.querySelectorAll('.overlay .btn'); btns.forEach(b=>b.disabled=true);
   try{
-    for(let i=0;i<files.length;i++){
-      const f=files[i], ext=(f.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'')||'jpg';
-      const path='manual/'+sid+'/'+Date.now()+'-'+i+'.'+ext;
-      toast('📤 Subiendo foto '+(i+1)+' de '+files.length+'…');
-      const up=await sb.storage.from('store-photos').upload(path,f,{contentType:f.type||'image/jpeg'});
-      if(up.error) throw new Error('Foto: '+up.error.message);
-      const ins=await sb.from('ops_store_counts').insert({property_id:x.property_id,session_id:sid,shelf_id:null,photo_path:path,ai:{manual:true,source:'panel'},taken_by:'Osgar (panel)'});
-      if(ins.error) throw new Error('Foto: '+ins.error.message);
-    }
+    await storeManualUpload(x,sid);
     const r=await sb.functions.invoke('store-manual-count',{body:{sid,picks,mode}});
     const d=r.data||{};
     if(r.error||!d.ok) throw new Error(d.message||d.error||(r.error&&r.error.message)||'No se pudo');
