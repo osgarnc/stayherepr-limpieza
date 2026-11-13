@@ -7699,35 +7699,57 @@ function storeManualOpen(sid){
   const x=_st.sessions.find(s=>s.id===sid); if(!x) return;
   const LOC={vitrina:'🗄️',nevera:'🧊',canasta:'🧺'};
   let h='<div style="max-height:68vh;overflow:auto;padding-right:4px">'+
-    '<p class="muted" style="font-size:13px;margin:0 0 10px"><b>'+opsEsc(x.guest_name||'')+'</b> · check-out '+(x.check_out||'—')+'. Sube las fotos y marca solo lo que <b>falta</b> en cada piso.</p>'+
+    '<p class="muted" style="font-size:13px;margin:0 0 10px"><b>'+opsEsc(x.guest_name||'')+'</b> · check-out '+(x.check_out||'—')+'. Sube las fotos y escribe <b>cuántos HAY</b> de cada artículo; al final calculo lo que falta. Si un piso está completo, toca <b>✔ Completo</b>.</p>'+
     '<label style="display:block;font-weight:700;font-size:13.5px;margin-bottom:12px">📷 Fotos (evidencia)<br><input type="file" id="smPhotos" accept="image/*" multiple style="margin-top:6px"></label>';
-  storeManualGroups().forEach(g=>{
-    h+='<div style="font-weight:800;font-size:13.5px;margin:12px 0 4px">'+(LOC[g.location]||'')+' '+opsEsc(g.name)+'</div>';
+  storeManualGroups().forEach((g,gi)=>{
+    h+='<div style="display:flex;align-items:center;gap:8px;margin:14px 0 4px"><b style="flex:1;font-size:13.5px">'+(LOC[g.location]||'')+' '+opsEsc(g.name)+'</b>'+
+      '<button class="btn sm ghost" onclick="storeManualFull('+gi+')">✔ Completo</button></div>'+
+      '<div style="display:flex;font-size:11px;color:var(--muted);padding:0 0 2px"><span style="flex:1"></span><span style="width:62px;text-align:center">Debe haber</span><span style="width:66px;text-align:center">Hay</span><span style="width:58px;text-align:right">Falta</span></div>';
     g.items.forEach(i=>{
-      h+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px">'+
+      h+='<div style="display:flex;align-items:center;gap:0;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px">'+
         '<span style="flex:1">'+opsEsc(i.name)+' <span class="muted">$'+stD(i.cents)+'</span></span>'+
-        '<select class="smq" data-id="'+i.id+'" data-c="'+i.cents+'" onchange="storeManualTotal()" style="padding:4px 6px;border:1.5px solid var(--line);border-radius:8px">'+
-        Array.from({length:i.max+1},(_,n)=>'<option value="'+n+'">'+(n?'faltan '+n:'—')+'</option>').join('')+'</select></div>';
+        '<span style="width:62px;text-align:center;font-weight:700">'+i.max+'</span>'+
+        '<span style="width:66px;text-align:center"><input class="smq" data-g="'+gi+'" data-id="'+i.id+'" data-c="'+i.cents+'" data-max="'+i.max+'" data-name="'+opsEsc(i.name)+'" type="number" min="0" inputmode="numeric" oninput="storeManualTotal()" style="width:52px;padding:4px;border:1.5px solid var(--line);border-radius:8px;text-align:center"></span>'+
+        '<span class="smf" style="width:58px;text-align:right;color:var(--muted)">—</span></div>';
     });
   });
   h+='</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">'+
+    '<div style="flex:1 1 100%;font-size:13px" id="smSum"></div>'+
     '<div style="flex:1 1 100%;font-weight:800" id="smTotal">Total: $0.00</div>'+
     '<button class="btn" id="smCharge" onclick="storeManualSubmit(\''+sid+'\',\'items\')" disabled>✅ Cobrar</button>'+
-    '<button class="btn ghost" onclick="storeManualSubmit(\''+sid+'\',\'free\')">🆓 Cerrar sin cobro</button></div>'+
+    '<button class="btn ghost" id="smFree" disabled onclick="storeManualSubmit(\''+sid+'\',\'free\')">🆓 Cerrar sin cobro</button></div>'+
     '<p class="muted" style="font-size:11.5px;margin:8px 0 0">Al cobrar: se cobra a la tarjeta guardada, se descuenta del inventario y le llega el recibo al huésped por su canal. Ingrid recibe el aviso en Telegram.</p>';
   openModal('🧮 Cuadre del minibar',h);
 }
+function storeManualFull(gi){
+  document.querySelectorAll('.smq[data-g="'+gi+'"]').forEach(s=>{ if(s.value==='') s.value=s.dataset.max; });
+  storeManualTotal();
+}
+// Lo que falta = debe haber − hay (nunca negativo). Sin contar = no se puede cobrar todavía.
+function storeManualPicks(){
+  return [...document.querySelectorAll('.smq')].filter(s=>s.value!=='').map(s=>({s,product_id:s.dataset.id,qty:Math.max(0,(+s.dataset.max)-Math.max(0,Math.round(+s.value))),name:s.dataset.name})).filter(p=>p.qty>0);
+}
 function storeManualTotal(){
-  let t=0; document.querySelectorAll('.smq').forEach(s=>t+=(+s.value)*(+s.dataset.c));
+  const all=[...document.querySelectorAll('.smq')];
+  all.forEach(s=>{ const f=s.closest('div').querySelector('.smf');
+    if(s.value===''){ f.textContent='—'; f.style.color='var(--muted)'; return; }
+    const n=Math.max(0,Math.round(+s.value)), m=+s.dataset.max, miss=Math.max(0,m-n);
+    f.textContent=miss?'−'+miss:(n>m?'+'+(n-m)+' ⚠️':'✓'); f.style.color=miss?'#b91c1c':(n>m?'#b45309':'#15803d'); f.style.fontWeight=miss?'800':'400'; });
+  const picks=storeManualPicks(), left=all.filter(s=>s.value==='').length;
+  const t=picks.reduce((a,p)=>a+p.qty*(+p.s.dataset.c),0);
+  document.getElementById('smSum').innerHTML=left?'<span style="color:#b45309">⏳ Faltan por contar '+left+' artículo(s)</span>':
+    (picks.length?'<b>Falta:</b> '+picks.map(p=>opsEsc(p.name)+' ×'+p.qty).join(', '):'<span style="color:#15803d">✓ Todo completo: no falta nada</span>');
   document.getElementById('smTotal').textContent='Total: $'+(t/100).toFixed(2);
-  const b=document.getElementById('smCharge'); b.disabled=!t; b.textContent=t?'✅ Cobrar $'+(t/100).toFixed(2):'✅ Cobrar';
+  const b=document.getElementById('smCharge'); b.disabled=!!left||!t; b.textContent=t?'✅ Cobrar $'+(t/100).toFixed(2):'✅ Cobrar';
+  const fb=document.getElementById('smFree'); if(fb) fb.disabled=!!left;
   return t;
 }
 async function storeManualSubmit(sid,mode){
   const x=_st.sessions.find(s=>s.id===sid); if(!x) return;
-  const picks=[...document.querySelectorAll('.smq')].filter(s=>+s.value>0).map(s=>({product_id:s.dataset.id,qty:+s.value}));
   const total=storeManualTotal(), files=[...(document.getElementById('smPhotos').files||[])];
-  const lines=picks.map(p=>{ const o=document.querySelector('.smq[data-id="'+p.product_id+'"]'); return '• '+o.closest('div').querySelector('span').childNodes[0].textContent.trim()+' ×'+p.qty; }).join('\n');
+  if(document.querySelectorAll('.smq').length!==[...document.querySelectorAll('.smq')].filter(s=>s.value!=='').length){ toast('Faltan artículos por contar'); return; }
+  const sel=storeManualPicks(), picks=sel.map(p=>({product_id:p.product_id,qty:p.qty}));
+  const lines=sel.map(p=>'• '+p.name+' ×'+p.qty).join('\n');
   const q=mode==='free'
     ? '¿Cerrar el minibar de '+(x.guest_name||'')+' SIN cobrar nada?'+(picks.length?'\n\nLo marcado se descuenta del inventario igual:\n'+lines:'')+'\n\nEl huésped recibe un mensaje de "no hubo cargo".'
     : '¿Cobrar $'+(total/100).toFixed(2)+' a la tarjeta guardada de '+(x.guest_name||'')+'?\n\n'+lines+'\n\nSe descuenta del inventario y el huésped recibe el recibo. No se puede deshacer desde aquí.';
