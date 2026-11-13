@@ -7690,13 +7690,16 @@ function storeCountCell(x){
 // ── 🧮 Cuadre manual (dueño) ──────────────────────────────────────────────
 // Fotos (evidencia) + lo que falta por piso → store-manual-count cobra con la misma lógica que la
 // aprobación de Ingrid (tarjeta guardada, inventario y recibo al huésped). Precios salen del servidor.
+// Nombre del piso en inglés (la pantalla de conteo va en inglés: puede servir de evidencia al huésped).
+function storeEnShelf(n){ return String(n||'').replace(/^Nevera piso/i,'Fridge shelf').replace(/^Nevera/i,'Fridge').replace(/^Piso/i,'Shelf').replace(/^Canasta/i,'Basket').replace(/^Tablilla/i,'Shelf'); }
+function storeEnZone(z){ return String(z||'').replace(/\s*\$\s?\d+(\.\d+)?/g,'').trim().replace(/Izquierda/gi,'Left').replace(/Derecha/gi,'Right').replace(/Caf[eé]s/gi,'Coffee'); }
 function storeManualGroups(){
   const sh=_st.shelves.filter(s=>s.active!==false), pr=_st.products.filter(p=>p.active!==false&&p.par_qty>0);
   const groups=[];
   sh.forEach(s=>{ const ps=pr.filter(p=>p.shelf_id===s.id); if(!ps.length) return;
     let g=groups.find(x=>x.name===s.name); if(!g) groups.push(g={name:s.name,location:s.location,items:[],shelfIds:[],refs:[]});
     g.shelfIds.push(s.id); if(s.ref_photo_path) g.refs.push({photo_path:s.ref_photo_path,created_at:s.ref_photo_at||'',session_id:null,shelf_id:s.id});
-    ps.forEach(p=>g.items.push({id:p.id,name:p.name+(s.zone?' · '+s.zone:''),cents:(p.price_cents!=null?p.price_cents:(s.price_cents||0)),max:p.par_qty})); });
+    ps.forEach(p=>g.items.push({id:p.id,name:(p.name_en||p.name)+(s.zone?' · '+storeEnZone(s.zone):''),cents:(p.price_cents!=null?p.price_cents:(s.price_cents||0)),max:p.par_qty})); });
   return groups;
 }
 // Fotos por piso: la del conteo ANTERIOR (otra estadía o la de referencia) al lado de la de AHORA,
@@ -7720,9 +7723,9 @@ function storeManualPhotoBox(gi,ph){
   const empty=t=>'<div style="width:100%;aspect-ratio:3/4;border-radius:8px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;text-align:center;font-size:12px;color:var(--muted);padding:6px;box-sizing:border-box">'+t+'</div>';
   const lab=t=>'<div style="font-size:11.5px;font-weight:700;margin-bottom:3px">'+t+'</div>';
   return '<div style="display:flex;gap:8px;margin:6px 0 8px">'+
-    '<div style="flex:1;min-width:0">'+lab('Conteo anterior'+(ph.prev&&ph.prev.at?' · <span class="muted" style="font-weight:400">'+fmtLockDT(ph.prev.at)+'</span>':''))+(ph.prev&&ph.prev.url?img(ph.prev.url):empty('Sin foto anterior'))+'</div>'+
-    '<div style="flex:1;min-width:0">'+lab('Ahora')+'<div id="smPrev'+gi+'">'+(ph.cur&&ph.cur.url?img(ph.cur.url):empty('Sin foto todavía'))+'</div>'+
-      '<label class="btn sm ghost" style="display:block;text-align:center;margin-top:5px;cursor:pointer">📷 '+(ph.cur?'Cambiar foto':'Subir foto')+
+    '<div style="flex:1;min-width:0">'+lab('Previous count'+(ph.prev&&ph.prev.at?' · <span class="muted" style="font-weight:400">'+fmtLockDT(ph.prev.at)+'</span>':''))+(ph.prev&&ph.prev.url?img(ph.prev.url):empty('No previous photo'))+'</div>'+
+    '<div style="flex:1;min-width:0">'+lab('Now')+'<div id="smPrev'+gi+'">'+(ph.cur&&ph.cur.url?img(ph.cur.url):empty('No photo yet'))+'</div>'+
+      '<label class="btn sm ghost" style="display:block;text-align:center;margin-top:5px;cursor:pointer">📷 '+(ph.cur?'Change photo':'Upload photo')+
       '<input type="file" class="smfp" data-g="'+gi+'" accept="image/*" onchange="storeManualPreview(this)" style="display:none"></label></div></div>';
 }
 function storeManualPreview(inp){
@@ -7737,14 +7740,14 @@ async function storeManualOpen(sid){
   let phs=groups.map(()=>({prev:null,cur:null}));
   try{ phs=await storeManualPhotos(sid,groups); }catch(e){ toast('Fotos: '+e.message); }
   let h='<div style="max-height:68vh;overflow:auto;padding-right:4px">'+
-    '<p class="muted" style="font-size:13px;margin:0 0 10px"><b>'+opsEsc(x.guest_name||'')+'</b> · check-out '+(x.check_out||'—')+'. Sube las fotos y escribe <b>cuántos HAY</b> de cada artículo; al final calculo lo que falta. Si un piso está completo, toca <b>✔ Completo</b>.</p>'+
-    (x.manual_draft&&x.manual_draft.saved_at?'<div style="margin:0 0 10px;padding:7px 10px;border-radius:8px;background:#fffbeb;border:1px solid #f59e0b;font-size:12.5px">📝 Retomando el conteo guardado el '+fmtLockDT(x.manual_draft.saved_at)+'. Las fotos que ya subiste siguen guardadas; si subes otra de un piso, queda la nueva.</div>':'')+
-    '<label style="display:block;font-weight:700;font-size:13px;margin-bottom:6px">📎 Fotos adicionales (opcional)<br><input type="file" id="smPhotos" accept="image/*" multiple style="margin-top:4px;font-size:12px"></label>';
+    '<p class="muted" style="font-size:13px;margin:0 0 10px"><b>'+opsEsc(x.guest_name||'')+'</b> · check-out '+(x.check_out||'—')+'. Upload a photo of each shelf and enter how many items are <b>there now</b>; the missing items are calculated at the end. If a shelf is full, tap <b>✔ Full</b>.</p>'+
+    (x.manual_draft&&x.manual_draft.saved_at?'<div style="margin:0 0 10px;padding:7px 10px;border-radius:8px;background:#fffbeb;border:1px solid #f59e0b;font-size:12.5px">📝 Resuming the count saved on '+fmtLockDT(x.manual_draft.saved_at)+'. Photos already uploaded are kept; uploading a new one for a shelf replaces it.</div>':'')+
+    '<label style="display:block;font-weight:700;font-size:13px;margin-bottom:6px">📎 Additional photos (optional)<br><input type="file" id="smPhotos" accept="image/*" multiple style="margin-top:4px;font-size:12px"></label>';
   groups.forEach((g,gi)=>{
-    h+='<div style="border-top:2px solid var(--line);margin-top:14px;padding-top:10px;display:flex;align-items:center;gap:8px"><b style="flex:1;font-size:14px">'+(LOC[g.location]||'')+' '+opsEsc(g.name)+'</b>'+
-      '<button class="btn sm ghost" onclick="storeManualFull('+gi+')">✔ Completo</button></div>'+
+    h+='<div style="border-top:2px solid var(--line);margin-top:14px;padding-top:10px;display:flex;align-items:center;gap:8px"><b style="flex:1;font-size:14px">'+(LOC[g.location]||'')+' '+opsEsc(storeEnShelf(g.name))+'</b>'+
+      '<button class="btn sm ghost" onclick="storeManualFull('+gi+')">✔ Full</button></div>'+
       storeManualPhotoBox(gi,phs[gi])+
-      '<div style="display:flex;font-size:11px;color:var(--muted);padding:0 0 2px"><span style="flex:1"></span><span style="width:62px;text-align:center">Debe haber</span><span style="width:66px;text-align:center">Hay</span><span style="width:58px;text-align:right">Falta</span></div>';
+      '<div style="display:flex;font-size:11px;color:var(--muted);padding:0 0 2px"><span style="flex:1"></span><span style="width:62px;text-align:center">Expected</span><span style="width:66px;text-align:center">Counted</span><span style="width:58px;text-align:right">Missing</span></div>';
     g.items.forEach(i=>{
       h+='<div style="display:flex;align-items:center;gap:0;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px">'+
         '<span style="flex:1">'+opsEsc(i.name)+' <span class="muted">$'+stD(i.cents)+'</span></span>'+
@@ -7756,13 +7759,14 @@ async function storeManualOpen(sid){
   h+='</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">'+
     '<div style="flex:1 1 100%;font-size:13px" id="smSum"></div>'+
     '<div style="flex:1 1 100%;font-weight:800" id="smTotal">Total: $0.00</div>'+
-    '<button class="btn" id="smCharge" onclick="storeManualSubmit(\''+sid+'\',\'items\')" disabled>✅ Cobrar</button>'+
-    '<button class="btn ghost" onclick="storeManualSave(\''+sid+'\')">💾 Guardar con cobro pendiente</button>'+
-    '<button class="btn ghost" id="smFree" disabled onclick="storeManualSubmit(\''+sid+'\',\'free\')">🆓 Cerrar sin cobro</button></div>'+
-    '<p class="muted" style="font-size:11.5px;margin:8px 0 0"><b>Cobrar:</b> se cobra a la tarjeta guardada, se descuenta del inventario y le llega el recibo al huésped. Ingrid recibe el aviso en Telegram. '+
-    '<b>Guardar con cobro pendiente:</b> guarda el conteo y las fotos sin cobrar ni avisar a nadie; deja en blanco lo que tengas que recertificar y retómalo luego.</p>';
-  openModal('🧮 Cuadre del minibar',h);
-  const md=[...document.querySelectorAll('.overlay .modal')].pop(); if(md) md.style.maxWidth='640px';
+    '<button class="btn" id="smCharge" onclick="storeManualSubmit(\''+sid+'\',\'items\')" disabled>✅ Charge</button>'+
+    '<button class="btn ghost" onclick="storeManualSave(\''+sid+'\')">💾 Save — charge pending</button>'+
+    '<button class="btn ghost" id="smFree" disabled onclick="storeManualSubmit(\''+sid+'\',\'free\')">🆓 Close — no charge</button></div>'+
+    '<p class="muted" style="font-size:11.5px;margin:8px 0 0"><b>Charge:</b> charges the card on file, updates inventory and sends the receipt to the guest. '+
+    '<b>Save — charge pending:</b> keeps the count and photos without charging or notifying anyone; leave blank anything that needs to be re-checked.</p>';
+  openModal('🧮 Minibar count',h);
+  const md=[...document.querySelectorAll('.overlay .modal')].pop();
+  if(md){ md.style.maxWidth='640px'; const cb=md.querySelector('.modal-head button'); if(cb) cb.textContent='Close'; }
   storeManualTotal();
 }
 // Sube las fotos por piso (shelf_id = primera zona del piso) y las adicionales (sin piso).
@@ -7816,10 +7820,10 @@ function storeManualTotal(){
     f.textContent=miss?'−'+miss:(n>m?'+'+(n-m)+' ⚠️':'✓'); f.style.color=miss?'#b91c1c':(n>m?'#b45309':'#15803d'); f.style.fontWeight=miss?'800':'400'; });
   const picks=storeManualPicks(), left=all.filter(s=>s.value==='').length;
   const t=picks.reduce((a,p)=>a+p.qty*(+p.s.dataset.c),0);
-  document.getElementById('smSum').innerHTML=left?'<span style="color:#b45309">⏳ Faltan por contar '+left+' artículo(s)</span>':
-    (picks.length?'<b>Falta:</b> '+picks.map(p=>opsEsc(p.name)+' ×'+p.qty).join(', '):'<span style="color:#15803d">✓ Todo completo: no falta nada</span>');
+  document.getElementById('smSum').innerHTML=left?'<span style="color:#b45309">⏳ '+left+' item(s) left to count</span>':
+    (picks.length?'<b>Missing:</b> '+picks.map(p=>opsEsc(p.name)+' ×'+p.qty).join(', '):'<span style="color:#15803d">✓ All complete: nothing missing</span>');
   document.getElementById('smTotal').textContent='Total: $'+(t/100).toFixed(2);
-  const b=document.getElementById('smCharge'); b.disabled=!!left||!t; b.textContent=t?'✅ Cobrar $'+(t/100).toFixed(2):'✅ Cobrar';
+  const b=document.getElementById('smCharge'); b.disabled=!!left||!t; b.textContent=t?'✅ Charge $'+(t/100).toFixed(2):'✅ Charge';
   const fb=document.getElementById('smFree'); if(fb) fb.disabled=!!left;
   return t;
 }
