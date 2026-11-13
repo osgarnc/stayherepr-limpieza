@@ -7679,7 +7679,77 @@ function storeCountCell(x){
   if(x.approved_by) h+='<div class="muted">Aprobó '+opsEsc(x.approved_by)+'</div>';
   if(x.charge_note) h+='<div style="color:#b45309">⚠️ '+opsEsc(x.charge_note)+'</div>';
   if(x.count_status) h+='<a style="cursor:pointer;color:#2563eb" onclick="storeSessionPhotos(\''+x.id+'\')">📷 Fotos</a>';
+  // Cuadre manual: la cleaner no hizo el conteo por Telegram → lo hace el dueño aquí (caso Tisha 2026-11-08).
+  if(x.status==='held'&&(!x.count_status||x.count_status==='counting'||x.count_status==='submitted'))
+    h+='<div style="margin-top:4px"><button class="btn sm" onclick="storeManualOpen(\''+x.id+'\')">🧮 Hacer cuadre aquí</button></div>';
   return h;
+}
+// ── 🧮 Cuadre manual (dueño) ──────────────────────────────────────────────
+// Fotos (evidencia) + lo que falta por piso → store-manual-count cobra con la misma lógica que la
+// aprobación de Ingrid (tarjeta guardada, inventario y recibo al huésped). Precios salen del servidor.
+function storeManualGroups(){
+  const sh=_st.shelves.filter(s=>s.active!==false), pr=_st.products.filter(p=>p.active!==false&&p.par_qty>0);
+  const groups=[];
+  sh.forEach(s=>{ const ps=pr.filter(p=>p.shelf_id===s.id); if(!ps.length) return;
+    let g=groups.find(x=>x.name===s.name); if(!g) groups.push(g={name:s.name,location:s.location,items:[]});
+    ps.forEach(p=>g.items.push({id:p.id,name:p.name+(s.zone?' · '+s.zone:''),cents:(p.price_cents!=null?p.price_cents:(s.price_cents||0)),max:p.par_qty})); });
+  return groups;
+}
+function storeManualOpen(sid){
+  const x=_st.sessions.find(s=>s.id===sid); if(!x) return;
+  const LOC={vitrina:'🗄️',nevera:'🧊',canasta:'🧺'};
+  let h='<div style="max-height:68vh;overflow:auto;padding-right:4px">'+
+    '<p class="muted" style="font-size:13px;margin:0 0 10px"><b>'+opsEsc(x.guest_name||'')+'</b> · check-out '+(x.check_out||'—')+'. Sube las fotos y marca solo lo que <b>falta</b> en cada piso.</p>'+
+    '<label style="display:block;font-weight:700;font-size:13.5px;margin-bottom:12px">📷 Fotos (evidencia)<br><input type="file" id="smPhotos" accept="image/*" multiple style="margin-top:6px"></label>';
+  storeManualGroups().forEach(g=>{
+    h+='<div style="font-weight:800;font-size:13.5px;margin:12px 0 4px">'+(LOC[g.location]||'')+' '+opsEsc(g.name)+'</div>';
+    g.items.forEach(i=>{
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px">'+
+        '<span style="flex:1">'+opsEsc(i.name)+' <span class="muted">$'+stD(i.cents)+'</span></span>'+
+        '<select class="smq" data-id="'+i.id+'" data-c="'+i.cents+'" onchange="storeManualTotal()" style="padding:4px 6px;border:1.5px solid var(--line);border-radius:8px">'+
+        Array.from({length:i.max+1},(_,n)=>'<option value="'+n+'">'+(n?'faltan '+n:'—')+'</option>').join('')+'</select></div>';
+    });
+  });
+  h+='</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">'+
+    '<div style="flex:1 1 100%;font-weight:800" id="smTotal">Total: $0.00</div>'+
+    '<button class="btn" id="smCharge" onclick="storeManualSubmit(\''+sid+'\',\'items\')" disabled>✅ Cobrar</button>'+
+    '<button class="btn ghost" onclick="storeManualSubmit(\''+sid+'\',\'free\')">🆓 Cerrar sin cobro</button></div>'+
+    '<p class="muted" style="font-size:11.5px;margin:8px 0 0">Al cobrar: se cobra a la tarjeta guardada, se descuenta del inventario y le llega el recibo al huésped por su canal. Ingrid recibe el aviso en Telegram.</p>';
+  openModal('🧮 Cuadre del minibar',h);
+}
+function storeManualTotal(){
+  let t=0; document.querySelectorAll('.smq').forEach(s=>t+=(+s.value)*(+s.dataset.c));
+  document.getElementById('smTotal').textContent='Total: $'+(t/100).toFixed(2);
+  const b=document.getElementById('smCharge'); b.disabled=!t; b.textContent=t?'✅ Cobrar $'+(t/100).toFixed(2):'✅ Cobrar';
+  return t;
+}
+async function storeManualSubmit(sid,mode){
+  const x=_st.sessions.find(s=>s.id===sid); if(!x) return;
+  const picks=[...document.querySelectorAll('.smq')].filter(s=>+s.value>0).map(s=>({product_id:s.dataset.id,qty:+s.value}));
+  const total=storeManualTotal(), files=[...(document.getElementById('smPhotos').files||[])];
+  const lines=picks.map(p=>{ const o=document.querySelector('.smq[data-id="'+p.product_id+'"]'); return '• '+o.closest('div').querySelector('span').childNodes[0].textContent.trim()+' ×'+p.qty; }).join('\n');
+  const q=mode==='free'
+    ? '¿Cerrar el minibar de '+(x.guest_name||'')+' SIN cobrar nada?'+(picks.length?'\n\nLo marcado se descuenta del inventario igual:\n'+lines:'')+'\n\nEl huésped recibe un mensaje de "no hubo cargo".'
+    : '¿Cobrar $'+(total/100).toFixed(2)+' a la tarjeta guardada de '+(x.guest_name||'')+'?\n\n'+lines+'\n\nSe descuenta del inventario y el huésped recibe el recibo. No se puede deshacer desde aquí.';
+  if(!confirm(q)) return;
+  const btns=document.querySelectorAll('.overlay .btn'); btns.forEach(b=>b.disabled=true);
+  try{
+    for(let i=0;i<files.length;i++){
+      const f=files[i], ext=(f.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'')||'jpg';
+      const path='manual/'+sid+'/'+Date.now()+'-'+i+'.'+ext;
+      toast('📤 Subiendo foto '+(i+1)+' de '+files.length+'…');
+      const up=await sb.storage.from('store-photos').upload(path,f,{contentType:f.type||'image/jpeg'});
+      if(up.error) throw new Error('Foto: '+up.error.message);
+      const ins=await sb.from('ops_store_counts').insert({property_id:x.property_id,session_id:sid,shelf_id:null,photo_path:path,ai:{manual:true,source:'panel'},taken_by:'Osgar (panel)'});
+      if(ins.error) throw new Error('Foto: '+ins.error.message);
+    }
+    const r=await sb.functions.invoke('store-manual-count',{body:{sid,picks,mode}});
+    const d=r.data||{};
+    if(r.error||!d.ok) throw new Error(d.message||d.error||(r.error&&r.error.message)||'No se pudo');
+    document.querySelector('.overlay')?.remove();
+    alert(d.message);
+    storeLoadProp(_st.cur);
+  }catch(e){ btns.forEach(b=>b.disabled=false); storeManualTotal(); toast('❌ '+e.message); }
 }
 async function storePhoto(path){
   const {data,error}=await sb.storage.from('store-photos').createSignedUrl(path,600);
