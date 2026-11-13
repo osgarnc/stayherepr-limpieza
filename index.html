@@ -7739,6 +7739,7 @@ async function storeManualOpen(sid){
   toast('Cargando fotos…');
   let phs=groups.map(()=>({prev:null,cur:null}));
   try{ phs=await storeManualPhotos(sid,groups); }catch(e){ toast('Fotos: '+e.message); }
+  window._smPhs=phs; // para el reporte descargable
   let h='<div style="max-height:68vh;overflow:auto;padding-right:4px">'+
     '<p class="muted" style="font-size:13px;margin:0 0 10px"><b>'+opsEsc(x.guest_name||'')+'</b> · check-out '+(x.check_out||'—')+'. Upload a photo of each shelf and enter how many items are <b>there now</b>; the missing items are calculated at the end. If a shelf is full, tap <b>✔ Full</b>.</p>'+
     (x.manual_draft&&x.manual_draft.saved_at?'<div style="margin:0 0 10px;padding:7px 10px;border-radius:8px;background:#fffbeb;border:1px solid #f59e0b;font-size:12.5px">📝 Resuming the count saved on '+fmtLockDT(x.manual_draft.saved_at)+'. Photos already uploaded are kept; uploading a new one for a shelf replaces it.</div>':'')+
@@ -7761,7 +7762,8 @@ async function storeManualOpen(sid){
     '<div style="flex:1 1 100%;font-weight:800" id="smTotal">Total: $0.00</div>'+
     '<button class="btn" id="smCharge" onclick="storeManualSubmit(\''+sid+'\',\'items\')" disabled>✅ Charge</button>'+
     '<button class="btn ghost" onclick="storeManualSave(\''+sid+'\')">💾 Save — charge pending</button>'+
-    '<button class="btn ghost" id="smFree" disabled onclick="storeManualSubmit(\''+sid+'\',\'free\')">🆓 Close — no charge</button></div>'+
+    '<button class="btn ghost" id="smFree" disabled onclick="storeManualSubmit(\''+sid+'\',\'free\')">🆓 Close — no charge</button>'+
+    '<button class="btn ghost" id="smReport" onclick="storeManualReport(\''+sid+'\')">⬇️ Download report (PDF)</button></div>'+
     '<p class="muted" style="font-size:11.5px;margin:8px 0 0"><b>Charge:</b> charges the card on file, updates inventory and sends the receipt to the guest. '+
     '<b>Save — charge pending:</b> keeps the count and photos without charging or notifying anyone; leave blank anything that needs to be re-checked.</p>';
   openModal('🧮 Minibar count',h);
@@ -7803,6 +7805,74 @@ async function storeManualSave(sid){
     toast('💾 Guardado con cobro pendiente'+(blank?' · '+blank+' por recertificar':''));
     storeLoadProp(_st.cur);
   }catch(e){ btns.forEach(b=>b.disabled=false); storeManualTotal(); toast('❌ '+e.message); }
+}
+// ── ⬇️ Reporte de inventario (PDF, en inglés) con las fotos de cada piso ──────────────
+// Toma lo que está en pantalla (conteo + fotos anterior/ahora, incluidas las aún no subidas) y
+// genera un PDF descargable con html2pdf (fotos incrustadas y reducidas para que pese poco).
+let _h2p=null;
+function storeH2pLib(){ if(_h2p) return _h2p; _h2p=new Promise((ok,ko)=>{ const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'; sc.onload=()=>ok(window.html2pdf); sc.onerror=()=>{_h2p=null;ko(new Error('No cargó la librería de PDF'));}; document.head.appendChild(sc); }); return _h2p; }
+async function storeImgData(src){
+  if(!src) return null;
+  try{
+    const blob=src instanceof Blob?src:await (await fetch(src)).blob();
+    const url=URL.createObjectURL(blob);
+    const im=await new Promise((ok,ko)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=ko; i.src=url; });
+    const k=Math.min(1,900/Math.max(im.width,im.height)), c=document.createElement('canvas');
+    c.width=Math.round(im.width*k); c.height=Math.round(im.height*k); c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+    URL.revokeObjectURL(url); return c.toDataURL('image/jpeg',0.82);
+  }catch(e){ return null; }
+}
+async function storeManualReport(sid){
+  const x=_st.sessions.find(s=>s.id===sid); if(!x) return;
+  const btn=document.getElementById('smReport'); if(btn){ btn.disabled=true; btn.textContent='⏳ Building report…'; }
+  try{
+    const groups=storeManualGroups(), phs=window._smPhs||[];
+    const prop=String(stPropName(x.property_id)||''), propName=prop.indexOf('-')>0?prop.slice(prop.indexOf('-')+1).trim():prop;
+    const E=opsEsc, money=c=>'$'+(c/100).toFixed(2);
+    const box=(t,src)=>'<div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:700;margin-bottom:4px;color:#334155">'+t+'</div>'+
+      (src?'<img src="'+src+'" style="width:100%;height:300px;object-fit:contain;background:#f1f5f9;border-radius:6px;display:block">':'<div style="height:300px;background:#f1f5f9;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px">No photo</div>')+'</div>';
+    let body='', total=0, missingLines=[], counted=0, all=0;
+    for(let gi=0;gi<groups.length;gi++){
+      const g=groups[gi], ph=phs[gi]||{};
+      const inp=document.querySelector('.smfp[data-g="'+gi+'"]'), local=inp&&inp.files&&inp.files[0];
+      const [prevSrc,nowSrc]=await Promise.all([storeImgData(ph.prev&&ph.prev.url), storeImgData(local||(ph.cur&&ph.cur.url))]);
+      let rows='';
+      g.items.forEach(i=>{
+        const el=document.querySelector('.smq[data-id="'+i.id+'"]'), v=el&&el.value!==''?Math.max(0,Math.round(+el.value)):null;
+        const miss=v==null?null:Math.max(0,i.max-v); all++; if(v!=null) counted++;
+        if(miss){ total+=miss*i.cents; missingLines.push(E(i.name)+' ×'+miss+' — '+money(miss*i.cents)); }
+        rows+='<tr><td style="padding:5px 6px;border-bottom:1px solid #e2e8f0">'+E(i.name)+'</td><td style="text-align:right;padding:5px 6px;border-bottom:1px solid #e2e8f0">'+money(i.cents)+'</td>'+
+          '<td style="text-align:center;padding:5px 6px;border-bottom:1px solid #e2e8f0">'+i.max+'</td><td style="text-align:center;padding:5px 6px;border-bottom:1px solid #e2e8f0">'+(v==null?'—':v)+'</td>'+
+          '<td style="text-align:center;padding:5px 6px;border-bottom:1px solid #e2e8f0;font-weight:700;color:'+(miss?'#b91c1c':'#15803d')+'">'+(v==null?'not counted':miss?'−'+miss:'✓')+'</td></tr>';
+      });
+      body+='<div style="page-break-inside:avoid;break-inside:avoid;margin:0 0 18px">'+
+        '<h3 style="margin:0 0 8px;font-size:15px;border-bottom:2px solid #0b8281;padding-bottom:4px">'+E(storeEnShelf(g.name))+'</h3>'+
+        '<div style="display:flex;gap:10px;margin-bottom:8px">'+box('Previous count'+(ph.prev&&ph.prev.at?' · '+fmtLockDT(ph.prev.at):''),prevSrc)+box('After check-out',nowSrc)+'</div>'+
+        '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#f8fafc"><th style="text-align:left;padding:5px 6px">Item</th><th style="text-align:right;padding:5px 6px">Price</th><th style="padding:5px 6px">Expected</th><th style="padding:5px 6px">Counted</th><th style="padding:5px 6px">Missing</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    }
+    const now=new Date(Date.now()-4*3600e3);
+    const head='<div style="margin-bottom:16px"><div style="font-size:22px;font-weight:800">Minibar inventory report</div>'+
+      '<div style="color:#0b8281;font-weight:700;margin:2px 0 10px">Stay Here PR · '+E(propName)+'</div>'+
+      '<table style="font-size:12.5px;border-collapse:collapse"><tr><td style="padding:2px 12px 2px 0;color:#64748b">Guest</td><td><b>'+E(x.guest_name||'—')+'</b></td></tr>'+
+      '<tr><td style="padding:2px 12px 2px 0;color:#64748b">Check-out</td><td>'+E(x.check_out||'—')+'</td></tr>'+
+      '<tr><td style="padding:2px 12px 2px 0;color:#64748b">Report date</td><td>'+now.toISOString().slice(0,10)+'</td></tr></table>'+
+      '<div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:'+(total?'#fef2f2':'#f0fdf4')+';font-size:13px">'+
+      (counted<all?'<div style="color:#b45309;margin-bottom:4px">'+(all-counted)+' item(s) not counted yet.</div>':'')+
+      (missingLines.length?'<b>Items used:</b><br>'+missingLines.join('<br>')+'<div style="margin-top:6px;font-size:15px"><b>Total: '+money(total)+'</b></div>':'<b>No items missing.</b>')+'</div>'+
+      '<div style="font-size:11px;color:#64748b;margin-top:8px">Each shelf shows the photo from the previous count next to the photo taken after check-out. Prices are as marked on the display case.</div></div>';
+    const el=document.createElement('div');
+    el.style.cssText='width:740px;background:#fff;color:#0f172a;font-family:-apple-system,Helvetica,Arial,sans-serif;padding:8px';
+    el.innerHTML=head+body; // html2pdf lo clona en su propio contenedor: no hace falta meterlo en la página
+    const fname='minibar-report-'+String(x.guest_name||'guest').replace(/[^a-z0-9]+/gi,'-').toLowerCase()+'-'+(x.check_out||'')+'.pdf';
+    try{
+      const h2p=await storeH2pLib();
+      await h2p().set({margin:[10,10,12,10],filename:fname,image:{type:'jpeg',quality:0.9},html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'letter',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(el).save();
+    }catch(e){
+      // Sin la librería: abre el reporte para imprimir / guardar como PDF.
+      const w=window.open('','_blank'); if(w){ w.document.write('<!doctype html><meta charset="utf-8"><title>'+E(fname)+'</title><body style="margin:20px;font-family:-apple-system,Helvetica,Arial">'+head+body+'<script>setTimeout(function(){print()},400)<\/script></body>'); w.document.close(); }
+    }
+  }catch(e){ toast('❌ Reporte: '+e.message); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='⬇️ Download report (PDF)'; } }
 }
 function storeManualFull(gi){
   document.querySelectorAll('.smq[data-g="'+gi+'"]').forEach(s=>{ if(s.value==='') s.value=s.dataset.max; });
