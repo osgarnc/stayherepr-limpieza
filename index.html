@@ -5805,15 +5805,23 @@ async function editSubmission(id){
     if(!(s.customLines.lines||[]).length)efAddLine();
   } else {
     const rcpt=await signedUrl(s.receipt);
+    exSeed(s);
     const html='<div class="field"><label>Fecha</label><input id="edExpDate" type="date" value="'+s.date+'"></div>'+
-      '<div class="field"><label>Propiedad</label><select id="edExpProp" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px">'+properties.map(p=>'<option value="'+p.id+'" '+(s.prop===p.id?'selected':'')+'>'+p.name+'</option>').join('')+'</select></div>'+
-      '<div class="field"><label>Descripción</label><input id="edExpDesc" value="'+String(s.desc||'').replace(/"/g,'&quot;')+'"></div>'+
-      '<div class="field"><label>Monto $</label><input id="edExpAmt" type="number" inputmode="decimal" step="0.01" value="'+s.amount+'"></div>'+
-      '<div class="field"><label>Recibo actual</label>'+(rcpt?evTag(rcpt,'width:100%;max-height:220px;object-fit:contain;border-radius:8px'):'<div class="muted">sin recibo</div>')+'</div>'+
+      '<div class="field"><label>Recibo</label>'+(rcpt?evTag(rcpt,'width:100%;max-height:220px;object-fit:contain;border-radius:8px'):'<div class="muted">sin recibo</div>')+'</div>'+
       edFileLbl('receipt-'+s.id,'📷 Reemplazar recibo (foto/video)')+
-      '<button class="btn block" style="margin-top:10px" onclick="saveEditExpense(\''+s.id+'\')">Guardar cambios</button>'+
+      '<div style="border-top:2px solid var(--line);margin-top:12px;padding-top:10px">'+
+        '<label style="display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:6px">Renglones de este recibo</label>'+
+        '<div id="exLines"></div>'+
+        '<button class="btn ghost sm" style="width:100%" onclick="exAdd()">➕ Dividir: añadir otro renglón</button>'+
+        '<div id="exTot" style="font-size:12.5px;margin-top:8px;text-align:right"></div>'+
+        '<p class="muted" style="font-size:11.5px;margin:6px 0 0">Entra el <b>precio sin IVU</b> y el app lo calcula. '+
+          (s.base==null?'Este gasto se subió sin desglose, así que empieza marcado <b>sin IVU</b> para no cambiarle el monto; si el monto era el precio sin IVU, destíldalo. ':'')+
+          'Cada renglón lleva su propiedad: así se reparte un recibo de Costco.</p>'+
+      '</div>'+
+      '<button class="btn block" style="margin-top:12px" onclick="saveEditExpense(\''+s.id+'\')">Guardar cambios</button>'+
       '<button class="btn block dgr" style="margin-top:8px" onclick="deleteSubmission(\''+s.id+'\')">🗑️ Eliminar este gasto</button>';
     openModal('Editar gasto · '+staffName(s.staff)+' · '+s.date,html);
+    exRender();
   }
 }
 async function saveEditService(id){
@@ -5847,22 +5855,91 @@ async function saveEditService(id){
   const ov=document.querySelector('.overlay');if(ov)ov.remove();
   editFiles={};await loadAll();renderOffice();toast('✓ Servicio actualizado');
 }
+/* ---------- EDITAR Y DIVIDIR UN GASTO YA SUBIDO (back office) ----------
+   Ingrid abre el gasto que subió la limpiadora y lo parte en los renglones que
+   haga falta: una foto de recibo, varios gastos, cada uno con su descripción,
+   su monto, su IVU y SU PROPIEDAD. El primer renglón se queda en el gasto
+   original; los demás entran como gastos nuevos con el mismo recibo.
+
+   Un gasto viejo que se entró sin desglose (solo el total) empieza marcado
+   "sin IVU": así el monto no cambia por abrirlo. Si de verdad era el precio
+   sin IVU, se destilda y el app lo calcula. */
+let exLines=[],exSub=null;
+function exSeed(s){
+  exSub=s;
+  exLines=[{desc:s.desc||'',base:(s.base!=null?Number(s.base):Number(s.amount||0)),
+    exento:(s.base!=null?!(Number(s.ivu)>0):true),prop:s.prop||''}];
+}
+function exAdd(){exLines.push({desc:'',base:0,exento:false,prop:(exSub?exSub.prop:'')||''});exRender();}
+function exDel(i){if(exLines.length<=1){toast('Un gasto necesita al menos un renglón');return;}exLines.splice(i,1);exRender();}
+function exSet(i,field,val){
+  const l=exLines[i];if(!l)return;
+  l[field]=(field==='base')?(parseFloat(val)||0):(field==='exento'?!!val:val);
+  if(field==='base'||field==='exento'){
+    const t=document.getElementById('exIvu-'+i);if(t)t.innerHTML=_ivuTxt({amount:l.base,exento:l.exento});
+    const r=document.getElementById('exTot');if(r)r.innerHTML=exTotTxt();
+  } else exRender();
+}
+function exTotTxt(){
+  const r2=function(n){return Math.round(n*100)/100;};
+  const base=exLines.reduce(function(a,l){return a+(Number(l.base)||0);},0);
+  const iv=exLines.reduce(function(a,l){return a+ivuDe(l.base,l.exento);},0);
+  return 'Total del recibo <b>'+money(r2(base+iv))+'</b> <span class="muted">(gasto '+money(r2(base))+' + IVU '+money(r2(iv))+')</span>';
+}
+function exRender(){
+  const el=document.getElementById('exLines');if(!el)return;
+  const _i='width:100%;padding:10px;border:1.5px solid var(--line);border-radius:10px';
+  el.innerHTML=exLines.map(function(l,i){
+    return '<div style="border:1.5px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
+        '<b style="font-size:13px">Renglón '+(i+1)+(i?' <span class="muted" style="font-weight:400">· nuevo</span>':'')+'</b>'+
+        (exLines.length>1?'<span style="cursor:pointer;color:var(--danger);font-weight:700" onclick="exDel('+i+')">✕</span>':'')+'</div>'+
+      '<input placeholder="Qué se compró" value="'+String(l.desc||'').replace(/"/g,'&quot;')+'" oninput="exSet('+i+',\'desc\',this.value)" style="'+_i+';margin-bottom:6px">'+
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">'+
+        '<span style="display:flex;align-items:center;gap:2px">$<input type="number" inputmode="decimal" step="0.01" value="'+((l.base||0)>0?l.base:'')+'" oninput="exSet('+i+',\'base\',this.value)" style="width:100px;padding:10px;border:1.5px solid var(--line);border-radius:10px"></span>'+
+        '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft)"><input type="checkbox" '+(l.exento?'checked':'')+' onchange="exSet('+i+',\'exento\',this.checked)">sin IVU</label>'+
+        '<span id="exIvu-'+i+'" style="font-size:12.5px">'+_ivuTxt({amount:l.base,exento:l.exento})+'</span>'+
+      '</div>'+
+      '<select onchange="exSet('+i+',\'prop\',this.value)" style="'+_i+';font-size:13px">'+
+        properties.map(function(pp){return '<option value="'+pp.id+'"'+(String(l.prop)===String(pp.id)?' selected':'')+'>'+String(pp.name).replace(/</g,'&lt;')+'</option>';}).join('')+
+      '</select>'+
+    '</div>';
+  }).join('');
+  const t=document.getElementById('exTot');if(t)t.innerHTML=exTotTxt();
+}
 async function saveEditExpense(id){
   const s=subs.find(x=>x.id===id);
-  const date=document.getElementById('edExpDate').value;
-  const prop=document.getElementById('edExpProp').value;
-  const desc=document.getElementById('edExpDesc').value.trim();
-  const amt=parseFloat(document.getElementById('edExpAmt').value)||0;
-  if(!desc){toast('Añade una descripción');return;}
-  if(amt<=0){toast('Monto inválido');return;}
+  const date=document.getElementById('edExpDate').value||(s?s.date:'');
+  const buenas=exLines.filter(function(l){return (Number(l.base)||0)>0;});
+  if(!buenas.length){toast('Pon el monto de por lo menos un renglón');return;}
+  if(buenas.some(function(l){return !String(l.desc||'').trim();})){toast('Cada renglón necesita descripción');return;}
+  if(buenas.some(function(l){return !l.prop;})){toast('Cada renglón necesita propiedad');return;}
   toast('Guardando…');
-  const upd={date,property_id:prop,expense_desc:desc,total:amt};
+  // El recibo: si lo reemplazan, la foto nueva vale para TODOS los renglones.
+  let recibo=s?s.receipt:null;
   const rf=editFiles['receipt-'+id];
-  if(rf){const p=await upload((s?s.staff:'x')+'/gasto-'+id+'-'+Date.now()+extOf(rf),rf);if(p)upd.receipt_photo=p;}
-  const {error}=await sb.from('submissions').update(upd).eq('id',id);
+  if(rf){const p=await upload((s?s.staff:'x')+'/gasto-'+id+'-'+Date.now()+extOf(rf),rf);if(p)recibo=p;}
+  const fila=function(l){
+    const base=Math.round((Number(l.base)||0)*100)/100;
+    return {date:date,property_id:l.prop,expense_desc:String(l.desc).trim(),
+      total:ivuTotal(base,l.exento),amount_base:base,ivu:ivuDe(base,l.exento),
+      ivu_rate:(l.exento?0:ivuRate()),receipt_photo:recibo};
+  };
+  // El primero se queda en el gasto original; los demás son gastos nuevos con
+  // el mismo recibo, para que la evidencia siga siendo la misma.
+  const {error}=await sb.from('submissions').update(fila(buenas[0])).eq('id',id);
   if(error){console.error(error);toast('No se pudo guardar');return;}
+  const extra=buenas.slice(1).map(function(l){
+    return Object.assign({type:'expense',professional_id:(s?s.staff:null),status:'pending'},fila(l));
+  });
+  if(extra.length){
+    const {error:e2}=await sb.from('submissions').insert(extra);
+    if(e2){console.error(e2);toast('El primero se guardó, pero los renglones nuevos no');}
+  }
   const ov=document.querySelector('.overlay');if(ov)ov.remove();
-  editFiles={};await loadAll();renderOffice();toast('✓ Gasto actualizado');
+  editFiles={};exLines=[];exSub=null;
+  await loadAll();renderOffice();
+  toast(extra.length?('✓ Gasto dividido en '+buenas.length+' renglones'):'✓ Gasto actualizado');
 }
 async function deleteSubmission(id){
   const s=subs.find(x=>x.id===id); if(!s)return;
