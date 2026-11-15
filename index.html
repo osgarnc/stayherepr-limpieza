@@ -1748,7 +1748,10 @@ function ivuNota(s){
   return '<br><span class="muted" style="font-size:11.5px">'+money(s.base)+
     (Number(s.ivu)>0?' + IVU '+money(s.ivu):' · sin IVU')+'</span>';
 }
-function gastoNuevo(){return {receiptFile:null,lines:[{desc:'',amount:0,exento:false}]};}
+function gastoNuevo(){return {receiptFile:null,lines:[{desc:'',amount:0,exento:false,prop:''}]};}
+// Cada renglón puede ir a OTRA propiedad: un recibo de Costco se reparte. Si se
+// deja en blanco, va a la propiedad donde se entró el recibo.
+function gastoLineaProp(pid,l){return (l&&l.prop)||pid;}
 // Los recibos viejos de esta sesión tenían un solo gasto suelto; se leen igual.
 function gastoLineas(g){
   if(g&&g.lines)return g.lines;
@@ -1760,7 +1763,7 @@ function addGasto(pid){ensureSel(pid).gastos.push(gastoNuevo());renderPropList()
 function removeGasto(pid,gi){ensureSel(pid).gastos.splice(gi,1);recalc();renderPropList();}
 function addGastoLinea(pid,gi){
   const g=(ensureSel(pid).gastos||[])[gi];if(!g)return;
-  gastoLineas(g).push({desc:'',amount:0,exento:false});renderPropList();
+  gastoLineas(g).push({desc:'',amount:0,exento:false,prop:''});renderPropList();
 }
 function removeGastoLinea(pid,gi,li){
   const g=(ensureSel(pid).gastos||[])[gi];if(!g)return;
@@ -1773,6 +1776,7 @@ function setGastoLinea(pid,gi,li,field,val){
   const l=gastoLineas(g)[li];if(!l)return;
   l[field]=(field==='amount')?(parseFloat(val)||0):(field==='exento'?!!val:val);
   recalc();
+  if(field==='prop'){renderPropList();return;}
   // El IVU y los totales se refrescan al vuelo, sin repintar y perder el foco.
   const t=document.getElementById('ivuL-'+pid+'-'+gi+'-'+li);
   if(t)t.innerHTML=_ivuTxt(l);
@@ -1824,6 +1828,12 @@ function gastosBlock(pid,s){
               '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft)"><input type="checkbox" '+(l.exento?'checked':'')+' onchange="setGastoLinea(\''+pid+'\','+gi+','+li+',\'exento\',this.checked)">sin IVU</label>'+
               '<span id="ivuL-'+pid+'-'+gi+'-'+li+'" style="font-size:12.5px">'+_ivuTxt(l)+'</span>'+
             '</div>'+
+            // A qué propiedad se le carga este gasto. Por defecto la de este
+            // recibo, pero un recibo de Costco se reparte entre varias.
+            '<div style="margin-top:6px"><select onchange="setGastoLinea(\''+pid+'\','+gi+','+li+',\'prop\',this.value)" style="width:100%;'+_inp+';font-size:12.5px;'+((l.prop&&l.prop!==pid)?'border-color:var(--sea);color:var(--sea-deep);font-weight:600':'')+'">'+
+              '<option value="">Se le carga a: esta propiedad</option>'+
+              properties.map(function(pp){return '<option value="'+pp.id+'"'+(l.prop===pp.id?' selected':'')+'>Se le carga a: '+String(pp.name).replace(/</g,'&lt;')+'</option>';}).join('')+
+            '</select></div>'+
           '</div>';
         }).join('')+
         '<button class="btn ghost sm" style="width:100%;margin-top:8px" onclick="addGastoLinea(\''+pid+'\','+gi+')">➕ Añadir otro gasto de este recibo</button>'+
@@ -2123,9 +2133,9 @@ async function submitAll(){
           const iv=ivuDe(base,l.exento);
           const {error:ge}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,
             total:ivuTotal(base,l.exento),amount_base:base,ivu:iv,ivu_rate:(l.exento?0:ivuRate()),
-            expense_desc:(l.desc||'').trim(),property_id:pid,receipt_photo:rp});
+            expense_desc:(l.desc||'').trim(),property_id:gastoLineaProp(pid,l),receipt_photo:rp});
           if(ge)console.error(ge);
-          else sent.expenses.push({prop:propName(pid),desc:(l.desc||'').trim(),
+          else sent.expenses.push({prop:propName(gastoLineaProp(pid,l)),desc:(l.desc||'').trim(),
             amount:ivuTotal(base,l.exento),base:base,ivu:iv,receiptFile:g.receiptFile});
         }
       }
