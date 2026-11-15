@@ -1129,7 +1129,7 @@ async function loadAll(){
   (ratesR.data||[]).forEach(r=>{(rates[r.professional_id]=rates[r.professional_id]||{})[r.property_id]=Number(r.amount);});
   staff.forEach(s=>{rates[s.id]=rates[s.id]||{};});
   distribution=(distR.data||[]).map(d=>({id:d.id,name:d.label||d.email,email:d.email,active:d.active}));
-  if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||'',week_start_day:(compR.data.week_start_day??1),fee_early_checkin:Number(compR.data.fee_early_checkin||0),fee_late_checkout:Number(compR.data.fee_late_checkout||0),fee_extra_guest:Number(compR.data.fee_extra_guest||0),send_dow:Number(compR.data.send_dow??0),send_hour:Number(compR.data.send_hour??9)};
+  if(compR.data)company={name:compR.data.name||'',address:compR.data.address||'',ein:compR.data.ein||'',email:compR.data.email||'',phone:compR.data.phone||'',week_start_day:(compR.data.week_start_day??1),fee_early_checkin:Number(compR.data.fee_early_checkin||0),fee_late_checkout:Number(compR.data.fee_late_checkout||0),fee_extra_guest:Number(compR.data.fee_extra_guest||0),send_dow:Number(compR.data.send_dow??0),send_hour:Number(compR.data.send_hour??9),ivu_rate:Number(compR.data.ivu_rate??11.5)};
   users=(profR.data||[]).map(p=>({id:p.id,user:p.email||'',name:p.display_name,role:p.role,staffId:p.staff_id,active:p.active,canReconcile:!!p.can_reconcile}));
   reports=(repR.data||[]).map(r=>({id:r.id,staff:r.professional_id,date:r.date,description:r.description||'',photos:r.photos||[],status:r.status||'pending',pendingNote:r.pending_note||''}));
   const itemsBySub={};
@@ -1146,7 +1146,8 @@ async function loadAll(){
       return {id:s.id,type:'service',staff:s.professional_id,date:s.date,items,total:Number(s.total),status:s.status,paid:s.paid,archivedAt:s.archived_at};
     }
     return {id:s.id,type:'expense',staff:s.professional_id,date:s.date,prop:s.property_id,desc:s.expense_desc||'',
-      amount:Number(s.total),receipt:s.receipt_photo,customLines:s.custom_lines||null,status:s.status,paid:s.paid,archivedAt:s.archived_at};
+      amount:Number(s.total),base:(s.amount_base==null?null:Number(s.amount_base)),ivu:(s.ivu==null?null:Number(s.ivu)),
+      receipt:s.receipt_photo,customLines:s.custom_lines||null,status:s.status,paid:s.paid,archivedAt:s.archived_at};
   });
 }
 // Comprime/redimensiona una imagen antes de subir (baja MUCHO el egress y el storage).
@@ -1732,24 +1733,105 @@ function ensureSel(pid){if(!selection[pid])selection[pid]={cleaning:false,bedFil
 function toggleCleaning(pid){const s=ensureSel(pid);s.cleaning=!s.cleaning;renderPropList();}
 function addDamagePhoto(pid,file){if(!file)return;const s=ensureSel(pid);(s.damageFiles=s.damageFiles||[]).push(file);renderPropList();}
 function removeDamagePhoto(pid,idx){const s=ensureSel(pid);(s.damageFiles=s.damageFiles||[]).splice(idx,1);renderPropList();}
-function addGasto(pid){ensureSel(pid).gastos.push({amount:0,desc:'',receiptFile:null});renderPropList();}
-function removeGasto(pid,gi){ensureSel(pid).gastos.splice(gi,1);renderPropList();}
-function setGasto(pid,gi,field,val){const g=(ensureSel(pid).gastos||[])[gi];if(!g)return;g[field]=(field==='amount')?(parseFloat(val)||0):val;recalc();}
+/* ---------- EL IVU DE LOS GASTOS ----------
+   La limpiadora entra SOLO el gasto, el precio del artículo como sale en el
+   recibo, y el app le pone el IVU encima. Así el total le cuadra con el recibo
+   sin que ella calcule nada. Un recibo se divide en los renglones que haga
+   falta: una foto, varios gastos, cada uno con su IVU. */
+function ivuRate(){const r=Number(company.ivu_rate);return isFinite(r)&&r>=0?r:11.5;}
+function ivuDe(base,exento){const b=Number(base)||0;
+  return (exento||!(b>0))?0:Math.round(b*ivuRate())/100;}
+function ivuTotal(base,exento){return Math.round(((Number(base)||0)+ivuDe(base,exento))*100)/100;}
+// El desglose de un gasto ya entrado, para que se vea de dónde sale el total.
+function ivuNota(s){
+  if(!s||s.base==null)return '';
+  return '<br><span class="muted" style="font-size:11.5px">'+money(s.base)+
+    (Number(s.ivu)>0?' + IVU '+money(s.ivu):' · sin IVU')+'</span>';
+}
+function gastoNuevo(){return {receiptFile:null,lines:[{desc:'',amount:0,exento:false}]};}
+// Los recibos viejos de esta sesión tenían un solo gasto suelto; se leen igual.
+function gastoLineas(g){
+  if(g&&g.lines)return g.lines;
+  const l=[{desc:(g&&g.desc)||'',amount:(g&&g.amount)||0,exento:false}];
+  if(g)g.lines=l;
+  return l;
+}
+function addGasto(pid){ensureSel(pid).gastos.push(gastoNuevo());renderPropList();}
+function removeGasto(pid,gi){ensureSel(pid).gastos.splice(gi,1);recalc();renderPropList();}
+function addGastoLinea(pid,gi){
+  const g=(ensureSel(pid).gastos||[])[gi];if(!g)return;
+  gastoLineas(g).push({desc:'',amount:0,exento:false});renderPropList();
+}
+function removeGastoLinea(pid,gi,li){
+  const g=(ensureSel(pid).gastos||[])[gi];if(!g)return;
+  const L=gastoLineas(g);
+  if(L.length<=1){removeGasto(pid,gi);return;}
+  L.splice(li,1);recalc();renderPropList();
+}
+function setGastoLinea(pid,gi,li,field,val){
+  const g=(ensureSel(pid).gastos||[])[gi];if(!g)return;
+  const l=gastoLineas(g)[li];if(!l)return;
+  l[field]=(field==='amount')?(parseFloat(val)||0):(field==='exento'?!!val:val);
+  recalc();
+  // El IVU y los totales se refrescan al vuelo, sin repintar y perder el foco.
+  const t=document.getElementById('ivuL-'+pid+'-'+gi+'-'+li);
+  if(t)t.innerHTML=_ivuTxt(l);
+  const r=document.getElementById('ivuR-'+pid+'-'+gi);
+  if(r)r.innerHTML=_ivuTxtRecibo(g);
+}
 function pickGastoReceipt(pid,gi,file){if(!file)return;const g=(ensureSel(pid).gastos||[])[gi];if(g)g.receiptFile=file;renderPropList();}
+function _ivuTxt(l){
+  const b=Number(l.amount)||0;
+  if(!(b>0))return '<span class="muted">entra el precio del artículo, sin IVU</span>';
+  if(l.exento)return '<span class="muted">exento</span> · <b>'+money(b)+'</b>';
+  return '<span class="muted">+ IVU '+ivuRate()+'% '+money(ivuDe(b))+'</span> = <b>'+money(ivuTotal(b))+'</b>';
+}
+function gastoReciboTotal(g){
+  return Math.round(gastoLineas(g).reduce(function(a,l){return a+ivuTotal(l.amount,l.exento);},0)*100)/100;
+}
+function _ivuTxtRecibo(g){
+  const L=gastoLineas(g);
+  const base=L.reduce(function(a,l){return a+(Number(l.amount)||0);},0);
+  const iv=L.reduce(function(a,l){return a+ivuDe(l.amount,l.exento);},0);
+  if(!(base>0))return '';
+  const r2=function(n){return Math.round(n*100)/100;};
+  return 'Total del recibo <b>'+money(r2(base+iv))+'</b> <span class="muted">(gasto '+money(r2(base))+' + IVU '+money(r2(iv))+')</span>';
+}
+function propGastosTotal(pid){const s=selection[pid]||{};
+  return (s.gastos||[]).reduce(function(a,g){return a+gastoReciboTotal(g);},0);}
 function gastosBlock(pid,s){
+  const _inp='padding:9px;border:1.5px solid var(--line);border-radius:8px';
   const gastos=s.gastos||[];
   return '<div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:10px">'+
     '<div class="muted" style="font-size:12px;font-weight:600;margin-bottom:6px">🧾 Gastos de esta propiedad (reembolso, con recibo)</div>'+
-    gastos.map((g,gi)=>
-      '<div style="border:1.5px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:13px">Gasto '+(gi+1)+'</b><span style="cursor:pointer;color:var(--danger);font-weight:700" onclick="removeGasto(\''+pid+'\','+gi+')">✕</span></div>'+
-        '<input placeholder="Descripción (ej: detergente)" value="'+String(g.desc||'').replace(/"/g,'&quot;')+'" oninput="setGasto(\''+pid+'\','+gi+',\'desc\',this.value)" style="width:100%;padding:9px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:6px">'+
-        '<div style="display:flex;gap:8px;align-items:stretch">'+
-          '<span style="display:flex;align-items:center;gap:2px">$<input type="number" inputmode="decimal" step="0.01" placeholder="0.00" value="'+((g.amount||0)>0?g.amount:'')+'" oninput="setGasto(\''+pid+'\','+gi+',\'amount\',this.value)" style="width:90px;padding:9px;border:1.5px solid var(--line);border-radius:8px"></span>'+
-          '<label class="photo '+(g.receiptFile?'has':'')+'" style="flex:1;margin:0;padding:9px 8px">'+(g.receiptFile?'✓ Recibo':'🧾 Foto del recibo')+'<input type="file" accept="image/*,video/*" style="display:none" onchange="pickGastoReceipt(\''+pid+'\','+gi+',this.files[0])"></label>'+
-        '</div>'+
-      '</div>').join('')+
-    '<button class="btn ghost sm" style="width:100%" onclick="addGasto(\''+pid+'\')">➕ Añadir gasto</button>'+
+    gastos.map(function(g,gi){
+      const L=gastoLineas(g);
+      return '<div style="border:1.5px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
+          '<b style="font-size:13px">Recibo '+(gi+1)+'</b>'+
+          '<span style="cursor:pointer;color:var(--danger);font-weight:700" onclick="removeGasto(\''+pid+'\','+gi+')">✕</span></div>'+
+        '<label class="photo '+(g.receiptFile?'has':'')+'" style="width:100%;margin:0 0 8px;padding:9px 8px">'+
+          (g.receiptFile?'✓ Recibo':'🧾 Foto del recibo')+
+          '<input type="file" accept="image/*,video/*" style="display:none" onchange="pickGastoReceipt(\''+pid+'\','+gi+',this.files[0])"></label>'+
+        L.map(function(l,li){
+          return '<div style="border-top:1px dashed var(--line);padding-top:8px;margin-top:8px">'+
+            '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">'+
+              '<input placeholder="Qué compraste (ej: detergente)" value="'+String(l.desc||'').replace(/"/g,'&quot;')+'" oninput="setGastoLinea(\''+pid+'\','+gi+','+li+',\'desc\',this.value)" style="flex:1;'+_inp+'">'+
+              (L.length>1?'<span style="cursor:pointer;color:var(--danger);font-weight:700" onclick="removeGastoLinea(\''+pid+'\','+gi+','+li+')">✕</span>':'')+
+            '</div>'+
+            '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'+
+              '<span style="display:flex;align-items:center;gap:2px">$<input type="number" inputmode="decimal" step="0.01" placeholder="0.00" value="'+((l.amount||0)>0?l.amount:'')+'" oninput="setGastoLinea(\''+pid+'\','+gi+','+li+',\'amount\',this.value)" style="width:90px;'+_inp+'"></span>'+
+              '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft)"><input type="checkbox" '+(l.exento?'checked':'')+' onchange="setGastoLinea(\''+pid+'\','+gi+','+li+',\'exento\',this.checked)">sin IVU</label>'+
+              '<span id="ivuL-'+pid+'-'+gi+'-'+li+'" style="font-size:12.5px">'+_ivuTxt(l)+'</span>'+
+            '</div>'+
+          '</div>';
+        }).join('')+
+        '<button class="btn ghost sm" style="width:100%;margin-top:8px" onclick="addGastoLinea(\''+pid+'\','+gi+')">➕ Añadir otro gasto de este recibo</button>'+
+        '<div id="ivuR-'+pid+'-'+gi+'" style="font-size:12.5px;margin-top:8px;text-align:right">'+_ivuTxtRecibo(g)+'</div>'+
+      '</div>';
+    }).join('')+
+    '<button class="btn ghost sm" style="width:100%" onclick="addGasto(\''+pid+'\')">➕ Añadir recibo</button>'+
+    '<p class="muted" style="font-size:11.5px;margin:6px 0 0">Entra el <b>precio de cada cosa</b> como sale en el recibo; el IVU lo calcula el app. Si una compra no lleva IVU (comida, agua), marca <b>sin IVU</b>.</p>'+
   '</div>';
 }
 function renderMyInvoices(){
@@ -1956,7 +2038,6 @@ function extraChk(pid,which,label,fee,on){
 }
 function propServiceTotal(pid){const s=selection[pid]||{};if(!s.cleaning)return 0;const r=(rates[currentStaff]||{})[pid]||0;
   return r+(s.earlyCheckin?(company.fee_early_checkin||0):0)+(s.lateCheckout?(company.fee_late_checkout||0):0)+(s.extraGuest?(company.fee_extra_guest||0):0);}
-function propGastosTotal(pid){const s=selection[pid]||{};return (s.gastos||[]).reduce((a,g)=>a+(parseFloat(g.amount)||0),0);}
 function recalc(){let t=0;for(const pid in selection)t+=propServiceTotal(pid)+propGastosTotal(pid);
   document.getElementById('svcTotal').textContent=money(t);return t;}
 let _sending=false;
@@ -2029,14 +2110,24 @@ async function submitAll(){
     }
     // 2) Gastos (un envío de gasto por cada gasto de cada propiedad)
     for(const pid of ids){
-      const gastos=(selection[pid].gastos||[]).filter(g=>(parseFloat(g.amount)||0)>0);
-      for(const g of gastos){
+      // Un recibo = una foto y uno o varios gastos. La foto se sube UNA vez y
+      // cada renglón entra con su IVU; el total es lo que se le reembolsa.
+      for(const g of (selection[pid].gastos||[])){
+        const L=gastoLineas(g).filter(function(l){return (parseFloat(l.amount)||0)>0;});
+        if(!L.length)continue;
         const path=currentStaff+'/gasto-'+Date.now()+'-'+Math.floor(Math.random()*100000)+extOf(g.receiptFile);
         const rp=await upload(path,g.receiptFile);progStep('Subiendo recibo · '+propName(pid));
         if(!rp){toast('No se pudo subir un recibo');continue;}
-        const {error:ge}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,total:parseFloat(g.amount)||0,expense_desc:g.desc.trim(),property_id:pid,receipt_photo:rp});
-        if(ge)console.error(ge);
-        else sent.expenses.push({prop:propName(pid),desc:g.desc.trim(),amount:parseFloat(g.amount)||0,receiptFile:g.receiptFile});
+        for(const l of L){
+          const base=Math.round((parseFloat(l.amount)||0)*100)/100;
+          const iv=ivuDe(base,l.exento);
+          const {error:ge}=await sb.from('submissions').insert({type:'expense',professional_id:currentStaff,date,
+            total:ivuTotal(base,l.exento),amount_base:base,ivu:iv,ivu_rate:(l.exento?0:ivuRate()),
+            expense_desc:(l.desc||'').trim(),property_id:pid,receipt_photo:rp});
+          if(ge)console.error(ge);
+          else sent.expenses.push({prop:propName(pid),desc:(l.desc||'').trim(),
+            amount:ivuTotal(base,l.exento),base:base,ivu:iv,receiptFile:g.receiptFile});
+        }
       }
     }
     progRender('¡Listo!');
@@ -2068,6 +2159,7 @@ function showSentConfirmation(sent){
   sent.expenses.forEach(function(e){
     body+='<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px">'+
       '<div style="display:flex;justify-content:space-between;font-weight:700"><span>🧾 Gasto · '+esc(e.prop)+'</span><span>'+money(e.amount)+'</span></div>'+
+      (e.base!=null?'<div class="muted" style="font-size:11.5px">'+money(e.base)+(Number(e.ivu)>0?' + IVU '+money(e.ivu):' · sin IVU')+'</div>':'')+
       '<div class="muted" style="font-size:12.5px;margin-top:2px">'+esc(e.desc)+'</div>'+
       (e.receiptFile?'<div style="margin-top:6px">'+thumb(e.receiptFile)+'</div>':'')+
     '</div>';
@@ -5404,7 +5496,7 @@ function renderExpenses(){
       '<td>'+s.date+'</td>'+
       '<td><b>'+tipo+'</b><br><span class="muted" style="font-size:13px">'+detalle+'</span></td>'+
       '<td>'+evid+'</td>'+
-      '<td><b>'+money(s.amount)+'</b></td>'+
+      '<td><b>'+money(s.amount)+'</b>'+ivuNota(s)+'</td>'+
       '<td>'+statusPill(s)+'</td>'+
     '</tr>';
   }).join('');
@@ -5618,7 +5710,7 @@ function renderInbox(){
         '<td><b>'+(s.customLines?'Factura libre':'Gasto')+'</b><br><span class="muted" style="font-size:13px">'+(s.customLines?(s.desc&&s.desc!=='Factura libre'?s.desc:'(varios renglones)'):(s.desc+' · '+propName(s.prop)))+'</span></td>'+
         '<td>'+s.date+'</td>'+
         '<td><span class="proof-link" onclick="viewReceipt(\''+s.id+'\')">'+(s.customLines?'Ver detalle':'Ver recibo')+'</span><br><span class="proof-link" onclick="previewOne(\''+s.id+'\')">📄 Vista previa</span></td>'+
-        '<td><b>'+money(s.amount)+'</b></td>'+
+        '<td><b>'+money(s.amount)+'</b>'+ivuNota(s)+'</td>'+
         '<td style="white-space:nowrap"><button class="btn sm ghost" onclick="editSubmission(\''+s.id+'\')">✏️ Editar</button> <button class="btn sm ok" onclick="decide(\''+s.id+'\',\'approved\')">Aprobar</button> <button class="btn sm dgr" onclick="decide(\''+s.id+'\',\'rejected\')">Rechazar</button></td></tr>';
     }
   }).join('');
@@ -6073,7 +6165,8 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
       (s.customLines.lines||[]).forEach(l=>{const amt=Number(l.amount||0);
         if(l.svc){servicesGross+=amt;svcExtra.push({date:l.date||s.date,desc:l.desc,prop:l.prop?propName(l.prop):'',cat:l.category||'',amount:amt});}
         else{expensesTotal+=amt;expenses.push({date:l.date||s.date,desc:l.desc,prop:l.prop?propName(l.prop):'',cat:l.category||'',amount:amt});}});
-    } else { expensesTotal+=s.amount; expenses.push({date:s.date,desc:s.desc,prop:propName(s.prop),amount:s.amount}); }
+    } else { expensesTotal+=s.amount;
+      expenses.push({date:s.date,desc:s.desc,prop:propName(s.prop),amount:s.amount,base:s.base,ivu:s.ivu}); }
   });
   const tax=servicesGross*0.10,servicesNet=servicesGross-tax,total=servicesNet+expensesTotal;
   const propRows=Object.keys(byProp).map(pid=>{const pr=byProp[pid];
@@ -6082,7 +6175,9 @@ function printInvoice(k){const parts=k.split('|');const wk=parts[0],sid=parts[1]
   }).join('');
   const catTxt=c=>c?' · '+esc(c):'';
   const svcExtraRows=svcExtra.map(e=>'<tr><td>'+e.date+'</td><td>Servicio — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+catTxt(e.cat)+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
-  const expRows=expenses.map(e=>'<tr><td>'+e.date+'</td><td>Reembolso — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+catTxt(e.cat)+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
+  // El IVU se muestra aparte: es el app el que lo calcula, no la limpiadora.
+  const ivuTxt=e=>(e.base==null?'':' <span style="color:#3A5249;font-size:11px">('+money(e.base)+(Number(e.ivu)>0?' + IVU '+money(e.ivu):' sin IVU')+')</span>');
+  const expRows=expenses.map(e=>'<tr><td>'+e.date+'</td><td>Reembolso — '+esc(e.desc)+(e.prop?' ('+esc(e.prop)+')':'')+catTxt(e.cat)+ivuTxt(e)+'</td><td class="r">'+money(e.amount)+'</td></tr>').join('');
   const rows=propRows+svcExtraRows+expRows;
   // Subtotales por PROPIEDAD y categoría (de los renglones de factura libre que la traen),
   // para entrarlos fácil al programa de contabilidad.
@@ -6445,7 +6540,20 @@ function renderCompanyForm(){
           Array.from({length:24},(_,h)=>'<option value="'+h+'" '+((company.send_hour??9)===h?'selected':'')+'>'+(h===0?'12 am':h<12?h+' am':h===12?'12 pm':(h-12)+' pm')+'</option>').join('')+
         '</select></div>'+
     '</div>'+
-    '<div class="muted" style="font-size:12px;margin-top:6px">Las facturas de la bisemana cerrada se envían solas ese día y hora. (Requiere el cron cada hora ya configurado.)</div>';
+    '<div class="muted" style="font-size:12px;margin-top:6px">Las facturas de la bisemana cerrada se envían solas ese día y hora. (Requiere el cron cada hora ya configurado.)</div>'+
+    // El IVU que el app le suma a los gastos de las limpiadoras. Vive aquí y no
+    // en el código, por si cambia la ley.
+    '<div class="field" style="margin-top:12px;max-width:260px"><label>🧾 IVU de los gastos (%)</label>'+
+      '<input type="number" inputmode="decimal" step="0.01" value="'+(company.ivu_rate??11.5)+'" onchange="setIvuRate(this.value)" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px"></div>'+
+    '<div class="muted" style="font-size:12px;margin-top:-6px">La limpiadora entra el precio del artículo y el app le suma este por ciento. Hoy en Puerto Rico es 11.5% (10.5% estado + 1% municipio).</div>';
+}
+async function setIvuRate(v){
+  const r=parseFloat(v);
+  if(!isFinite(r)||r<0||r>30){toast('Por ciento inválido');renderCompanyForm();return;}
+  company.ivu_rate=Math.round(r*100)/100;
+  const {error}=await sb.from('company_settings').update({ivu_rate:company.ivu_rate}).eq('id',1);
+  if(error){console.error(error);toast('No se pudo guardar (¿corriste el SQL?)');return;}
+  renderCompanyForm();toast('IVU actualizado a '+company.ivu_rate+'%');
 }
 async function setSchedule(field,val){
   company[field]=parseInt(val,10);
