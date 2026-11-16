@@ -1776,8 +1776,17 @@ function setGastoLinea(pid,gi,li,field,val){
   const l=gastoLineas(g)[li];if(!l)return;
   l[field]=(field==='amount')?(parseFloat(val)||0):(field==='exento'?!!val:val);
   recalc();
-  if(field==='prop'){renderPropList();return;}
-  // El IVU y los totales se refrescan al vuelo, sin repintar y perder el foco.
+  // Nunca se repinta: repintar saca el cursor de la casilla. Solo se refrescan
+  // el IVU del renglón y el total del recibo.
+  if(field==='prop'){
+    // el select guarda su propio valor; solo se marca si va a otra propiedad
+    const sel=document.getElementById('propL-'+pid+'-'+gi+'-'+li);
+    if(sel){const otra=l.prop&&l.prop!==pid;
+      sel.style.borderColor=otra?'var(--sea)':'var(--line)';
+      sel.style.color=otra?'var(--sea-deep)':'';
+      sel.style.fontWeight=otra?'600':'';}
+    return;
+  }
   const t=document.getElementById('ivuL-'+pid+'-'+gi+'-'+li);
   if(t)t.innerHTML=_ivuTxt(l);
   const r=document.getElementById('ivuR-'+pid+'-'+gi);
@@ -1830,7 +1839,7 @@ function gastosBlock(pid,s){
             '</div>'+
             // A qué propiedad se le carga este gasto. Por defecto la de este
             // recibo, pero un recibo de Costco se reparte entre varias.
-            '<div style="margin-top:6px"><select onchange="setGastoLinea(\''+pid+'\','+gi+','+li+',\'prop\',this.value)" style="width:100%;'+_inp+';font-size:12.5px;'+((l.prop&&l.prop!==pid)?'border-color:var(--sea);color:var(--sea-deep);font-weight:600':'')+'">'+
+            '<div style="margin-top:6px"><select id="propL-'+pid+'-'+gi+'-'+li+'" onchange="setGastoLinea(\''+pid+'\','+gi+','+li+',\'prop\',this.value)" style="width:100%;'+_inp+';font-size:12.5px;'+((l.prop&&l.prop!==pid)?'border-color:var(--sea);color:var(--sea-deep);font-weight:600':'')+'">'+
               '<option value="">Se le carga a: esta propiedad</option>'+
               properties.map(function(pp){return '<option value="'+pp.id+'"'+(l.prop===pp.id?' selected':'')+'>Se le carga a: '+String(pp.name).replace(/</g,'&lt;')+'</option>';}).join('')+
             '</select></div>'+
@@ -2065,13 +2074,21 @@ async function submitAll(){
       const hasNote=!!s.damage.trim(), hasDmgPhoto=!!(s.damageFiles&&s.damageFiles.length);
       if(!hasNote||!hasDmgPhoto){toast('Marcaste daño en '+propName(pid)+': necesita descripción Y al menos 1 foto');return;}
     }
-    const gastos=(s.gastos||[]).filter(g=>(parseFloat(g.amount)||0)>0||g.desc.trim()||g.receiptFile);
-    for(const g of gastos){
-      if(!(parseFloat(g.amount)>0)){toast('Un gasto en '+propName(pid)+' necesita monto');return;}
-      if(!g.desc.trim()){toast('Un gasto en '+propName(pid)+' necesita descripción');return;}
-      if(!g.receiptFile){toast('Un gasto en '+propName(pid)+' necesita foto del recibo');return;}
+    // Un recibo se valida por renglones: cada uno con monto y descripción, y
+    // la foto del recibo una sola vez para todos.
+    const recibos=(s.gastos||[]).filter(function(g){
+      return g.receiptFile||gastoLineas(g).some(function(l){return (parseFloat(l.amount)||0)>0||String(l.desc||'').trim();});
+    });
+    for(const g of recibos){
+      const L=gastoLineas(g).filter(function(l){return (parseFloat(l.amount)||0)>0||String(l.desc||'').trim();});
+      if(!L.length){toast('Un recibo en '+propName(pid)+' está vacío: ponle el gasto o quítalo');return;}
+      for(const l of L){
+        if(!(parseFloat(l.amount)>0)){toast('Un gasto del recibo en '+propName(pid)+' necesita monto');return;}
+        if(!String(l.desc||'').trim()){toast('Un gasto del recibo en '+propName(pid)+' necesita descripción');return;}
+      }
+      if(!g.receiptFile){toast('Un recibo en '+propName(pid)+' necesita su foto');return;}
     }
-    if(!hasClean&&gastos.length===0){toast(propName(pid)+' no tiene limpieza ni gastos');return;}
+    if(!hasClean&&recibos.length===0){toast(propName(pid)+' no tiene limpieza ni gastos');return;}
   }
   _sending=true;
   try{
@@ -2081,7 +2098,8 @@ async function submitAll(){
     // Total de subidas para la barra de progreso: fotos de camas + fotos de daños + recibos de gastos.
     let _tot=0;
     cleaned.forEach(pid=>{const s=selection[pid];_tot+=(s.bedFiles?s.bedFiles.length:0)+((s.damageOn&&s.damageFiles)?s.damageFiles.length:0);});
-    ids.forEach(pid=>{_tot+=(selection[pid].gastos||[]).filter(g=>(parseFloat(g.amount)||0)>0&&g.receiptFile).length;});
+    ids.forEach(pid=>{_tot+=(selection[pid].gastos||[]).filter(function(g){
+      return g.receiptFile&&gastoLineas(g).some(function(l){return (parseFloat(l.amount)||0)>0;});}).length;});
     progStart(_tot,'Preparando…');
     // 1) Servicio (una sola factura con todas las propiedades limpiadas)
     //    IMPORTANTE: subimos TODAS las fotos primero y creamos el servicio + sus ítems al FINAL,
@@ -5875,10 +5893,10 @@ function exDel(i){if(exLines.length<=1){toast('Un gasto necesita al menos un ren
 function exSet(i,field,val){
   const l=exLines[i];if(!l)return;
   l[field]=(field==='base')?(parseFloat(val)||0):(field==='exento'?!!val:val);
-  if(field==='base'||field==='exento'){
-    const t=document.getElementById('exIvu-'+i);if(t)t.innerHTML=_ivuTxt({amount:l.base,exento:l.exento});
-    const r=document.getElementById('exTot');if(r)r.innerHTML=exTotTxt();
-  } else exRender();
+  // Nunca se repinta la lista al escribir: eso sacaba el cursor de la casilla.
+  // Solo se refrescan el IVU del renglón y el total del recibo.
+  const t=document.getElementById('exIvu-'+i);if(t)t.innerHTML=_ivuTxt({amount:l.base,exento:l.exento});
+  const r=document.getElementById('exTot');if(r)r.innerHTML=exTotTxt();
 }
 function exTotTxt(){
   const r2=function(n){return Math.round(n*100)/100;};
