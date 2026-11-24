@@ -1147,6 +1147,7 @@ async function loadAll(){
     }
     return {id:s.id,type:'expense',staff:s.professional_id,date:s.date,prop:s.property_id,desc:s.expense_desc||'',
       amount:Number(s.total),base:(s.amount_base==null?null:Number(s.amount_base)),ivu:(s.ivu==null?null:Number(s.ivu)),
+      cta:s.qbo_account_id||'',
       receipt:s.receipt_photo,customLines:s.custom_lines||null,status:s.status,paid:s.paid,archivedAt:s.archived_at};
   });
 }
@@ -4105,7 +4106,9 @@ async function recCargarVendors(){
 // Cuentas de gasto de QuickBooks, para decirle al bill del dueño a qué cuenta
 // acreditarle cada gasto que se le cobró.
 let recCuentas=[];
-async function recCargarCuentas(){
+// `luego` es para quien pide las cuentas desde otra pantalla (el modal de
+// editar un gasto): repinta lo suyo en vez de la tabla de gastos del dueño.
+async function recCargarCuentas(luego){
   try{
     const r=await sb.functions.invoke('cont-qbo',{body:{action:'catalogo'}});
     const d=r.data||{};
@@ -4114,8 +4117,17 @@ async function recCargarCuentas(){
       return /expense|cost of goods/i.test(String(c.type||''));
     }).sort(function(a,b){return String(a.full||a.name).localeCompare(String(b.full||b.name));});
     if(d.proveedores&&d.proveedores.length&&!recVendors.length)recVendors=d.proveedores;
-    if(recCuentas.length)renderRecExpenses();
+    if(recCuentas.length){
+      if(typeof luego==='function')luego();
+      else renderRecExpenses();
+    }
   }catch(e){ /* sin QuickBooks se sigue trabajando */ }
+}
+// El nombre de una cuenta de gasto de QuickBooks, para los renglones del bill.
+function ctaNombre(id){
+  if(!id)return '';
+  const c=recCuentas.find(function(x){return String(x.id)===String(id);});
+  return c?String(c.full||c.name):'';
 }
 async function setOwnerVendor(id,el){
   const v=recVendors.find(function(x){return String(x.id)===String(el.value);});
@@ -5834,7 +5846,9 @@ async function editSubmission(id){
         '<div id="exTot" style="font-size:12.5px;margin-top:8px;text-align:right"></div>'+
         '<p class="muted" style="font-size:11.5px;margin:6px 0 0">Entra el <b>precio sin IVU</b> y el app lo calcula. '+
           (s.base==null?'Este gasto se subió sin desglose, así que empieza marcado <b>sin IVU</b> para no cambiarle el monto; si el monto era el precio sin IVU, destíldalo. ':'')+
-          'Cada renglón lleva su propiedad: así se reparte un recibo de Costco.</p>'+
+          'Cada renglón lleva su propiedad y su <b>cuenta de QuickBooks</b>: así se reparte un recibo de Costco '+
+          'y cada gasto entra donde va (materiales de limpieza, reparaciones, compras…). '+
+          'El renglón en naranja es el que todavía no tiene cuenta; si lo dejas así va a materiales de limpieza.</p>'+
       '</div>'+
       '<button class="btn block" style="margin-top:12px" onclick="saveEditExpense(\''+s.id+'\')">Guardar cambios</button>'+
       '<button class="btn block dgr" style="margin-top:8px" onclick="deleteSubmission(\''+s.id+'\')">🗑️ Eliminar este gasto</button>';
@@ -5886,9 +5900,16 @@ let exLines=[],exSub=null;
 function exSeed(s){
   exSub=s;
   exLines=[{desc:s.desc||'',base:(s.base!=null?Number(s.base):Number(s.amount||0)),
-    exento:(s.base!=null?!(Number(s.ivu)>0):true),prop:s.prop||''}];
+    exento:(s.base!=null?!(Number(s.ivu)>0):true),prop:s.prop||'',cta:s.cta||''}];
 }
-function exAdd(){exLines.push({desc:'',base:0,exento:false,prop:(exSub?exSub.prop:'')||''});exRender();}
+function exAdd(){
+  // El renglón nuevo hereda propiedad y cuenta del anterior: un recibo de
+  // Costco casi siempre se parte dentro de la misma cuenta.
+  const u=exLines[exLines.length-1]||{};
+  exLines.push({desc:'',base:0,exento:false,
+    prop:u.prop||(exSub?exSub.prop:'')||'',cta:u.cta||''});
+  exRender();
+}
 function exDel(i){if(exLines.length<=1){toast('Un gasto necesita al menos un renglón');return;}exLines.splice(i,1);exRender();}
 function exSet(i,field,val){
   const l=exLines[i];if(!l)return;
@@ -5907,6 +5928,15 @@ function exTotTxt(){
 function exRender(){
   const el=document.getElementById('exLines');if(!el)return;
   const _i='width:100%;padding:10px;border:1.5px solid var(--line);border-radius:10px';
+  // Las cuentas de gasto de QuickBooks. Si todavía no están, se piden y al
+  // llegar se repinta solo este modal.
+  if(!recCuentas.length)recCargarCuentas(exRender);
+  const _ctaSel=function(sel){
+    if(!recCuentas.length)return '<option value="">— cargando cuentas… —</option>';
+    return '<option value="">— cuenta de QuickBooks —</option>'+recCuentas.map(function(c){
+      return '<option value="'+_recAttr(c.id)+'"'+(String(sel||'')===String(c.id)?' selected':'')+'>'+
+        _recEsc(c.full||c.name)+'</option>';}).join('');
+  };
   el.innerHTML=exLines.map(function(l,i){
     return '<div style="border:1.5px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
@@ -5918,9 +5948,11 @@ function exRender(){
         '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft)"><input type="checkbox" '+(l.exento?'checked':'')+' onchange="exSet('+i+',\'exento\',this.checked)">sin IVU</label>'+
         '<span id="exIvu-'+i+'" style="font-size:12.5px">'+_ivuTxt({amount:l.base,exento:l.exento})+'</span>'+
       '</div>'+
-      '<select onchange="exSet('+i+',\'prop\',this.value)" style="'+_i+';font-size:13px">'+
+      '<select onchange="exSet('+i+',\'prop\',this.value)" style="'+_i+';font-size:13px;margin-bottom:6px">'+
         properties.map(function(pp){return '<option value="'+pp.id+'"'+(String(l.prop)===String(pp.id)?' selected':'')+'>'+String(pp.name).replace(/</g,'&lt;')+'</option>';}).join('')+
       '</select>'+
+      '<select onchange="exSet('+i+',\'cta\',this.value);this.style.borderColor=this.value?\'var(--line)\':\'var(--warn,#d98324)\'" '+
+        'style="'+_i+';font-size:13px'+(l.cta?'':';border-color:var(--warn,#d98324)')+'">'+_ctaSel(l.cta)+'</select>'+
     '</div>';
   }).join('');
   const t=document.getElementById('exTot');if(t)t.innerHTML=exTotTxt();
@@ -5941,7 +5973,7 @@ async function saveEditExpense(id){
     const base=Math.round((Number(l.base)||0)*100)/100;
     return {date:date,property_id:l.prop,expense_desc:String(l.desc).trim(),
       total:ivuTotal(base,l.exento),amount_base:base,ivu:ivuDe(base,l.exento),
-      ivu_rate:(l.exento?0:ivuRate()),receipt_photo:recibo};
+      ivu_rate:(l.exento?0:ivuRate()),qbo_account_id:(l.cta||null),receipt_photo:recibo};
   };
   // El primero se queda en el gasto original; los demás son gastos nuevos con
   // el mismo recibo, para que la evidencia siga siendo la misma.
@@ -6182,7 +6214,9 @@ function clLineasBill(wk,sid){
         mete(l.svc?svc:exp,l.prop,cat?(catCuenta[cat]||''):'',cat,amt);
       });
     } else {
-      mete(exp,s.prop,'','',Number(s.amount||0));
+      // La cuenta que Ingrid le puso al gasto manda; si no le puso ninguna,
+      // la función de QuickBooks la manda a materiales de limpieza.
+      mete(exp,s.prop,s.cta||'','',Number(s.amount||0));
     }
   });
   const salida=[];
@@ -6192,8 +6226,12 @@ function clLineasBill(wk,sid){
       const monto=Math.round(d[k]*100)/100;
       if(Math.abs(monto)<0.005)return;
       const nom=prop?propName(prop):'Office';
+      // Si el gasto lleva cuenta, el renglón se nombra con ella (ya no dice
+      // "materiales" un gasto que Ingrid mandó a reparaciones).
+      const nCta=(kind==='exp'&&cta)?ctaNombre(cta).split(':').pop():'';
       const det=cat?(' · '+cat)
-        :(kind==='svc'?(' · limpieza'+(veces[prop||'']?' ('+veces[prop||'']+')':'')):' · materiales');
+        :(kind==='svc'?(' · limpieza'+(veces[prop||'']?' ('+veces[prop||'']+')':''))
+          :(nCta?(' · '+nCta):' · materiales'));
       salida.push({property_id:prop,account_id:cta,kind:kind,label:nom,
         amount:monto,description:nom+det});
     });
